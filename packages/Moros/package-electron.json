@@ -1,0 +1,40 @@
+{
+  "name": "markov-desktop",
+  "version": "1.0.0",
+  "description": "MoRos 知识管理桌面应用",
+  "main": "electron.config.js",
+  "scripts": {
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:53210 && electron .\"",
+    "build-electron": "npm run build && electron-builder",
+    "dist": "npm run build && electron-builder --publish=never"
+  },
+  "build": {
+    "appId": "com.markov.desktop",
+    "productName": "MoRos",
+    "directories": {
+      "output": "dist-electron8"
+    },
+    "files": [
+      "dist/**/*",
+      "server/**/*",
+      "electron.config.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.0.0",
+    "wait-on": "^7.0.0"
+  }
+}

@@ -8,6 +8,10 @@
 	</head>
 	<body class="bg-background">
 		<div id="app"></div>
+		<script>
+			// Keep dev console focused on actionable errors.
+			window.litIssuedWarnings = new Set(["dev-mode"]);
+		</script>
 		<script type="module" src="/src/main.ts"></script>
 	</body>
 </html>

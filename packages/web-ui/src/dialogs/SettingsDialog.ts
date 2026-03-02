@@ -9,6 +9,18 @@ import { customElement, property, state } from "lit/decorators.js";
 import "../components/ProviderKeyInput.js";
 import { getAppStorage } from "../storage/app-storage.js";
 
+const DEFAULT_PROXY_URL = "http://localhost:45321";
+
+function isLegacyProxyUrl(url: string | null): boolean {
+	if (!url) return false;
+	try {
+		const parsed = new URL(url);
+		return (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && parsed.port === "3001";
+	} catch {
+		return false;
+	}
+}
+
 // Base class for settings tabs
 export abstract class SettingsTab extends LitElement {
 	abstract getTabName(): string;
@@ -42,8 +54,8 @@ export class ApiKeysTab extends SettingsTab {
 // Proxy Tab
 @customElement("proxy-tab")
 export class ProxyTab extends SettingsTab {
-	@state() private proxyEnabled = false;
-	@state() private proxyUrl = "http://localhost:3001";
+	@state() private proxyEnabled = true;
+	@state() private proxyUrl = DEFAULT_PROXY_URL;
 
 	override async connectedCallback() {
 		super.connectedCallback();
@@ -53,8 +65,19 @@ export class ProxyTab extends SettingsTab {
 			const enabled = await storage.settings.get<boolean>("proxy.enabled");
 			const url = await storage.settings.get<string>("proxy.url");
 
-			if (enabled !== null) this.proxyEnabled = enabled;
-			if (url !== null) this.proxyUrl = url;
+			if (enabled === null) {
+				this.proxyEnabled = true;
+				await storage.settings.set("proxy.enabled", true);
+			} else {
+				this.proxyEnabled = enabled;
+			}
+
+			if (url === null || isLegacyProxyUrl(url)) {
+				this.proxyUrl = DEFAULT_PROXY_URL;
+				await storage.settings.set("proxy.url", this.proxyUrl);
+			} else {
+				this.proxyUrl = url;
+			}
 		} catch (error) {
 			console.error("Failed to load proxy settings:", error);
 		}
@@ -78,7 +101,7 @@ export class ProxyTab extends SettingsTab {
 		return html`
 			<div class="flex flex-col gap-4">
 				<p class="text-sm text-muted-foreground">
-					${i18n("Allows browser-based apps to bypass CORS restrictions when calling LLM providers. Required for Z-AI and Anthropic with OAuth token.")}
+					Browser OAuth requests to GitHub Copilot require a CORS proxy. This build starts a local proxy by default.
 				</p>
 
 				<div class="flex items-center justify-between">

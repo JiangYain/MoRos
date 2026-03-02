@@ -1,0 +1,59 @@
+/* 导入highlight.js样式 */
+@import 'highlight.js/styles/atom-one-dark.css';
+/* 导入 KaTeX 样式供 Streamdown 渲染数学公式 */
+@import 'katex/dist/katex.min.css';
+
+/* 全局样式重置和基础设置 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Helvetica Neue', 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #2e3338;
+  background-color: #f8f9fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 隐藏滚动条但保持滚动功能 */
+::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+/* 为火狐浏览器隐藏滚动条 */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* 代码高亮样式将通过主题动态应用，不再强制覆盖 */
+
+/* 选中文本样式 */
+::selection {
+  background: rgba(145, 145, 145, 0.26);
+  color: inherit;
+}
+
+[data-theme="dark"] ::selection {
+  background: rgba(198, 198, 198, 0.24);
+  color: inherit;
+}

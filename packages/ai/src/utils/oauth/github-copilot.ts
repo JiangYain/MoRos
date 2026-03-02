@@ -24,6 +24,7 @@ type DeviceCodeResponse = {
 	device_code: string;
 	user_code: string;
 	verification_uri: string;
+	verification_uri_complete?: string;
 	interval: number;
 	expires_in: number;
 };
@@ -119,6 +120,7 @@ async function startDeviceFlow(domain: string): Promise<DeviceCodeResponse> {
 	const deviceCode = (data as Record<string, unknown>).device_code;
 	const userCode = (data as Record<string, unknown>).user_code;
 	const verificationUri = (data as Record<string, unknown>).verification_uri;
+	const verificationUriCompleteRaw = (data as Record<string, unknown>).verification_uri_complete;
 	const interval = (data as Record<string, unknown>).interval;
 	const expiresIn = (data as Record<string, unknown>).expires_in;
 
@@ -132,10 +134,24 @@ async function startDeviceFlow(domain: string): Promise<DeviceCodeResponse> {
 		throw new Error("Invalid device code response fields");
 	}
 
+	let verificationUriComplete: string | undefined;
+	if (typeof verificationUriCompleteRaw === "string" && verificationUriCompleteRaw.trim()) {
+		verificationUriComplete = verificationUriCompleteRaw;
+	} else {
+		try {
+			const url = new URL(verificationUri);
+			url.searchParams.set("user_code", userCode);
+			verificationUriComplete = url.toString();
+		} catch {
+			verificationUriComplete = `${verificationUri}${verificationUri.includes("?") ? "&" : "?"}user_code=${encodeURIComponent(userCode)}`;
+		}
+	}
+
 	return {
 		device_code: deviceCode,
 		user_code: userCode,
 		verification_uri: verificationUri,
+		verification_uri_complete: verificationUriComplete,
 		interval,
 		expires_in: expiresIn,
 	};
@@ -333,7 +349,7 @@ export async function loginGitHubCopilot(options: {
 	const domain = enterpriseDomain || "github.com";
 
 	const device = await startDeviceFlow(domain);
-	options.onAuth(device.verification_uri, `Enter code: ${device.user_code}`);
+	options.onAuth(device.verification_uri_complete ?? device.verification_uri, `Enter code: ${device.user_code}`);
 
 	const githubAccessToken = await pollForGitHubAccessToken(
 		domain,

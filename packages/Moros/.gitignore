@@ -1,0 +1,100 @@
+# ============================================================
+# MoRos - 开源项目 .gitignore
+# ============================================================
+
+# ==================== 依赖 ====================
+node_modules/
+
+# ==================== 构建输出 ====================
+/dist/
+/build/
+/out/
+/dist-electron*/
+
+# ==================== 用户数据目录 ====================
+# 这是用户的个人笔记数据，不应包含在开源项目中
+markov-data/
+
+# ==================== 缓存和临时文件 ====================
+.cache/
+.tmp/
+.temp/
+*.swp
+*.swo
+*~
+tmpfrag.txt
+
+# ==================== 日志 ====================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==================== 编辑器/IDE ====================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ==================== 操作系统 ====================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ==================== 环境变量 ====================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+!.env.example
+
+# ==================== 测试覆盖率 ====================
+coverage/
+.nyc_output/
+
+# ==================== Vendor 目录 ====================
+# Vendor 中的 node_modules
+vendor/**/node_modules/
+
+# Excalidraw 上游源码（仅作参考，不需要包含在开源项目中）
+vendor/excalidraw-upstream/
+
+# ==================== 开发辅助工具生成的文件 ====================
+code_stats.py
+code_stats_report.txt
+
+# ==================== Electron 打包相关 ====================
+*.blockmap
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.snap
+
+# ==================== TypeScript 编译输出 ====================
+*.tsbuildinfo
+
+# ==================== 其他 ====================
+*.local
+*.bak
+*.backup
+.git-backup/
+
+# ==================== 文档（开发说明，非用户文档）====================
+# 这些是开发过程中的临时说明文档
+MOROSCHAT_*.md
+MoRos图像生成菜单逻辑.md
+DifyAPI.md
+WARP.md
+streamdown.md

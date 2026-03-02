@@ -1,0 +1,395 @@
+/* Markdown卡片样式 */
+.markdown-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: none;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  user-select: none;
+  backdrop-filter: blur(10px);
+  font-family: var(--font-family, 'Inter', -apple-system, BlinkMacSystemFont, sans-serif);
+}
+
+.markdown-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.markdown-card.selected {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-color);
+}
+
+.markdown-card.dragging {
+  transform: rotate(2deg) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: grabbing !important;
+}
+
+.markdown-card.expanded {
+  z-index: 100;
+}
+
+/* 卡片头部 */
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.08) 0%, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.12) 50%,
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.06) 100%);
+  border-bottom: 1px solid rgba(var(--accent-color-rgb, 26, 26, 26), 0.15);
+  cursor: grab;
+  min-height: 20px;
+  position: relative;
+}
+
+/* 添加微妙的光泽效果 */
+.card-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(to bottom,
+    rgba(255, 255, 255, 0.3) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+.card-header:active {
+  cursor: grabbing;
+}
+
+.card-icon {
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.card-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-controls {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.card-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.card-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+.card-btn.remove-btn {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.card-btn.remove-btn:hover {
+  background: #fee;
+  color: #e74c3c;
+}
+
+/* 卡片内容区域 */
+.card-content {
+  padding: 16px;
+  height: calc(100% - 80px); /* 减去头部和底部的高度 */
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  position: relative;
+}
+
+.card-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.card-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.card-content::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.card-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* 加载状态 */
+.card-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-top: 2px solid var(--accent-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 错误状态 */
+.card-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-error, #e74c3c);
+  font-size: 11px;
+}
+
+/* 内容预览（收起模式） */
+.content-preview {
+  color: var(--text-primary);
+}
+
+.content-preview p {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.content-truncated {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border-color);
+}
+
+/* Markdown内容样式（展开模式） */
+.markdown-content {
+  color: var(--text-primary);
+}
+
+/* 标题样式 */
+.card-h1, .card-h2, .card-h3, 
+.card-h4, .card-h5, .card-h6 {
+  margin: 12px 0 6px 0;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.card-h1 { font-size: 14px; }
+.card-h2 { font-size: 13px; }
+.card-h3 { font-size: 12px; }
+.card-h4, .card-h5, .card-h6 { font-size: 11px; }
+
+/* 段落 */
+.card-p {
+  margin: 6px 0;
+  color: var(--text-primary);
+}
+
+/* 列表 */
+.card-ul, .card-ol {
+  margin: 6px 0;
+  padding-left: 16px;
+}
+
+.card-li {
+  margin: 2px 0;
+  color: var(--text-primary);
+}
+
+/* 引用 */
+.card-quote {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent-color);
+  background: var(--bg-tertiary);
+  border-radius: 0 4px 4px 0;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* 代码 */
+.card-code-inline {
+  background: var(--bg-tertiary);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 10px;
+  color: var(--accent-color);
+}
+
+.card-code-block {
+  background: var(--bg-tertiary);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+  color: var(--text-primary);
+}
+
+/* 链接 */
+.card-link {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+
+.card-link:hover {
+  text-decoration: underline;
+}
+
+/* 图片 */
+.card-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 6px 0;
+}
+
+/* 卡片底部 */
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  font-size: 10px;
+  color: var(--text-muted);
+  min-height: 14px;
+}
+
+.file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.char-count {
+  flex-shrink: 0;
+}
+
+/* 选中指示器 */
+.selection-indicator {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px solid var(--accent-color);
+  border-radius: 14px;
+  pointer-events: none;
+  animation: pulse-selection 2s ease-in-out infinite;
+}
+
+@keyframes pulse-selection {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* 深色主题适配 */
+[data-theme="dark"] .markdown-card {
+  box-shadow: none;
+}
+
+[data-theme="dark"] .markdown-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .markdown-card.dragging {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 深色主题下的标题栏适配 */
+[data-theme="dark"] .card-header {
+  background: linear-gradient(135deg, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.12) 0%, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.16) 50%,
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.08) 100%);
+  border-bottom-color: rgba(var(--accent-color-rgb, 26, 26, 26), 0.25);
+}
+
+[data-theme="dark"] .card-header::before {
+  background: linear-gradient(to bottom,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%);
+}
+
+/* 响应式适配 */
+.expanded .card-content {
+  font-size: 13px;
+}
+
+.expanded .card-h1 { font-size: 16px; }
+.expanded .card-h2 { font-size: 15px; }
+.expanded .card-h3 { font-size: 14px; }
+.expanded .card-h4 { font-size: 13px; }
+.expanded .card-h5, .expanded .card-h6 { font-size: 12px; }
+
+.expanded .card-code-inline,
+.expanded .card-code-block {
+  font-size: 11px;
+}
+
+/* 卡片动画效果 */
+.markdown-card {
+  animation: card-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes card-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* 移除渐变边框效果，保持简洁 */

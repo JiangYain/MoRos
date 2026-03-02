@@ -1,5 +1,6 @@
 import type { Api, Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
+import { applyOAuthModelOverrides } from "./provider-auth.js";
 
 /**
  * Centralized proxy decision logic.
@@ -26,6 +27,10 @@ export function shouldUseProxyForProvider(provider: string, apiKey: string): boo
 			// Anthropic OAuth tokens (sk-ant-oat-*) require proxy
 			// Regular API keys (sk-ant-api-*) do NOT require proxy
 			return apiKey.startsWith("sk-ant-oat");
+
+		case "github-copilot":
+			// Browser calls to Copilot endpoints are cross-origin and require CORS proxy
+			return true;
 
 		// These providers work without proxy
 		case "openai":
@@ -123,12 +128,13 @@ export function createStreamFn(getProxyUrl: () => Promise<string | undefined>) {
 	return async (model: Model<any>, context: Context, options?: SimpleStreamOptions) => {
 		const apiKey = options?.apiKey;
 		const proxyUrl = await getProxyUrl();
+		let finalModel = await applyOAuthModelOverrides(model);
 
 		if (!apiKey || !proxyUrl) {
-			return streamSimple(model, context, options);
+			return streamSimple(finalModel, context, options);
 		}
 
-		const proxiedModel = applyProxyIfNeeded(model, apiKey, proxyUrl);
-		return streamSimple(proxiedModel, context, options);
+		finalModel = applyProxyIfNeeded(finalModel, apiKey, proxyUrl);
+		return streamSimple(finalModel, context, options);
 	};
 }

@@ -1,0 +1,197 @@
+:root {
+  --tooltip-bg: rgba(26, 32, 46, 0.95);
+  --tooltip-text: #ffffff;
+  --tooltip-border: rgba(255, 255, 255, 0.12);
+  --tooltip-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
+  --tooltip-backdrop-blur: 8px;
+}
+
+[data-theme="dark"] {
+  --tooltip-bg: rgba(40, 44, 52, 0.96);
+  --tooltip-text: #f1f3f4;
+  --tooltip-border: rgba(255, 255, 255, 0.08);
+  --tooltip-shadow: 0 6px 20px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+
+.tooltip-trigger {
+  display: inline-block;
+  position: relative;
+}
+
+.tooltip {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Noto Sans SC', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  pointer-events: none;
+  animation: tooltipFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.tooltip-content {
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  max-width: 280px;
+  border: 1px solid var(--tooltip-border);
+  box-shadow: var(--tooltip-shadow);
+  backdrop-filter: blur(var(--tooltip-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--tooltip-backdrop-blur));
+}
+
+.tooltip-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+/* Top placement */
+.tooltip-top .tooltip-arrow {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0 6px;
+  border-color: var(--tooltip-bg) transparent transparent transparent;
+}
+
+.tooltip-top .tooltip-arrow::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: -6px;
+  border-width: 6px 6px 0 6px;
+  border-style: solid;
+  border-color: var(--tooltip-border) transparent transparent transparent;
+}
+
+/* Bottom placement */
+.tooltip-bottom .tooltip-arrow {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 6px 6px 6px;
+  border-color: transparent transparent var(--tooltip-bg) transparent;
+}
+
+.tooltip-bottom .tooltip-arrow::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -6px;
+  border-width: 0 6px 6px 6px;
+  border-style: solid;
+  border-color: transparent transparent var(--tooltip-border) transparent;
+}
+
+/* Left placement */
+.tooltip-left .tooltip-arrow {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 6px 0 6px 6px;
+  border-color: transparent transparent transparent var(--tooltip-bg);
+}
+
+.tooltip-left .tooltip-arrow::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: -7px;
+  border-width: 6px 0 6px 6px;
+  border-style: solid;
+  border-color: transparent transparent transparent var(--tooltip-border);
+}
+
+/* Right placement */
+.tooltip-right .tooltip-arrow {
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 6px 6px 6px 0;
+  border-color: transparent var(--tooltip-bg) transparent transparent;
+}
+
+.tooltip-right .tooltip-arrow::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: -1px;
+  border-width: 6px 6px 6px 0;
+  border-style: solid;
+  border-color: transparent var(--tooltip-border) transparent transparent;
+}
+
+/* 长文本支持 */
+.tooltip-content {
+  white-space: normal;
+}
+
+/* 移动端适配 */
+@media (max-width: 640px) {
+  .tooltip-content {
+    max-width: 240px;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+  
+  .tooltip-arrow {
+    border-width: 5px;
+  }
+  
+  .tooltip-top .tooltip-arrow {
+    bottom: -5px;
+    border-width: 5px 5px 0 5px;
+  }
+  
+  .tooltip-bottom .tooltip-arrow {
+    top: -5px;
+    border-width: 0 5px 5px 5px;
+  }
+  
+  .tooltip-left .tooltip-arrow {
+    right: -5px;
+    border-width: 5px 0 5px 5px;
+  }
+  
+  .tooltip-right .tooltip-arrow {
+    left: -5px;
+    border-width: 5px 5px 5px 0;
+  }
+}
+
+/* 无障碍支持 */
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    animation: none;
+  }
+}
+
+/* 高对比度支持 */
+@media (prefers-contrast: high) {
+  :root {
+    --tooltip-bg: rgba(0, 0, 0, 0.95);
+    --tooltip-text: #ffffff;
+    --tooltip-border: rgba(255, 255, 255, 0.3);
+  }
+  
+  [data-theme="dark"] {
+    --tooltip-bg: rgba(255, 255, 255, 0.95);
+    --tooltip-text: #000000;
+    --tooltip-border: rgba(0, 0, 0, 0.3);
+  }
+}

@@ -12,6 +12,7 @@ import type { Agent, AgentEvent } from "@mariozechner/pi-agent-core";
 import type { Attachment } from "../utils/attachment-utils.js";
 import { formatUsage } from "../utils/format.js";
 import { i18n } from "../utils/i18n.js";
+import { resolveProviderApiKey } from "../utils/provider-auth.js";
 import { createStreamFn } from "../utils/proxy-utils.js";
 import type { UserMessageWithAttachments } from "./Messages.js";
 import type { StreamingMessageContainer } from "./StreamingMessageContainer.js";
@@ -143,7 +144,7 @@ export class AgentInterface extends LitElement {
 		// Set default getApiKey if not already set
 		if (!this.session.getApiKey) {
 			this.session.getApiKey = async (provider: string) => {
-				const key = await getAppStorage().providerKeys.get(provider);
+				const key = await resolveProviderApiKey(provider);
 				return key ?? undefined;
 			};
 		}
@@ -211,7 +212,7 @@ export class AgentInterface extends LitElement {
 
 		// Check if API key exists for the provider (only needed in direct mode)
 		const provider = session.state.model.provider;
-		const apiKey = await getAppStorage().providerKeys.get(provider);
+		let apiKey = await resolveProviderApiKey(provider);
 
 		// If no API key, prompt for it
 		if (!apiKey) {
@@ -223,7 +224,11 @@ export class AgentInterface extends LitElement {
 			const success = await this.onApiKeyRequired(provider);
 
 			// If still no API key, abort the send
+			apiKey = await resolveProviderApiKey(provider);
 			if (!success) {
+				return;
+			}
+			if (!apiKey) {
 				return;
 			}
 		}

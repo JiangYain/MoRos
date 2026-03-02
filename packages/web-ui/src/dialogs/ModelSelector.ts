@@ -3,7 +3,7 @@ import { Badge } from "@mariozechner/mini-lit/dist/Badge.js";
 import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { DialogHeader } from "@mariozechner/mini-lit/dist/Dialog.js";
 import { DialogBase } from "@mariozechner/mini-lit/dist/DialogBase.js";
-import { getModels, getProviders, type Model, modelsAreEqual } from "@mariozechner/pi-ai";
+import { getModels, type Model, modelsAreEqual } from "@mariozechner/pi-ai";
 import { html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { createRef, ref } from "lit/directives/ref.js";
@@ -15,6 +15,34 @@ import { formatModelCost } from "../utils/format.js";
 import { i18n } from "../utils/i18n.js";
 import { discoverModels } from "../utils/model-discovery.js";
 
+const ONLY_PROVIDER = "github-copilot";
+const CURATED_COPILOT_MODELS = [
+	{ id: "gpt-5.3-codex", fallbackId: "gpt-5.2-codex", name: "GPT-5.3-Codex" },
+	{ id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6" },
+] as const;
+
+function getCuratedCopilotModels(): Model<any>[] {
+	const builtins = getModels(ONLY_PROVIDER as any);
+	const byId = new Map(builtins.map((model) => [model.id, model]));
+
+	return CURATED_COPILOT_MODELS.flatMap((spec) => {
+		const direct = byId.get(spec.id);
+		if (direct) return [direct];
+
+		if (!("fallbackId" in spec) || !spec.fallbackId) return [];
+		const fallback = byId.get(spec.fallbackId);
+		if (!fallback) return [];
+
+		return [
+			{
+				...fallback,
+				id: spec.id,
+				name: spec.name,
+			},
+		];
+	});
+}
+
 @customElement("agent-model-selector")
 export class ModelSelector extends DialogBase {
 	@state() currentModel: Model<any> | null = null;
@@ -24,7 +52,6 @@ export class ModelSelector extends DialogBase {
 	@state() customProvidersLoading = false;
 	@state() selectedIndex = 0;
 	@state() private navigationMode: "mouse" | "keyboard" = "mouse";
-	@state() private customProviderModels: Model<any>[] = [];
 
 	private onSelectCallback?: (model: Model<any>) => void;
 	private scrollContainerRef = createRef<HTMLDivElement>();
@@ -159,18 +186,13 @@ export class ModelSelector extends DialogBase {
 	private getFilteredModels(): Array<{ provider: string; id: string; model: any }> {
 		// Collect all models from known providers
 		const allModels: Array<{ provider: string; id: string; model: any }> = [];
-		const knownProviders = getProviders();
+		const knownProviders = [ONLY_PROVIDER];
 
 		for (const provider of knownProviders) {
-			const models = getModels(provider as any);
+			const models = provider === ONLY_PROVIDER ? getCuratedCopilotModels() : getModels(provider as any);
 			for (const model of models) {
 				allModels.push({ provider, id: model.id, model });
 			}
-		}
-
-		// Add custom provider models
-		for (const model of this.customProviderModels) {
-			allModels.push({ provider: model.provider, id: model.id, model });
 		}
 
 		// Filter models based on search and capability filters

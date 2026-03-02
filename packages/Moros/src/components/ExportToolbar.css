@@ -1,0 +1,780 @@
+/* 导出工具栏 - 与主工具栏完全一致的设计 */
+.export-toolbar {
+  height: var(--header-height);
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border-bottom: none;
+}
+
+/* 预览模式切换器 */
+.preview-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-primary);
+  border-radius: 50px;
+  padding: 4px;
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.preview-mode-toggle::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: 32px;
+  background: var(--bg-tertiary);
+  border-radius: 50%;
+  transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  z-index: 1;
+}
+
+.preview-mode-toggle[data-active="rich-html"]::before {
+  transform: translateX(calc(100% + 4px));
+}
+
+
+.mode-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  font-size: 13px;
+  font-weight: 500;
+  position: relative;
+  flex: 1;
+  z-index: 2;
+}
+
+.mode-toggle-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.mode-toggle-btn.active {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.mode-toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.export-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-toolbar .toolbar-select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.export-toolbar .toolbar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.export-toolbar .toolbar-checkbox input { accent-color: var(--accent-color); }
+
+/* 编辑器按钮样式（圆形设计） */
+.export-toolbar .editor-btn {
+  background: var(--bg-secondary);
+  border: none;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 400;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  flex: 0 0 auto;
+}
+
+.export-toolbar .editor-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.export-toolbar .editor-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 圆形工具栏按钮样式 */
+.export-toolbar .toolbar-btn {
+  background: var(--bg-secondary);
+  border: none;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 400;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  flex: 0 0 auto;
+}
+
+.export-toolbar .toolbar-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.export-toolbar .toolbar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 加载动画 */
+.export-loading {
+  animation: spin 1s linear infinite;
+}
+
+/* 复制成功提示 */
+.copy-check {
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes scaleIn {
+  0% { 
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* PDF预览模态框 */
+.pdf-preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1001;
+}
+
+.pdf-modal-content {
+  position: relative;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 70%;
+  max-width: 750px;
+  max-height: 65vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 1002;
+}
+
+.pdf-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.pdf-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 已移除关闭按钮样式 */
+
+.pdf-modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 0;
+  min-height: 0; /* 防止溢出 */
+  position: relative;
+}
+
+.pdf-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 16px 80px 16px; /* 减少内边距，缩小底部空间 */
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  position: relative;
+  overflow-y: auto; /* 允许滚动 */
+}
+
+.option-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.option-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.option-group select,
+.option-group input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: all 0.2s ease;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.option-group select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  padding-right: 32px;
+}
+
+.option-group select:focus,
+.option-group input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(var(--accent-color-rgb, 26, 26, 26), 0.1);
+}
+
+.option-group select:hover,
+.option-group input:hover {
+  border-color: var(--accent-color);
+}
+
+.preview-area {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.preview-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* 专业打印预览布局 */
+.preview-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #f5f5f5;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 500px;
+}
+
+/* 移除顶部工具条，预览更接近系统打印 */
+
+.preview-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #666;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-input-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.page-input {
+  width: 40px;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.page-input:focus {
+  outline: none;
+}
+
+.page-total {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.zoom-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  color: #666;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background: #e9ecef;
+  color: #333;
+}
+
+.zoom-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.zoom-level {
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+  min-width: 35px;
+  text-align: center;
+}
+
+.preview-nav-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #dee2e6;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  color: #666;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-nav-btn:hover:not(:disabled) {
+  background: #f8f9fa;
+  border-color: #adb5bd;
+  color: #333;
+}
+
+.preview-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: #f8f9fa;
+}
+
+/* 打印预览视口 */
+.preview-viewport {
+  flex: 1;
+  overflow: auto;
+  background: #f5f5f5;
+  padding: 16px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.pages-zoom {
+  transform-origin: center top;
+  transition: transform 0.2s ease;
+}
+
+.pages-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.print-page-wrapper {
+  transition: transform 0.2s ease;
+  transform-origin: center top;
+}
+
+.print-page {
+  position: relative;
+  background: #ffffff;
+  box-shadow: 
+    0 0 0 1px rgba(0, 0, 0, 0.1),
+    0 4px 8px rgba(0, 0, 0, 0.1),
+    0 8px 16px rgba(0, 0, 0, 0.05);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0 auto;
+  /* 不限制 max-width，保证真实 A4 宽度展示 */
+}
+
+.page-shadow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+  z-index: 1;
+}
+
+.page-content-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 2px;
+}
+
+/* 横向页面 */
+/* landscape样式通过行内尺寸控制，这里不再额外声明规则 */
+
+/* 预览加载状态 */
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #666;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 20px;
+}
+
+.preview-loading p {
+  margin-top: 12px;
+  font-size: 14px;
+  color: #666;
+}
+
+/* 移除旧的样式，避免冲突 */
+
+/* 保留旧的网格样式作为备用 */
+.pages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  justify-items: center;
+}
+
+.page-number {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.page-image {
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+  max-width: 100%;
+  height: auto;
+}
+
+.page-image:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--text-muted);
+}
+
+.preview-loading p {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+/* 保留旧的简单预览样式作为备用 */
+.page-preview {
+  background: white;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  font-size: 12px;
+  position: relative;
+}
+
+.page-preview.portrait {
+  width: 120px;
+  height: 170px;
+}
+
+.page-preview.landscape {
+  width: 170px;
+  height: 120px;
+}
+
+.page-content {
+  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.1);
+  border: 1px dashed rgba(var(--accent-color-rgb, 26, 26, 26), 0.3);
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* 将footer移到右侧面板内部 */
+.pdf-modal-footer {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 0 0 0;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.btn-secondary,
+.btn-primary {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-quaternary, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+
+.btn-primary {
+  background: var(--accent-color);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .export-toolbar {
+    height: var(--header-height);
+    padding: 0 8px;
+  }
+  
+  .export-actions {
+    gap: 4px;
+  }
+  
+  .export-toolbar .toolbar-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+  
+  .pdf-modal-content {
+    width: 95%;
+    max-height: 95vh;
+  }
+  
+  .pdf-modal-body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 20px;
+  }
+  
+  .pdf-modal-header,
+  .pdf-modal-footer {
+    padding: 16px 20px;
+  }
+  
+  .pages-grid {
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 12px;
+  }
+  
+  .preview-area {
+    min-height: 400px;
+  }
+  
+  .preview-toolbar {
+    padding: 8px 12px;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+  
+  .preview-controls {
+    justify-content: center;
+    gap: 8px;
+  }
+  
+  .preview-viewport {
+    padding: 12px;
+  }
+  
+  .print-page {
+    width: 80vw;
+    min-height: calc(80vw * 1.414);
+  }
+  
+  .zoom-controls {
+    order: -1;
+  }
+  
+  .page-preview.portrait {
+    width: 100px;
+    height: 140px;
+  }
+  
+  .page-preview.landscape {
+    width: 140px;
+    height: 100px;
+  }
+}
+
+/* Theme select for Rich HTML */
+.export-toolbar .toolbar-select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.export-toolbar .toolbar-select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+/* 深色模式适配 */
+[data-theme="dark"] .preview-mode-toggle {
+  background: var(--bg-secondary);
+}
+
+[data-theme="dark"] .preview-mode-toggle::before {
+  background: var(--bg-quaternary, #2a2a2a);
+}
+
+[data-theme="dark"] .mode-toggle-btn {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .mode-toggle-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .mode-toggle-btn.active {
+  color: var(--text-primary);
+}
+

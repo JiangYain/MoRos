@@ -1,6 +1,6 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
 import { Agent, type AgentMessage } from "@mariozechner/pi-agent-core";
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel, getModels } from "@mariozechner/pi-ai";
 import {
 	type AgentState,
 	ApiKeyPromptDialog,
@@ -10,6 +10,7 @@ import {
 	createJavaScriptReplTool,
 	IndexedDBStorageBackend,
 	// PersistentStorageDialog, // TODO: Fix - currently broken
+	OAuthCredentialsStore,
 	ProviderKeysStore,
 	ProvidersModelsTab,
 	ProxyTab,
@@ -27,12 +28,65 @@ import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { Input } from "@mariozechner/mini-lit/dist/Input.js";
 import { createSystemNotification, customConvertToLlm, registerCustomMessageRenderers } from "./custom-messages.js";
 
+const DEFAULT_PROXY_URL = "http://localhost:45321";
+const getDefaultModel = () => getModel("github-copilot", "gpt-5");
+
+const CURATED_COPILOT_MODELS = [
+	{ id: "gpt-5.3-codex", fallbackId: "gpt-5.2-codex", name: "GPT-5.3-Codex" },
+	{ id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6" },
+] as const;
+
+const getCuratedCopilotModels = () => {
+	const builtins = getModels("github-copilot");
+	const byId = new Map(builtins.map((model) => [model.id, model]));
+
+	return CURATED_COPILOT_MODELS.flatMap((spec) => {
+		const direct = byId.get(spec.id);
+		if (direct) return [direct];
+
+		if (!("fallbackId" in spec) || !spec.fallbackId) return [];
+		const fallback = byId.get(spec.fallbackId);
+		if (!fallback) return [];
+
+		return [
+			{
+				...fallback,
+				id: spec.id,
+				name: spec.name,
+			},
+		];
+	});
+};
+
+const getDefaultCuratedModel = () => getCuratedCopilotModels()[0] ?? getDefaultModel();
+
+const normalizeToCuratedModel = (model: any) => {
+	const curated = getCuratedCopilotModels();
+	if (curated.length === 0) return getDefaultModel();
+	if (!model || model.provider !== "github-copilot") {
+		return curated[0];
+	}
+	const matched = curated.find((item) => item.id === model.id);
+	return matched ?? curated[0];
+};
+
+const isLegacyProxyUrl = (value: string | null): boolean => {
+	if (!value) return false;
+	try {
+		const parsed = new URL(value);
+		return (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && parsed.port === "3001";
+	} catch {
+		return false;
+	}
+};
+
 // Register custom message renderers
 registerCustomMessageRenderers();
 
 // Create stores
 const settings = new SettingsStore();
 const providerKeys = new ProviderKeysStore();
+const oauthCredentials = new OAuthCredentialsStore();
 const sessions = new SessionsStore();
 const customProviders = new CustomProvidersStore();
 
@@ -41,6 +95,7 @@ const configs = [
 	settings.getConfig(),
 	SessionsStore.getMetadataConfig(),
 	providerKeys.getConfig(),
+	oauthCredentials.getConfig(),
 	customProviders.getConfig(),
 	sessions.getConfig(),
 ];
@@ -48,19 +103,34 @@ const configs = [
 // Create backend
 const backend = new IndexedDBStorageBackend({
 	dbName: "pi-web-ui-example",
-	version: 2, // Incremented for custom-providers store
+	version: 3, // Incremented for oauth-credentials store
 	stores: configs,
 });
 
 // Wire backend to stores
 settings.setBackend(backend);
 providerKeys.setBackend(backend);
+oauthCredentials.setBackend(backend);
 customProviders.setBackend(backend);
 sessions.setBackend(backend);
 
 // Create and set app storage
-const storage = new AppStorage(settings, providerKeys, sessions, customProviders, backend);
+const storage = new AppStorage(settings, providerKeys, sessions, customProviders, backend, oauthCredentials);
 setAppStorage(storage);
+
+const ensureDefaultProxySettings = async () => {
+	const enabled = await storage.settings.get<boolean>("proxy.enabled");
+	const proxyUrl = await storage.settings.get<string>("proxy.url");
+
+	if (enabled === null) {
+		await storage.settings.set("proxy.enabled", true);
+	}
+
+	// Migrate old default URL and initialize first-time value.
+	if (proxyUrl === null || isLegacyProxyUrl(proxyUrl)) {
+		await storage.settings.set("proxy.url", DEFAULT_PROXY_URL);
+	}
+};
 
 let currentSessionId: string | undefined;
 let currentTitle = "";
@@ -160,20 +230,28 @@ const createAgent = async (initialState?: Partial<AgentState>) => {
 		agentUnsubscribe();
 	}
 
-	agent = new Agent({
-		initialState: initialState || {
-			systemPrompt: `You are a helpful AI assistant with access to various tools.
+	const defaultModel = getDefaultCuratedModel();
+	const normalizedState = initialState
+		? {
+				...initialState,
+				model: normalizeToCuratedModel(initialState.model),
+			}
+		: {
+				systemPrompt: `You are a helpful AI assistant with access to various tools.
 
 Available tools:
 - JavaScript REPL: Execute JavaScript code in a sandboxed browser environment (can do calculations, get time, process data, create visualizations, etc.)
 - Artifacts: Create interactive HTML, SVG, Markdown, and text artifacts
 
 Feel free to use these tools when needed to provide accurate and helpful responses.`,
-			model: getModel("anthropic", "claude-sonnet-4-5-20250929"),
-			thinkingLevel: "off",
-			messages: [],
-			tools: [],
-		},
+				model: defaultModel,
+				thinkingLevel: "off" as const,
+				messages: [],
+				tools: [],
+			};
+
+	agent = new Agent({
+		initialState: normalizedState,
 		// Custom transformer: convert custom messages to LLM-compatible format
 		convertToLlm: customConvertToLlm,
 	});
@@ -399,6 +477,9 @@ async function initApp() {
 
 	// Create ChatPanel
 	chatPanel = new ChatPanel();
+
+	// Default to local CORS proxy in this build.
+	await ensureDefaultProxySettings();
 
 	// Check for session in URL
 	const urlParams = new URLSearchParams(window.location.search);

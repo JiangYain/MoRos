@@ -1,0 +1,241 @@
+/* 样式编辑侧边栏 */
+.style-sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0);
+  z-index: 999;
+  backdrop-filter: blur(0px);
+  animation: overlaySlideIn 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+.style-sidebar-overlay.closing {
+  animation: overlaySlideOut 0.3s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
+@keyframes overlaySlideIn {
+  0% { 
+    opacity: 0;
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0px);
+  }
+  100% { 
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(3px);
+  }
+}
+
+@keyframes overlaySlideOut {
+  0% { 
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(3px);
+  }
+  100% { 
+    opacity: 0;
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0px);
+  }
+}
+
+.style-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-color);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  animation: sidebarSlideIn 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  transition: width 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.style-sidebar.closing {
+  animation: sidebarSlideOut 0.3s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
+/* 固定面板模式 */
+.style-sidebar.fixed-panel {
+  position: static;
+  animation: none;
+  box-shadow: none;
+  border-left: 1px solid var(--border-color);
+  height: 100vh;
+  flex-shrink: 0;
+}
+
+.style-sidebar.fixed-panel.collapsed {
+  width: 60px !important;
+}
+
+.style-sidebar.collapsed {
+  width: 60px;
+}
+
+@keyframes sidebarSlideIn {
+  0% {
+    transform: translateX(100%) scale(0.95);
+    opacity: 0;
+  }
+  60% {
+    transform: translateX(-10px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes sidebarSlideOut {
+  0% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%) scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* 侧边栏头部 - 与系统其他头部保持一致 */
+.style-sidebar-header {
+  height: var(--header-height);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-actions .action-btn.reset-btn {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.sidebar-actions .action-btn.reset-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.sidebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.control-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.control-btn.close-btn:hover {
+  background: #ff4757;
+  color: white;
+}
+
+/* 头部操作按钮样式 */
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 编辑器内容区域 */
+.style-sidebar-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* 移除底部状态栏相关样式 */
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  .style-sidebar {
+    width: 360px;
+  }
+  
+  .style-sidebar.collapsed {
+    width: 50px;
+  }
+}
+
+@media (max-width: 768px) {
+  .style-sidebar {
+    width: 100vw;
+    right: 0;
+  }
+  
+  .style-sidebar.collapsed {
+    width: 60px;
+  }
+  
+  .style-sidebar-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  
+  .action-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+  }
+}
+
+/* 深色模式适配 */
+[data-theme="dark"] .style-sidebar-overlay {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .style-sidebar {
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+}

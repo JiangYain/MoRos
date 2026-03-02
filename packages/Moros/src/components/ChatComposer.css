@@ -1,0 +1,147 @@
+.chat-composer-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.chat-composer-add-menu {
+  position: absolute;
+  left: 6px;
+  bottom: calc(100% + 8px);
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+  padding: 8px;
+  z-index: 30;
+}
+
+.chat-composer-add-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.chat-composer-add-menu-item:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.chat-composer-add-menu-item.selected {
+  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.12);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.chat-composer-add-menu-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-composer-add-menu-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 6px 4px;
+}
+
+.chat-composer-resize-handle {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-composer-resize-handle::after {
+  content: '';
+  width: 24px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--border-color);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.chat-composer-resize-handle:hover::after {
+  opacity: 0.7;
+}
+
+.chat-composer.chat-landing-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 18px;
+  border: 1px solid var(--border-subtle, var(--border-color));
+  background: var(--bg-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.chat-composer.chat-landing-card:focus-within {
+  border-color: rgba(var(--accent-color-rgb, 26, 26, 26), 0.6);
+  box-shadow: 0 4px 16px rgba(var(--accent-color-rgb, 26, 26, 26), 0.12);
+}
+
+.chat-composer-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.5;
+  padding: 8px 4px;
+  min-height: 20px;
+}
+
+.chat-composer-input::placeholder {
+  color: var(--text-muted, var(--text-tertiary));
+}
+
+.chat-composer-input:focus {
+  outline: none;
+}
+
+textarea.chat-composer-input {
+  resize: none;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.chat-composer.drag-over::before {
+  content: '释放以添加文件';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 13px;
+  color: var(--accent-color);
+  font-weight: 500;
+  opacity: 0.8;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.chat-composer.drag-over .chat-composer-input,
+.chat-composer.drag-over .chat-input-action,
+.chat-composer.drag-over .chat-send-btn {
+  opacity: 0.3;
+  pointer-events: none;
+}

@@ -61,11 +61,12 @@ export class ApiKeyPromptDialog extends DialogBase {
 	}
 
 	protected override renderContent() {
+		const title = this.provider === "github-copilot" ? "Authentication Required" : i18n("API Key Required");
 		return html`
 			${DialogContent({
 				children: html`
 					${DialogHeader({
-						title: i18n("API Key Required"),
+						title,
 					})}
 					<provider-key-input .provider=${this.provider}></provider-key-input>
 				`,

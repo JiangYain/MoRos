@@ -1,4 +1,5 @@
 import type { CustomProvidersStore } from "./stores/custom-providers-store.js";
+import type { OAuthCredentialsStore } from "./stores/oauth-credentials-store.js";
 import type { ProviderKeysStore } from "./stores/provider-keys-store.js";
 import type { SessionsStore } from "./stores/sessions-store.js";
 import type { SettingsStore } from "./stores/settings-store.js";
@@ -12,6 +13,7 @@ export class AppStorage {
 	readonly backend: StorageBackend;
 	readonly settings: SettingsStore;
 	readonly providerKeys: ProviderKeysStore;
+	readonly oauthCredentials?: OAuthCredentialsStore;
 	readonly sessions: SessionsStore;
 	readonly customProviders: CustomProvidersStore;
 
@@ -21,9 +23,11 @@ export class AppStorage {
 		sessions: SessionsStore,
 		customProviders: CustomProvidersStore,
 		backend: StorageBackend,
+		oauthCredentials?: OAuthCredentialsStore,
 	) {
 		this.settings = settings;
 		this.providerKeys = providerKeys;
+		this.oauthCredentials = oauthCredentials;
 		this.sessions = sessions;
 		this.customProviders = customProviders;
 		this.backend = backend;

@@ -1,0 +1,159 @@
+.whiteboard-container {
+  display: flex;
+  flex-direction: column;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+}
+
+.whiteboard-toolbar {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wb-filename {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.wb-saving {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-lang {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.wb-lang-menu {
+  padding: 4px 6px;
+}
+
+/* 语言选择器：与菜单项样式完全一致 */
+/* 移除之前的自定义语言选择器样式，现在使用原生菜单项 */
+
+/* 确保右侧当前语言横向展示且不被压缩 */
+.wb-lang-current {
+  max-width: 50%;
+  white-space: nowrap;
+}
+
+.whiteboard-canvas {
+  flex: 1;
+  min-height: 0;
+  width: 100% !important;
+  height: 100% !important;
+  position: relative;
+  max-width: none !important;
+}
+
+.whiteboard-canvas > div {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 确保Excalidraw的canvas占满整个容器 */
+.whiteboard-canvas .excalidraw {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.whiteboard-canvas .excalidraw .App-menu_top {
+  top: 0 !important;
+}
+
+.whiteboard-canvas .excalidraw .layer-ui__wrapper {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 适当放宽主菜单宽度，避免右侧状态被过度裁切 */
+.whiteboard-canvas .excalidraw .dropdown-menu .dropdown-menu-container {
+  min-width: 200px;
+}
+
+/* 让左侧文本区域可收缩，给右侧“快捷键/状态”留空间 */
+.whiteboard-canvas .excalidraw .dropdown-menu .dropdown-menu-item__text {
+  width: auto;
+  min-width: 0;
+}
+
+/* 保证右侧“快捷键/状态”栏（我们用来显示当前语言）不换行、不断词 */
+.whiteboard-canvas .excalidraw .dropdown-menu .dropdown-menu-item__shortcut {
+  white-space: nowrap;
+  word-break: keep-all;
+  writing-mode: horizontal-tb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 隐藏 Excalidraw 中不需要的外链按钮（GitHub/Follow us/Discord） */
+.whiteboard-canvas .excalidraw .dropdown-menu a[href*="github.com"],
+.whiteboard-canvas .excalidraw .dropdown-menu a[href*="x.com"],
+.whiteboard-canvas .excalidraw .dropdown-menu a[href*="discord.gg"],
+.whiteboard-canvas .excalidraw .layer-ui__wrapper__footer-left a[href*="github.com"],
+.whiteboard-canvas .excalidraw .layer-ui__wrapper__footer-left a[href*="discord.gg"] {
+  display: none !important;
+}
+
+/* 隐藏右下角help按钮 */
+.whiteboard-canvas .excalidraw .help-icon,
+.whiteboard-canvas .excalidraw button[title*="Help"],
+.whiteboard-canvas .excalidraw button[aria-label*="Help"],
+.whiteboard-canvas .excalidraw [data-testid*="help"] {
+  display: none !important;
+}
+
+.wb-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.wb-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  text-align: center;
+  gap: 16px;
+}
+
+.wb-error h3 {
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.wb-error p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.wb-error button {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.wb-error button:hover {
+  background: var(--accent-hover);
+}
+

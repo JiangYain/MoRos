@@ -1,0 +1,528 @@
+/* 增强版白板样式 */
+.enhanced-whiteboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.enhanced-whiteboard .excalidraw {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 确保内部包裹层充满容器，避免底部空白 */
+.enhanced-whiteboard .excalidraw .excalidraw-wrapper,
+.enhanced-whiteboard .excalidraw .layer-ui__wrapper,
+.enhanced-whiteboard .excalidraw .user-selection,
+.enhanced-whiteboard .excalidraw .App-menu__left,
+.enhanced-whiteboard .excalidraw .App-menu__right {
+  height: 100% !important;
+}
+
+/* Excalidraw 顶层覆盖：用于同步渲染卡片内容 */
+.excalidraw-markdown-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* 重要：设置为 3，高于画布(1-2)但低于工具栏(4+) */
+  z-index: 3;
+}
+
+/* 覆盖层中单个卡片 UI - 简洁纯净风格 */
+.markdown-card-overlay {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-shadow: none;
+  overflow: hidden;
+  font-family: var(--font-family, 'Inter', sans-serif);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(8px);
+  /* 关键：卡片整体不拦截事件，让底层元素可以拖拽 */
+  pointer-events: none;
+  user-select: none;
+  /* 层级过渡动画 */
+  transition: box-shadow 0.15s ease-out;
+  position: relative;
+  /* 保持相对定位，不设置 z-index，继承父容器的层级 */
+}
+
+/* 悬浮激活状态：增强视觉效果 */
+.markdown-card-overlay.hover-active {
+  /* 不改变层级，只增强阴影效果 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 内容区域悬浮状态 */
+.markdown-card-overlay.content-hover {
+  /* 保持卡片激活状态的视觉效果 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 拖拽提示层 - 显示在标题栏上的半透明提示 */
+.overlay-header::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to bottom, 
+    rgba(255, 255, 255, 0) 0%, 
+    rgba(255, 255, 255, 0) 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+/* 鼠标悬停在头部时显示拖拽提示 */
+.markdown-card-overlay:hover .overlay-header::after {
+  opacity: 1;
+  background: linear-gradient(to bottom, 
+    rgba(200, 200, 200, 0.1) 0%, 
+    rgba(200, 200, 200, 0) 100%);
+  cursor: move;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: linear-gradient(135deg, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.06) 0%, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.10) 50%,
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.04) 100%);
+  border-bottom: 1px solid rgba(var(--accent-color-rgb, 26, 26, 26), 0.12);
+  font-weight: 600;
+  /* 移除固定字体大小，让JavaScript动态样式生效 */
+  /* 头部完全透明，不拦截任何事件 */
+  pointer-events: none;
+  position: relative;
+}
+
+/* 添加微妙的光泽效果 */
+.overlay-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(to bottom,
+    rgba(255, 255, 255, 0.25) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+.overlay-title { 
+  flex: 1; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap; 
+  color: var(--text-primary);
+}
+
+.overlay-content { 
+  flex: 1; 
+  padding: 12px; 
+  overflow-y: auto; 
+  overflow-x: hidden;
+  /* 移除固定字体大小，让JavaScript动态样式生效 */
+  line-height: 1.6;
+  /* 关键：只有内容区域捕获事件，实现精准交互 */
+  pointer-events: auto;
+  cursor: auto;
+  /* 平滑滚动 */
+  scroll-behavior: smooth;
+  /* 触摸设备优化 */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  /* 确保内容可以选择 */
+  user-select: text;
+  /* 防止事件穿透到画布 */
+  isolation: isolate;
+  /* 提升内容区域的相对层级 */
+  position: relative;
+  z-index: 1;
+}
+
+/* 滚动条美化 */
+.overlay-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overlay-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+
+.overlay-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.overlay-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+.overlay-loading { 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  height: 100%; 
+  color: var(--text-muted);
+  /* 移除固定字体大小，让JavaScript动态样式生效 */
+}
+/* Markdown 渲染样式 */
+.overlay-markdown { 
+  color: var(--text-primary); 
+  word-wrap: break-word;
+  line-height: 1.5;
+}
+
+.overlay-markdown h1,
+.overlay-markdown h2,
+.overlay-markdown h3,
+.overlay-markdown h4,
+.overlay-markdown h5,
+.overlay-markdown h6 {
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.overlay-markdown pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.overlay-markdown code {
+  word-break: break-word;
+}
+
+.overlay-markdown table {
+  /* 移除固定字体大小，让JavaScript动态样式生效 */
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* 深色模式下的代码块 */
+[data-theme="dark"] .overlay-markdown code,
+[data-theme="dark"] .overlay-markdown pre {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="dark"] .overlay-markdown blockquote {
+  border-left-color: #666 !important;
+}
+
+[data-theme="dark"] .overlay-markdown th {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+[data-theme="dark"] .overlay-markdown th,
+[data-theme="dark"] .overlay-markdown td {
+  border-color: #666 !important;
+}
+
+[data-theme="dark"] .overlay-markdown hr {
+  border-top-color: #666 !important;
+}
+
+.overlay-more { 
+  color: var(--text-muted); 
+  font-style: italic;
+  /* 移除固定字体大小，让JavaScript动态样式生效 */
+}
+
+/* 移除 footer 样式，已从组件中删除 */
+
+/* 拖拽状态 */
+.enhanced-whiteboard.drag-over {
+  background: linear-gradient(135deg, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.1) 0%, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.05) 100%);
+}
+
+.enhanced-whiteboard.drag-over::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 3px dashed var(--accent-color);
+  border-radius: 12px;
+  z-index: 50;
+  pointer-events: none;
+  animation: drag-border-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes drag-border-pulse {
+  0%, 100% { 
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.001);
+  }
+}
+
+/* 优雅的拖拽指示器设计 */
+.drag-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 100;
+  pointer-events: none;
+  animation: drag-indicator-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes drag-indicator-appear {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8) translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) translateY(0);
+  }
+}
+
+.drag-indicator-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 40px 56px;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.8) 0%, 
+    rgba(248, 250, 252, 0.75) 100%);
+  border: 1px solid rgba(var(--accent-color-rgb, 26, 26, 26), 0.3);
+  border-radius: 20px;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    0 4px 16px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(16px);
+  position: relative;
+  overflow: hidden;
+  opacity: 0.85;
+}
+
+/* 优雅的背景光晕效果 */
+.drag-indicator-content::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.08) 0%,
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.04) 30%,
+    transparent 70%
+  );
+  animation: drag-glow-rotate 8s linear infinite;
+}
+
+@keyframes drag-glow-rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 现代化的图标设计 */
+.drag-icon-container {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drag-icon-bg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--accent-color) 0%, var(--accent-hover) 100%);
+  border-radius: 20px;
+  opacity: 0.1;
+  animation: drag-icon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes drag-icon-pulse {
+  0%, 100% { 
+    transform: scale(1);
+    opacity: 0.1;
+  }
+  50% { 
+    transform: scale(1.05);
+    opacity: 0.15;
+  }
+}
+
+.drag-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  color: var(--accent-color);
+  animation: drag-icon-float 3s ease-in-out infinite;
+}
+
+@keyframes drag-icon-float {
+  0%, 100% { 
+    transform: translateY(0) rotate(0deg);
+  }
+  25% { 
+    transform: translateY(-6px) rotate(-2deg);
+  }
+  75% { 
+    transform: translateY(-6px) rotate(2deg);
+  }
+}
+
+/* 现代化的文本设计 */
+.drag-text {
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+
+.drag-text h3 {
+  margin: 0 0 12px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.drag-text p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+
+/* 深色主题适配 */
+[data-theme="dark"] .drag-indicator-content {
+  background: linear-gradient(135deg, 
+    rgba(30, 30, 30, 0.8) 0%, 
+    rgba(37, 37, 37, 0.75) 100%);
+  border: 1px solid rgba(var(--accent-color-rgb, 26, 26, 26), 0.4);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .enhanced-whiteboard.drag-over {
+  background: linear-gradient(135deg, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.15) 0%, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.08) 100%);
+}
+
+/* 深色模式覆盖层配色 */
+[data-theme="dark"] .markdown-card-overlay { 
+  background: rgba(0, 0, 0, 0.9); 
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary); 
+}
+
+[data-theme="dark"] .markdown-card-overlay.hover-active {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .overlay-header { 
+  background: linear-gradient(135deg, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.10) 0%, 
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.14) 50%,
+    rgba(var(--accent-color-rgb, 26, 26, 26), 0.06) 100%);
+  border-bottom-color: rgba(var(--accent-color-rgb, 26, 26, 26), 0.20);
+}
+
+[data-theme="dark"] .overlay-header::before {
+  background: linear-gradient(to bottom,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%);
+}
+
+[data-theme="dark"] .overlay-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .overlay-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="dark"] .overlay-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 画板模式下的布局调整 */
+.app.whiteboard-mode .enhanced-whiteboard {
+  height: 100% !important;
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .drag-indicator-content {
+    padding: 24px 32px;
+  }
+  
+  .drag-icon {
+    font-size: 36px;
+  }
+  
+  .drag-text h3 {
+    font-size: 16px;
+  }
+  
+  .drag-text p {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* 移除固定字体大小，让JavaScript动态样式生效 */
+  .overlay-header { padding: 6px 8px; }
+  .overlay-content { padding: 8px; }
+}
+
+/* MoRos子菜单：采用原生 .context-menu 样式，仅负责定位/显隐 */
+.excalidraw .context-menu li[data-markov-create-image] { 
+  position: static; /* 改为 static，让子菜单不依赖父级定位 */
+}
+
+/* 子菜单容器仅负责定位显隐，视觉交给 Excalidraw 原生样式 */
+.markov-image-submenu {
+  position: absolute !important;
+  z-index: 1002; /* 比主菜单更高 */
+  display: none;
+  pointer-events: none;
+}
+
+.markov-image-submenu.is-visible {
+  display: inline-block;
+  pointer-events: auto;
+}
+
+.markov-image-submenu .context-menu-item {
+  min-width: auto;
+}

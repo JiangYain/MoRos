@@ -1,0 +1,241 @@
+html, body {
+  font-family: var(--font-sans);
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-weight: var(--w-regular);
+  transition: background-color 240ms ease, color 240ms ease;
+}
+
+/* 纵向拖拽分隔条 */
+.resizer {
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  position: relative;
+  background: transparent;
+  z-index: 2;
+  transition: all 200ms ease;
+}
+
+.resizer::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 2px; right: 2px;
+  background: transparent;
+  transition: all 600ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  border-radius: 2px;
+  will-change: background, transform;
+}
+
+.resizer:hover::before {
+  background: var(--border-color);
+  transform: scaleY(0.6);
+}
+
+.resizer.active::before {
+  background: var(--accent-color);
+  transform: scaleY(0.8);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 移除脉冲效果，专注于面板宽度动画 */
+
+.resizer.hidden { display: none; }
+
+/* 拖拽时全局光标与选区处理 */
+.resizing-col, .resizing-col * { cursor: col-resize !important; user-select: none !important; }
+
+/* 移除重复的app规则，动画将在组件级别处理 */
+
+/* 主题变量 */
+:root {
+  --font-sans: 'Inter var', 'Inter', 'Helvetica Neue', 'Noto Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --w-thin: 300;
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 700;
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafbfc;
+  --bg-tertiary: #f1f3f4;
+  --border-color: #e1e4e8;
+  --text-primary: #24292e;
+  --text-secondary: #586069;
+  --text-muted: #6a737d;
+  --accent-color: #1a1a1a;
+  --accent-hover: #333333;
+  --accent-color-rgb: 26, 26, 26;
+  --sidebar-width: 280px;
+  --rightpanel-width: 400px;
+  --header-height: 48px;
+  /* 动画时长变量 */
+  --transition-fast: 0.2s;
+  --transition-normal: 0.4s;
+  --transition-panel: 0.4s;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d30;
+  --border-color: #3e3e42;
+  --text-primary: #cccccc;
+  --text-secondary: #c9c9c9;
+  --text-muted: #969696;
+  --accent-color: #e0e0e0;
+  --accent-hover: #cccccc;
+  --accent-color-rgb: 224, 224, 224;
+}
+
+/* 主题切换的柔和过渡：侧边栏、按钮、文件项等 */
+.sidebar, .sidebar *:not(svg), .main-content, .right-panel, .whiteboard-toolbar,
+.file-item, .search-box input, .theme-toggle, .collapse-btn {
+  transition: background-color 240ms ease, color 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
+}
+
+/* 模式切换时的动画增强 */
+.app.mode-switching .sidebar,
+.app.mode-switching .main-content,
+.app.mode-switching .right-panel {
+  transition: width var(--transition-panel) cubic-bezier(0.16, 1, 0.3, 1), 
+              flex-basis var(--transition-panel) cubic-bezier(0.16, 1, 0.3, 1),
+              flex-grow var(--transition-panel) cubic-bezier(0.16, 1, 0.3, 1),
+              min-width var(--transition-panel) cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 确保模式切换时动画流畅 */
+.app.mode-switching * {
+  transition-property: width, flex-basis, flex-grow, min-width, max-width;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-duration: var(--transition-panel);
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  :root {
+    --sidebar-width: 240px;
+    --rightpanel-width: 350px;
+  }
+}
+
+@media (max-width: 768px) {
+  .resizer { display: none; }
+}
+
+/* 服务器连接错误 */
+.server-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.error-content {
+  text-align: center;
+  max-width: 500px;
+  padding: 40px;
+}
+
+.error-content h1 {
+  font-size: 32px;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+.error-content p {
+  font-size: 16px;
+  margin-bottom: 32px;
+  color: var(--text-secondary);
+}
+
+.error-instructions {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 32px;
+  text-align: left;
+}
+
+.error-instructions h3 {
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+.error-instructions ol {
+  padding-left: 20px;
+}
+
+.error-instructions li {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.error-instructions code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  color: var(--accent-color);
+}
+
+.error-content button {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s ease;
+}
+
+.error-content button:hover {
+  background: var(--accent-hover);
+}
+
+/* 白板模式：隐藏右侧面板，主内容区占满剩余空间 */
+.app.whiteboard-mode {
+  /* 右侧面板不存在时，主内容区自动扩展 */
+  position: relative;
+}
+
+.app.whiteboard-mode .main-content {
+  /* 确保主内容区占用右侧面板的空间 */
+  flex: 1 !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* 当侧边栏收起时 */
+.app.whiteboard-mode .sidebar.collapsed ~ .main-content {
+  width: calc(100vw - 48px) !important;
+}
+
+/* 当侧边栏展开时 */  
+.app.whiteboard-mode .sidebar:not(.collapsed) ~ .main-content {
+  width: calc(100vw - var(--sidebar-width)) !important;
+}
+
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+  }
+  
+  :root {
+    --sidebar-width: 100%;
+    --rightpanel-width: 100%;
+  }
+  
+  .app.whiteboard-mode .main-content {
+    width: 100%;
+  }
+}
