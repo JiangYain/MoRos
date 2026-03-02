@@ -214,7 +214,7 @@ export async function uploadFileToDify(
 		throw new Error(`上传文件失败: HTTP ${res.status} ${res.statusText}`);
 	}
 
-	return await res.json();
+	return (await res.json()) as { id: string; name: string; size: number; extension: string; mime_type: string };
 }
 
 /**
@@ -261,7 +261,7 @@ export async function chatWithDifyBlocking(
 		body: JSON.stringify(payload),
 	});
 	if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-	const data = await res.json();
+	const data = (await res.json()) as any;
 	return {
 		answer: data?.answer || "",
 		conversation_id: data?.conversation_id,

@@ -627,7 +627,7 @@ export async function generateImageFromPromptGPT4O(
 			throw new Error(`HTTP ${res.status} ${res.statusText} ${text}`);
 		}
 
-		const data = await res.json();
+		const data = (await res.json()) as any;
 
 		// GPT-4O API返回格式处理
 		if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
@@ -677,7 +677,6 @@ export async function generateImageFromPromptGPT4O(
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${apiKey}`,
-				// 不要设置Content-Type，让浏览器自动设置boundary
 			},
 			body: formData,
 		});
@@ -687,7 +686,7 @@ export async function generateImageFromPromptGPT4O(
 			throw new Error(`HTTP ${res.status} ${res.statusText} ${text}`);
 		}
 
-		const data = await res.json();
+		const data = (await res.json()) as any;
 
 		// 处理编辑API的返回格式
 		if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
@@ -887,7 +886,7 @@ export async function generateImageVariationGPT4O(
 		throw new Error(`HTTP ${res.status} ${res.statusText} ${text}`);
 	}
 
-	const data = await res.json();
+	const data = (await res.json()) as any;
 
 	// 处理变体API的返回格式
 	if (data?.data && Array.isArray(data.data) && data.data.length > 0) {

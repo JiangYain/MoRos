@@ -158,7 +158,7 @@ const buildCopilotIntegrationIdCandidates = (): string[] => {
 	return Array.from(new Set([preferred, ...COPILOT_INTEGRATION_ID_CANDIDATES]));
 };
 
-const headersToRecord = (headers?: HeadersInit): Record<string, string> => {
+const headersToRecord = (headers?: Record<string, string> | Headers | [string, string][]): Record<string, string> => {
 	const record: Record<string, string> = {};
 	if (!headers) return record;
 	if (headers instanceof Headers) {
