@@ -3,10 +3,7 @@ import { customElement, state } from "lit/decorators.js";
 import "../components/CustomProviderCard.js";
 import "../components/ProviderKeyInput.js";
 import { getAppStorage } from "../storage/app-storage.js";
-import type {
-	AutoDiscoveryProviderType,
-	CustomProvider,
-} from "../storage/stores/custom-providers-store.js";
+import type { AutoDiscoveryProviderType, CustomProvider } from "../storage/stores/custom-providers-store.js";
 import { discoverModels } from "../utils/model-discovery.js";
 import { SettingsTab } from "./SettingsDialog.js";
 
