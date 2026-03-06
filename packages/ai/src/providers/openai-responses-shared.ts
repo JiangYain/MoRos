@@ -20,12 +20,14 @@ import type {
 	Model,
 	StopReason,
 	TextContent,
+	TextSignatureV1,
 	ThinkingContent,
 	Tool,
 	ToolCall,
 	Usage,
 } from "../types.js";
 import type { AssistantMessageEventStream } from "../utils/event-stream.js";
+import { shortHash } from "../utils/hash.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { transformMessages } from "./transform-messages.js";
@@ -34,18 +36,35 @@ import { transformMessages } from "./transform-messages.js";
 // Utilities
 // =============================================================================
 
-/** Fast deterministic hash to shorten long strings */
-function shortHash(str: string): string {
-	let h1 = 0xdeadbeef;
-	let h2 = 0x41c6ce57;
-	for (let i = 0; i < str.length; i++) {
-		const ch = str.charCodeAt(i);
-		h1 = Math.imul(h1 ^ ch, 2654435761);
-		h2 = Math.imul(h2 ^ ch, 1597334677);
+function encodeTextSignatureV1(id: string, phase?: TextSignatureV1["phase"]): string {
+	const payload: TextSignatureV1 = { v: 1, id };
+	if (phase) payload.phase = phase;
+	return JSON.stringify(payload);
+}
+
+function parseTextSignature(
+	signature: string | undefined,
+): { id: string; phase?: TextSignatureV1["phase"] } | undefined {
+	if (!signature) return undefined;
+	if (signature.startsWith("{")) {
+		try {
+			const parsed = JSON.parse(signature) as Partial<TextSignatureV1>;
+			if (parsed.v === 1 && typeof parsed.id === "string") {
+				if (parsed.phase === "commentary" || parsed.phase === "final_answer") {
+					return { id: parsed.id, phase: parsed.phase };
+				}
+				return { id: parsed.id };
+			}
+		} catch {
+			// Fall through to legacy plain-string handling.
+		}
 	}
-	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-	return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36);
+	return { id: signature };
+}
+
+function getResponseMessagePhase(item: ResponseOutputMessage): TextSignatureV1["phase"] | undefined {
+	const maybePhase = (item as ResponseOutputMessage & { phase?: unknown }).phase;
+	return maybePhase === "commentary" || maybePhase === "final_answer" ? maybePhase : undefined;
 }
 
 export interface OpenAIResponsesStreamOptions {
@@ -146,26 +165,32 @@ export function convertResponsesMessages<TApi extends Api>(
 
 			for (const block of msg.content) {
 				if (block.type === "thinking") {
+					if (block.thinking.trim().length === 0) continue;
 					if (block.thinkingSignature) {
 						const reasoningItem = JSON.parse(block.thinkingSignature) as ResponseReasoningItem;
 						output.push(reasoningItem);
 					}
 				} else if (block.type === "text") {
 					const textBlock = block as TextContent;
+					const parsedSignature = parseTextSignature(textBlock.textSignature);
 					// OpenAI requires id to be max 64 characters
-					let msgId = textBlock.textSignature;
+					let msgId = parsedSignature?.id;
 					if (!msgId) {
 						msgId = `msg_${msgIndex}`;
 					} else if (msgId.length > 64) {
 						msgId = `msg_${shortHash(msgId)}`;
 					}
-					output.push({
+					const messageItem: ResponseOutputMessage & { phase?: TextSignatureV1["phase"] } = {
 						type: "message",
 						role: "assistant",
 						content: [{ type: "output_text", text: sanitizeSurrogates(textBlock.text), annotations: [] }],
 						status: "completed",
 						id: msgId,
-					} satisfies ResponseOutputMessage);
+					};
+					if (parsedSignature?.phase) {
+						messageItem.phase = parsedSignature.phase;
+					}
+					output.push(messageItem);
 				} else if (block.type === "toolCall") {
 					const toolCall = block as ToolCall;
 					const [callId, itemIdRaw] = toolCall.id.split("|");
@@ -403,7 +428,7 @@ export async function processResponsesStream<TApi extends Api>(
 				currentBlock = null;
 			} else if (item.type === "message" && currentBlock?.type === "text") {
 				currentBlock.text = item.content.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("");
-				currentBlock.textSignature = item.id;
+				currentBlock.textSignature = encodeTextSignatureV1(item.id, getResponseMessagePhase(item));
 				stream.push({
 					type: "text_end",
 					contentIndex: blockIndex(),

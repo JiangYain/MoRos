@@ -59,7 +59,12 @@ export interface GoogleGeminiCliOptions extends StreamOptions {
 
 const DEFAULT_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
-const ANTIGRAVITY_ENDPOINT_FALLBACKS = [ANTIGRAVITY_DAILY_ENDPOINT, DEFAULT_ENDPOINT] as const;
+const ANTIGRAVITY_AUTOPUSH_ENDPOINT = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
+const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
+	ANTIGRAVITY_DAILY_ENDPOINT,
+	ANTIGRAVITY_AUTOPUSH_ENDPOINT,
+	DEFAULT_ENDPOINT,
+] as const;
 // Headers for Gemini CLI (prod endpoint)
 const GEMINI_CLI_HEADERS = {
 	"User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
@@ -72,18 +77,12 @@ const GEMINI_CLI_HEADERS = {
 };
 
 // Headers for Antigravity (sandbox endpoint) - requires specific User-Agent
-const DEFAULT_ANTIGRAVITY_VERSION = "1.15.8";
+const DEFAULT_ANTIGRAVITY_VERSION = "1.18.3";
 
 function getAntigravityHeaders() {
 	const version = process.env.PI_AI_ANTIGRAVITY_VERSION || DEFAULT_ANTIGRAVITY_VERSION;
 	return {
 		"User-Agent": `antigravity/${version} darwin/arm64`,
-		"X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-		"Client-Metadata": JSON.stringify({
-			ideType: "IDE_UNSPECIFIED",
-			platform: "PLATFORM_UNSPECIFIED",
-			pluginType: "GEMINI",
-		}),
 	};
 }
 
@@ -207,6 +206,18 @@ export function extractRetryDelay(errorText: string, response?: Response | Heade
 function isClaudeThinkingModel(modelId: string): boolean {
 	const normalized = modelId.toLowerCase();
 	return normalized.includes("claude") && normalized.includes("thinking");
+}
+
+function isGemini3ProModel(modelId: string): boolean {
+	return /gemini-3(?:\.1)?-pro/.test(modelId.toLowerCase());
+}
+
+function isGemini3FlashModel(modelId: string): boolean {
+	return /gemini-3(?:\.1)?-flash/.test(modelId.toLowerCase());
+}
+
+function isGemini3Model(modelId: string): boolean {
+	return isGemini3ProModel(modelId) || isGemini3FlashModel(modelId);
 }
 
 /**
@@ -373,10 +384,13 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli", GoogleGe
 			};
 			const requestBodyJson = JSON.stringify(requestBody);
 
-			// Fetch with retry logic for rate limits and transient errors
+			// Fetch with retry logic for rate limits, transient errors, and endpoint fallbacks.
+			// On 403/404, immediately try the next endpoint (no delay).
+			// On 429/5xx, retry with backoff on the same or next endpoint.
 			let response: Response | undefined;
 			let lastError: Error | undefined;
 			let requestUrl: string | undefined;
+			let endpointIndex = 0;
 
 			for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 				if (options?.signal?.aborted) {
@@ -384,7 +398,7 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli", GoogleGe
 				}
 
 				try {
-					const endpoint = endpoints[Math.min(attempt, endpoints.length - 1)];
+					const endpoint = endpoints[endpointIndex];
 					requestUrl = `${endpoint}/v1internal:streamGenerateContent?alt=sse`;
 					response = await fetch(requestUrl, {
 						method: "POST",
@@ -399,8 +413,19 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli", GoogleGe
 
 					const errorText = await response.text();
 
-					// Check if retryable
+					// On 403/404, cascade to the next endpoint immediately (no delay)
+					if ((response.status === 403 || response.status === 404) && endpointIndex < endpoints.length - 1) {
+						endpointIndex++;
+						continue;
+					}
+
+					// Check if retryable (429, 5xx, network patterns)
 					if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
+						// Advance endpoint if possible
+						if (endpointIndex < endpoints.length - 1) {
+							endpointIndex++;
+						}
+
 						// Use server-provided delay or exponential backoff
 						const serverDelay = extractRetryDelay(errorText, response);
 						const delayMs = serverDelay ?? BASE_DELAY_MS * 2 ** attempt;
@@ -794,7 +819,7 @@ export const streamSimpleGoogleGeminiCli: StreamFunction<"google-gemini-cli", Si
 	}
 
 	const effort = clampReasoning(options.reasoning)!;
-	if (model.id.includes("3-pro") || model.id.includes("3-flash")) {
+	if (isGemini3Model(model.id)) {
 		return streamGoogleGeminiCli(model, context, {
 			...base,
 			thinking: {
@@ -917,7 +942,7 @@ export function buildRequest(
 type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh">;
 
 function getGeminiCliThinkingLevel(effort: ClampedThinkingLevel, modelId: string): GoogleThinkingLevel {
-	if (modelId.includes("3-pro")) {
+	if (isGemini3ProModel(modelId)) {
 		switch (effort) {
 			case "minimal":
 			case "low":
