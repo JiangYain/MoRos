@@ -61,6 +61,15 @@ const LANDING_PROMPTS = [
   'Convince me this isn’t fucking stupid.'
 ]
 
+const MOROS_ASCII_ART = [
+  '███╗   ███╗ ██████╗ ██████╗  ██████╗ ███████╗',
+  '████╗ ████║██╔═══██╗██╔══██╗██╔═══██╗██╔════╝',
+  '██╔████╔██║██║   ██║██████╔╝██║   ██║███████╗',
+  '██║╚██╔╝██║██║   ██║██╔══██╗██║   ██║╚════██║',
+  '██║ ╚═╝ ██║╚██████╔╝██║  ██║╚██████╔╝███████║',
+  '╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝',
+].join('\n')
+
 function MainContent({
   currentFile,
   onSectionChange,
@@ -1058,6 +1067,12 @@ function MainContent({
         <div className="content-wrapper chat-landing-wrapper">
           <div className="chat-landing-screen">
             <h1 className="chat-landing-title">{landingPrompt}</h1>
+            <div className="chat-landing-ascii" aria-hidden="true">
+              <div className="chat-empty-ascii-wrapper">
+                <pre className="chat-empty-ascii" role="img" aria-label="MoRos">{MOROS_ASCII_ART}</pre>
+                <pre className="chat-empty-ascii-glow" aria-hidden="true">{MOROS_ASCII_ART}</pre>
+              </div>
+            </div>
             <ChatComposer
               value={landingInput}
               onValueChange={setLandingInput}

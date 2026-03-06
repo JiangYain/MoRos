@@ -631,7 +631,7 @@
   content: '';
   position: absolute;
   top: 0;
-  left: 30px;
+  left: 38px;
   right: 6px;
   bottom: 0;
   background: linear-gradient(0deg, rgba(var(--accent-color-rgb, 26, 26, 26), 0.06), rgba(var(--accent-color-rgb, 26, 26, 26), 0.06)), var(--bg-tertiary);
@@ -661,7 +661,7 @@
   content: '';
   position: absolute;
   top: 0;
-  left: 30px;
+  left: 38px;
   right: 6px;
   bottom: 0;
   background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.16);

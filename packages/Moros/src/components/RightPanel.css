@@ -350,6 +350,14 @@
   transform: translateX(-12px) translateY(8px) scale(0.98);
 }
 
+.preview-content-inner.preview-html {
+  transform: translateY(8px) scale(0.995);
+}
+
+.preview-content-inner.preview-code {
+  transform: translateX(-8px) translateY(8px) scale(0.985);
+}
+
 @keyframes previewContainerFadeIn {
   0% {
     opacity: 0;
@@ -381,6 +389,20 @@
 /* 确保预览组件填充完整高度 */
 .preview-content-inner > div {
   height: 100%;
+}
+
+.preview-panel .html-preview-pane {
+  padding: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.preview-panel .html-preview-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
 }
 
 /* 添加细微的进入光效 */

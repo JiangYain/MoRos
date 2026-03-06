@@ -428,7 +428,18 @@
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  margin-top: -6vh;
+  margin-top: 4vh;
+}
+
+.chat-landing-ascii {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  transform: scale(0.94);
+  transform-origin: center;
+  pointer-events: none;
 }
 
 .chat-landing-title {
@@ -923,6 +934,14 @@
 
   .chat-landing-wrapper {
     padding: 36px 16px !important;
+  }
+
+  .chat-landing-screen {
+    margin-top: 2vh;
+  }
+
+  .chat-landing-ascii {
+    transform: scale(0.88);
   }
 
   .chat-landing-card {
