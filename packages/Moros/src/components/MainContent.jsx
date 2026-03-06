@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { filesApi } from '../utils/api'
 import './MainContent.css'
 import Whiteboard, { isWhiteboardFile } from './Whiteboard'
@@ -33,6 +33,24 @@ const isChatFile = (filePath) => {
   return filePath && filePath.toLowerCase().endsWith('.moros')
 }
 
+const isMarkdownFile = (filePath) => {
+  const value = String(filePath || '').toLowerCase()
+  return value.endsWith('.md') || value.endsWith('.markdown')
+}
+
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+
+const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
+
+const normalizeDroppedPath = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/^[A-Za-z]:\//.test(text)) {
+    return text.replace(/\//g, '\\')
+  }
+  return text
+}
+
 const LANDING_PROMPTS = [
   'What did you break this time?',
   'State your issue. I’ll tolerate it',
@@ -43,7 +61,27 @@ const LANDING_PROMPTS = [
   'Convince me this isn’t fucking stupid.'
 ]
 
-function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange, darkMode, language, viewMode, setViewMode, onFileClick, editorRef, previewPaneRef, onPreviewScroll, onOverlayChange, avatar, username }) {
+function MainContent({
+  currentFile,
+  onSectionChange,
+  onFileSave,
+  onContentChange,
+  darkMode,
+  language,
+  viewMode,
+  setViewMode,
+  onFileClick,
+  editorRef,
+  previewPaneRef,
+  onPreviewScroll,
+  onOverlayChange,
+  avatar,
+  username,
+  skillPaths = [],
+  globalSystemPrompt = '',
+  onChatArtifactsVisibilityChange,
+  artifactsCloseRequestSeq = 0,
+}) {
   const contentRef = useRef(null)
   // 使用父级传入的 editorRef 作为编辑器 ref，若未传则使用本地 ref
   const textareaRef = editorRef || useRef(null)
@@ -67,6 +105,8 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
   const [saving, setSaving] = useState(false)
   const [landingInput, setLandingInput] = useState('')
   const [landingCreating, setLandingCreating] = useState(false)
+  const [landingDragOver, setLandingDragOver] = useState(false)
+  const [landingAttachments, setLandingAttachments] = useState([])
   const [landingProvider, setLandingProviderState] = useState(() => getActiveChatProvider())
   const [landingModel, setLandingModelState] = useState(() => getActiveChatModel())
   const [landingPrompt] = useState(() => {
@@ -126,8 +166,12 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
           const fileContent = await filesApi.readFile(currentFile.path)
           setContent(fileContent)
           setOriginalContent(fileContent)
-          // 默认进入分屏模式（编辑 + 预览）
-          setViewMode('split')
+          // Markdown 默认进入预览模式，其它文本文件保持分屏
+          if (isMarkdownFile(currentFile.path)) {
+            setViewMode('preview')
+          } else {
+            setViewMode('split')
+          }
         } catch (error) {
           console.error('加载文件内容失败:', error)
           setContent('')
@@ -806,11 +850,119 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
     setActiveChatModel(model)
   }
 
-  const handleLandingAddMenuSelect = (optionId) => {
-    if (optionId === 'action:import') {
-      handleOpenFile()
-      return
+  const resolveLandingAbsolutePath = useCallback(async (fileLike) => {
+    const candidatePath = String(
+      fileLike?.path ||
+      fileLike?.absolutePath ||
+      fileLike?.webkitRelativePath ||
+      '',
+    ).trim()
+    if (!candidatePath) return ''
+    if (isAbsolutePath(candidatePath)) return normalizeDroppedPath(candidatePath)
+    try {
+      const absolutePath = await filesApi.getAbsolutePath(candidatePath)
+      if (absolutePath) return normalizeDroppedPath(absolutePath)
+    } catch {}
+    return normalizeDroppedPath(candidatePath)
+  }, [])
+
+  const appendLandingAttachments = useCallback((items) => {
+    const incoming = Array.isArray(items) ? items.filter(Boolean) : []
+    if (incoming.length === 0) return
+    setLandingAttachments((prev) => {
+      const next = Array.isArray(prev) ? [...prev] : []
+      const seen = new Set(next.map((item) => String(item?.path || '').trim().toLowerCase()).filter(Boolean))
+      for (const item of incoming) {
+        const pathValue = String(item?.path || '').trim()
+        if (!pathValue) continue
+        const key = pathValue.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        next.push({
+          path: pathValue,
+          name: String(item?.name || '').trim() || pathValue.split(/[/\\]/).pop() || pathValue,
+        })
+      }
+      return next
+    })
+  }, [])
+
+  const handleLandingDragEnter = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const types = Array.from(e.dataTransfer?.types || [])
+    if (types.includes('text/plain') || types.includes('Files')) {
+      setLandingDragOver(true)
     }
+  }
+
+  const handleLandingDragOver = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleLandingDragLeave = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const container = e.currentTarget
+    const relatedTarget = e.relatedTarget
+    if (!container.contains(relatedTarget)) {
+      setLandingDragOver(false)
+    }
+  }
+
+  const handleLandingDrop = async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setLandingDragOver(false)
+    try {
+      const droppedFiles = Array.from(e.dataTransfer?.files || [])
+      const normalized = []
+      for (const droppedFile of droppedFiles) {
+        const absolutePath = await resolveLandingAbsolutePath(droppedFile)
+        if (!absolutePath) continue
+        normalized.push({
+          path: absolutePath,
+          name: String(droppedFile?.name || '').trim(),
+        })
+      }
+
+      const plainText = String(e.dataTransfer?.getData('text/plain') || '').trim()
+      if (plainText) {
+        let parsed = null
+        try {
+          parsed = JSON.parse(plainText)
+        } catch {
+          parsed = null
+        }
+        if (parsed?.path) {
+          const absolutePath = await resolveLandingAbsolutePath(parsed)
+          if (absolutePath) {
+            normalized.push({
+              path: absolutePath,
+              name: String(parsed?.name || '').trim(),
+            })
+          }
+        } else if (isAbsolutePath(plainText)) {
+          normalized.push({
+            path: normalizeDroppedPath(plainText),
+            name: '',
+          })
+        }
+      }
+
+      appendLandingAttachments(normalized)
+    } catch (error) {
+      console.error('处理落地页拖拽失败:', error)
+      alert('处理拖拽文件失败: ' + (error?.message || '未知错误'))
+    }
+  }
+
+  const removeLandingAttachment = (index) => {
+    setLandingAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+  }
+
+  const handleLandingAddMenuSelect = (optionId) => {
     if (optionId.startsWith('provider:')) {
       const nextProvider = optionId.replace('provider:', '')
       handleLandingProviderChange(nextProvider)
@@ -824,17 +976,15 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
 
   const landingAddMenuOptions = useMemo(() => {
     return [
-      { id: 'action:import', label: 'Import file' },
-      { id: 'separator:provider', type: 'separator' },
       ...CHAT_PROVIDER_OPTIONS.map((providerOption) => ({
         id: `provider:${providerOption.id}`,
-        label: `Provider: ${providerOption.label}`,
+        label: providerOption.label,
         selected: landingProvider === providerOption.id,
       })),
       { id: 'separator:model', type: 'separator' },
       ...CHAT_MODEL_OPTIONS.map((modelOption) => ({
         id: `model:${modelOption.id}`,
-        label: `Model: ${modelOption.label}`,
+        label: modelOption.label,
         selected: landingModel === modelOption.id,
       })),
     ]
@@ -848,7 +998,17 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
 
   const handleCreateChatFromLanding = async (promptText = '') => {
     const prompt = String(promptText || '').trim()
-    if (!prompt) return
+    const pendingFiles = Array.isArray(landingAttachments)
+      ? landingAttachments
+          .map((item) => ({
+            type: 'path',
+            transfer_method: 'local_path',
+            path: String(item?.path || '').trim(),
+            name: String(item?.name || '').trim(),
+          }))
+          .filter((item) => item.path)
+      : []
+    if (!prompt && pendingFiles.length === 0) return
     if (landingCreating) return
     try {
       setLandingCreating(true)
@@ -869,10 +1029,18 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
       try {
         sessionStorage.setItem(
           'moros-pending-chat',
-          JSON.stringify({ path: file.path, prompt, provider: landingProvider, model: landingModel }),
+          JSON.stringify({
+            path: file.path,
+            prompt,
+            files: pendingFiles,
+            provider: landingProvider,
+            model: landingModel,
+          }),
         )
       } catch {}
       setLandingInput('')
+      setLandingAttachments([])
+      setLandingDragOver(false)
       onFileClick?.(file)
     } catch (error) {
       console.error('创建对话失败:', error)
@@ -894,17 +1062,38 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
               value={landingInput}
               onValueChange={setLandingInput}
               onSubmit={() => handleCreateChatFromLanding(landingInput)}
+              onDragEnter={handleLandingDragEnter}
+              onDragOver={handleLandingDragOver}
+              onDragLeave={handleLandingDragLeave}
+              onDrop={handleLandingDrop}
               onAttach={handleOpenFile}
               addMenuOptions={landingAddMenuOptions}
               onAddMenuSelect={handleLandingAddMenuSelect}
               placeholder="Assign a task or ask anything"
               disabled={landingCreating}
-              canSubmit={Boolean(landingInput.trim())}
+              canSubmit={Boolean(landingInput.trim() || landingAttachments.length > 0)}
               autoFocus
-              attachTitle="Import file"
+              dragOver={landingDragOver}
+              attachTitle="Chat options"
               submitTitle="Start chat"
               stopTitle="Start chat"
             />
+            {landingAttachments.length > 0 && (
+              <div className="landing-uploaded-files">
+                {landingAttachments.map((file, index) => (
+                  <div key={`${file.path}-${index}`} className="landing-uploaded-file">
+                    <span className="landing-uploaded-file-name" title={file.path}>{file.name || file.path}</span>
+                    <button
+                      type="button"
+                      className="landing-uploaded-file-remove"
+                      onClick={() => removeLandingAttachment(index)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -956,7 +1145,16 @@ function MainContent({ currentFile, onSectionChange, onFileSave, onContentChange
     return (
       <main className="main-content">
         <div className="content-wrapper chat-wrapper" style={{ padding: 0, maxWidth: 'none', width: '100%', height: '100%' }}>
-          <ChatInterface currentFile={currentFile} darkMode={darkMode} avatar={avatar} username={username} />
+          <ChatInterface
+            currentFile={currentFile}
+            darkMode={darkMode}
+            avatar={avatar}
+            username={username}
+            skillPaths={skillPaths}
+            globalSystemPrompt={globalSystemPrompt}
+            onArtifactsVisibilityChange={onChatArtifactsVisibilityChange}
+            artifactsCloseRequestSeq={artifactsCloseRequestSeq}
+          />
         </div>
       </main>
     )

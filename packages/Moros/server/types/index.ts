@@ -8,7 +8,7 @@ export interface FileItem {
   createdAt: string
   updatedAt: string
   size?: number
-  color?: string // 文件夹颜色
+  color?: string // 项目颜色（文件/文件夹）
 }
 
 export interface KnowledgeNode {

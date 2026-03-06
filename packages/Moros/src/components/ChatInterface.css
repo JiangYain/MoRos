@@ -27,6 +27,401 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+.chat-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-shell.artifacts-open .chat-main-column {
+  flex: 0 1 38.2%;
+  max-width: 38.2%;
+  min-width: 300px;
+}
+
+.chat-shell.artifacts-open .chat-artifacts-panel {
+  width: auto;
+  flex: 1 1 61.8%;
+  min-width: 420px;
+}
+
+.chat-main-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-top-actions {
+  padding: 10px 32px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.chat-top-actions-inner {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ========== Artifacts Toggle ========== */
+.chat-artifacts-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: color 0.2s ease;
+}
+
+.chat-artifacts-toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ========== Artifacts Panel ========== */
+.chat-artifacts-panel {
+  width: 520px;
+  flex: 0 0 520px;
+  border-left: 0.5px solid var(--border-subtle);
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-artifacts-header {
+  height: 40px;
+  padding: 0 12px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 0.5px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.chat-artifacts-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  gap: 0;
+}
+
+.chat-artifacts-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  padding: 0 16px;
+  cursor: pointer;
+  position: relative;
+  letter-spacing: 0.01em;
+  transition: color 0.15s ease;
+}
+
+.chat-artifacts-tab:hover {
+  color: var(--text-secondary);
+}
+
+.chat-artifacts-tab.active {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.chat-artifacts-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+  height: 1.5px;
+  background: var(--text-primary);
+  border-radius: 1px;
+}
+
+.chat-artifacts-close {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: color 0.15s ease;
+}
+
+.chat-artifacts-close:hover {
+  color: var(--text-primary);
+}
+
+/* ========== Body & Split ========== */
+.chat-artifacts-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.chat-artifacts-split {
+  flex-direction: row;
+}
+
+/* ========== Sidebar (File List) ========== */
+.chat-artifacts-sidebar {
+  width: 220px;
+  flex: 0 0 220px;
+  border-right: 0.5px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-artifacts-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 4px;
+}
+
+.chat-artifacts-sidebar-title {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.chat-artifacts-refresh-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s ease;
+}
+
+.chat-artifacts-refresh-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.chat-artifacts-refresh-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.chat-artifacts-search-wrap {
+  padding: 6px 12px 8px;
+}
+
+.chat-artifacts-search {
+  width: 100%;
+  border: 0.5px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.chat-artifacts-search::placeholder {
+  color: var(--text-tertiary);
+}
+
+.chat-artifacts-search:focus {
+  border-color: var(--text-tertiary);
+}
+
+.chat-artifacts-file-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chat-artifacts-placeholder {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chat-artifacts-placeholder.error {
+  color: #c0392b;
+}
+
+.chat-artifact-file {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 7px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.12s ease;
+}
+
+.chat-artifact-file:hover {
+  background: var(--hover-bg);
+}
+
+.chat-artifact-file.active {
+  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.06);
+}
+
+.chat-artifact-file-icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+}
+
+.chat-artifact-file-name {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-artifact-file-size {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* ========== Content (Preview) ========== */
+.chat-artifacts-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-artifacts-content-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
+}
+
+.chat-artifacts-content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  height: 36px;
+  border-bottom: 0.5px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.chat-artifacts-content-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 450;
+}
+
+.chat-artifacts-content-tab svg {
+  color: var(--text-tertiary);
+}
+
+.chat-artifacts-tab-close {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 4px;
+  transition: color 0.15s ease;
+}
+
+.chat-artifacts-tab-close:hover {
+  color: var(--text-primary);
+}
+
+.chat-artifacts-content-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-artifacts-action-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  text-decoration: none;
+}
+
+.chat-artifacts-action-btn:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+.chat-artifacts-content-path {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  border-bottom: 0.5px solid var(--border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.chat-artifacts-content-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-artifacts-iframe {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: none;
+  background: #ffffff;
+}
+
+.chat-artifacts-image-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-secondary);
+}
+
+.chat-artifacts-image {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ========== 顶部移除 ========== */
 
 /* ========== 消息列表 ========== */
@@ -61,31 +456,84 @@
 /* 空状态 */
 .chat-empty {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  padding: 64px 32px;
+  padding: 48px 24px;
 }
 
-.chat-empty-icon {
-  display: none; /* 移除装饰性图标 */
+.chat-empty-ascii-wrapper {
+  position: relative;
+  display: inline-block;
 }
 
-.chat-empty-text {
-  font-size: 17px;
-  font-weight: 400; /* 更轻的字重 */
-  color: var(--text-secondary);
-  margin-bottom: 10px;
-  letter-spacing: -0.005em;
+.chat-empty-ascii {
+  margin: 0;
+  padding: 0;
+  font-family: Consolas, 'Liberation Mono', Menlo, 'Courier New', monospace;
+  font-size: clamp(8px, 1.6vw, 15px);
+  line-height: 1.28;
+  white-space: pre;
+  color: var(--text-primary);
+  opacity: 0.14;
+  user-select: none;
+  letter-spacing: 0.02em;
+  animation: morosBreath 6s ease-in-out infinite;
 }
 
-.chat-empty-hint {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  text-align: center;
-  line-height: 1.618;
-  font-weight: 400;
+.chat-empty-ascii-glow {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  font-family: Consolas, 'Liberation Mono', Menlo, 'Courier New', monospace;
+  font-size: clamp(8px, 1.6vw, 15px);
+  line-height: 1.28;
+  white-space: pre;
+  letter-spacing: 0.02em;
+  user-select: none;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 30%,
+    #D94632 45%,
+    #D94632 55%,
+    transparent 70%,
+    transparent 100%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  opacity: 0;
+  animation:
+    morosSweep 8s cubic-bezier(0.4, 0, 0.2, 1) infinite,
+    morosGlowPulse 8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes morosBreath {
+  0%, 100% { opacity: 0.14; }
+  50% { opacity: 0.20; }
+}
+
+@keyframes morosSweep {
+  0% { background-position: 100% 0; }
+  40% { background-position: -100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@keyframes morosGlowPulse {
+  0% { opacity: 0; }
+  5% { opacity: 0.55; }
+  35% { opacity: 0.55; }
+  42% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty-ascii { animation: none; opacity: 0.16; }
+  .chat-empty-ascii-glow { animation: none; opacity: 0; }
 }
 
 /* 消息项 */
@@ -197,26 +645,264 @@
   justify-content: flex-end; /* 用户消息右对齐时保持靠右 */
 }
 
-.chat-message-time {
+.chat-message-meta {
   margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  letter-spacing: 0;
-  font-weight: 400;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
   min-height: 18px;
   opacity: 0;
   transform: translateY(-2px);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-/* 用户消息时间戳也保持左对齐 */
-.chat-message.user .chat-message-time {
-  text-align: right;
+.chat-message-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
-.chat-message:hover .chat-message-time {
+.chat-message-copy-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.78;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.chat-message-copy-btn:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.chat-message-copy-btn.copied {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+/* 用户消息时间戳也保持左对齐 */
+.chat-message.user .chat-message-meta {
+  justify-content: flex-end;
+}
+
+.chat-message:hover .chat-message-meta {
   opacity: 0.95;
   transform: translateY(0);
+}
+
+/* ========== Tool Execution — Dieter Rams simplicity ========== */
+
+.chat-tool-events {
+  margin: 0 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
+}
+
+.chat-tool-events.streaming {
+  margin: 0 0 2px;
+}
+
+/* Shared row layout — running & finished */
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.618;
+}
+
+.tool-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #1a1a1a);
+  flex-shrink: 0;
+}
+
+.tool-row-arg {
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  color: var(--text-tertiary, #999999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+
+/* 交互优化：默认省略，悬停后保持展开（状态由 React 记录） */
+.tool-row.tool-row-expanded {
+  align-items: flex-start;
+}
+
+.tool-row.tool-row-expanded .tool-row-arg {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  overflow-wrap: anywhere;
+}
+
+/* Running: shimmer on both name & arg */
+.shimmer-text {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    var(--text-tertiary, #999999) 0%,
+    var(--text-tertiary, #999999) 30%,
+    var(--text-primary, #1a1a1a) 50%,
+    var(--text-tertiary, #999999) 70%,
+    var(--text-tertiary, #999999) 100%
+  );
+  background-size: 280% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinkingShimmer 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Done rows — legible but quiet */
+.tool-done .tool-row-name {
+  color: var(--text-secondary, #666666);
+  font-weight: 400;
+}
+
+.tool-done .tool-row-arg {
+  color: var(--text-tertiary, #999999);
+}
+
+/* Error state */
+.tool-error .tool-row-name {
+  color: #c0392b;
+}
+
+.tool-error .tool-row-arg {
+  color: rgba(192, 57, 43, 0.5);
+}
+
+/* Finished group — collapsible details */
+.tool-finished-group {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.tool-finished-summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  width: fit-content;
+  padding: 2px 0;
+  line-height: 1.618;
+  font-size: 13px;
+  color: var(--text-quaternary, #bbbbbb);
+  font-weight: 500;
+  user-select: none;
+  transition: color 0.15s ease;
+  letter-spacing: -0.01em;
+}
+
+.tool-finished-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-finished-summary:hover {
+  color: var(--text-tertiary, #999999);
+}
+
+.tool-finished-label {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+
+.tool-finished-chevron {
+  flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.45;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tool-finished-group[open] .tool-finished-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-finished-body {
+  padding: 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: toolBodyReveal 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toolBodyReveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.chat-tool-output-fold summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.chat-tool-output-fold summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-tool-output-fold pre {
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.chat-tool-diff {
+  margin: 0;
+  padding: 8px;
+  max-height: 280px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.chat-tool-diff-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.chat-tool-diff-line.added {
+  background: rgba(39, 174, 96, 0.16);
+  color: #1f8a4d;
+}
+
+.chat-tool-diff-line.removed {
+  background: rgba(217, 83, 79, 0.16);
+  color: #b7423e;
+}
+
+.chat-tool-diff-line.hunk {
+  background: rgba(33, 150, 243, 0.12);
+  color: #2f80ed;
 }
 
 /* ========== 输入区域 (Open WebUI 风格) ========== */
@@ -233,6 +919,107 @@
 .chat-input-container > * {
   width: 100%;
   max-width: 800px; /* 输入框保持紧凑 */
+}
+
+.chat-session-panel {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.chat-session-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-session-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-session-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.chat-session-dot.active {
+  background: #27ae60;
+}
+
+.chat-session-dot.idle {
+  background: #9aa0a6;
+}
+
+.chat-session-dot.busy {
+  background: #f5a623;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.chat-session-status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.chat-session-id {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-session-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chat-session-btn {
+  border: 0.5px solid var(--border-subtle);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.chat-session-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.chat-session-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.chat-session-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-session-btn.danger {
+  color: #d9534f;
+}
+
+.chat-session-file,
+.chat-session-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  word-break: break-all;
 }
 
 .chat-uploaded-files {
@@ -534,6 +1321,10 @@
   --text-secondary: #666666;
   --text-tertiary: #999999;
   --border-subtle: rgba(0, 0, 0, 0.06);
+  --code-inline-bg: rgba(0, 0, 0, 0.06);
+  --code-inline-border: rgba(0, 0, 0, 0.12);
+  --code-block-bg: #f5f5f5;
+  --code-block-border: rgba(0, 0, 0, 0.06);
   --hover-bg: rgba(0, 0, 0, 0.03);
   --accent-primary: #000000;
   --accent-primary-hover: #333333;
@@ -552,6 +1343,10 @@
   --text-secondary: #999999;
   --text-tertiary: #666666;
   --border-subtle: rgba(255, 255, 255, 0.06);
+  --code-inline-bg: rgba(255, 255, 255, 0.14);
+  --code-inline-border: rgba(255, 255, 255, 0.2);
+  --code-block-bg: #121315;
+  --code-block-border: rgba(255, 255, 255, 0.12);
   --hover-bg: rgba(255, 255, 255, 0.03);
   --accent-primary: #ffffff;
   --accent-primary-hover: #cccccc;
@@ -562,217 +1357,381 @@
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.18);
 }
 
-/* ========== Streamdown Markdown 样式 ========== */
+/* ========== Streamdown Markdown 样式 (prose + ChatGPT Spacing) ========== */
+/*
+ * 通过覆盖 @tailwindcss/typography 的 prose CSS 变量，将颜色映射到
+ * 设计系统 CSS 变量，实现 light/dark 自动适配，无需 dark:prose-invert。
+ */
 .chat-message-text .markdown-content {
+  --tw-prose-body: var(--text-primary);
+  --tw-prose-headings: var(--text-primary);
+  --tw-prose-lead: var(--text-secondary);
+  --tw-prose-links: var(--text-primary);
+  --tw-prose-bold: var(--text-primary);
+  --tw-prose-counters: var(--text-secondary);
+  --tw-prose-bullets: var(--text-tertiary);
+  --tw-prose-hr: var(--border-subtle);
+  --tw-prose-quotes: var(--text-secondary);
+  --tw-prose-quote-borders: var(--border-subtle);
+  --tw-prose-captions: var(--text-secondary);
+  --tw-prose-kbd: var(--text-primary);
+  --tw-prose-kbd-shadows: 0 0 0 transparent;
+  --tw-prose-code: var(--text-primary);
+  --tw-prose-pre-code: var(--text-primary);
+  --tw-prose-pre-bg: var(--code-block-bg);
+  --tw-prose-th-borders: var(--border-subtle);
+  --tw-prose-td-borders: var(--border-subtle);
+
   font-size: 15px;
   line-height: 1.618;
   color: var(--text-primary);
+  max-width: none;
 }
 
-/* 标题 */
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6 {
-  margin: 24px 0 16px;
-  font-weight: 500;
+/* ── ChatGPT-style Typography Overrides ── */
+
+.markdown-content :where(h1) {
+  font-size: 1.5em;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.markdown-content :where(h2) {
+  font-size: 1.3em;
+  margin-top: 1.4em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+}
+
+.markdown-content :where(h3) {
+  font-size: 1.125em;
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+  font-weight: 600;
   line-height: 1.4;
+}
+
+.markdown-content :where(h4) {
+  font-size: 1em;
+  margin-top: 1.1em;
+  margin-bottom: 0.3em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.markdown-content :where(h1):first-child,
+.markdown-content :where(h2):first-child,
+.markdown-content :where(h3):first-child,
+.markdown-content :where(h4):first-child {
+  margin-top: 0;
+}
+
+/* 段落: ChatGPT 标准 0.8em 间距 */
+.markdown-content :where(p) {
+  margin-top: 0.8em;
+  margin-bottom: 0.8em;
+}
+
+.markdown-content :where(p):first-child { margin-top: 0; }
+.markdown-content :where(p):last-child  { margin-bottom: 0; }
+
+/* 列表: ChatGPT padding-left 1.3em */
+.markdown-content :where(ul, ol) {
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+  padding-left: 1.3em;
+}
+
+.markdown-content :where(li) {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.markdown-content :where(li p) {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+.markdown-content :where(ul ul, ol ol, ul ol, ol ul) {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+
+/* 行内代码：保留正文字体，避免“发脆”的等宽视觉 */
+.markdown-content :where(p, li, blockquote) > code {
+  font-family: Consolas, 'Liberation Mono', Menlo, 'Courier New', monospace;
+  font-size: 0.875em;
+  font-weight: 500;
+  line-height: inherit;
+  background: var(--code-inline-bg);
+  border: 0.5px solid var(--code-inline-border);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
   color: var(--text-primary);
+  box-shadow: none !important;
+  outline: none !important;
 }
 
-.markdown-content h1 { font-size: 24px; }
-.markdown-content h2 { font-size: 20px; }
-.markdown-content h3 { font-size: 17px; }
-.markdown-content h4 { font-size: 15px; }
-
-/* 段落 */
-.markdown-content p {
-  margin: 12px 0;
+/* Streamdown 行内代码 */
+.markdown-content [data-streamdown="inline-code"] {
+  border: 0.5px solid var(--code-inline-border) !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
-/* 数学公式（KaTeX）与段落间距优化 */
+/* KaTeX 数学公式 */
 .markdown-content .katex-display {
-  margin: 16px 0;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .markdown-content .katex-display > .katex {
   font-size: 1.02em;
 }
 .markdown-content .katex {
-  white-space: normal; /* 防止超长行撑出水平滚动 */
+  white-space: normal;
 }
 
-.markdown-content p:first-child {
-  margin-top: 0;
-}
-
-.markdown-content p:last-child {
-  margin-bottom: 0;
-}
-
-/* 列表 */
-.markdown-content ul,
-.markdown-content ol {
-  margin: 12px 0;
-  padding-left: 24px;
-}
-
-.markdown-content li {
-  margin: 6px 0;
-}
-
-/* 代码 */
-.markdown-content code {
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 13px;
-  background: var(--bg-secondary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--text-primary);
-}
-
-/* 代码块包装器 - 悬浮设计风格 */
-.markdown-content .code-block-wrapper {
-  position: relative;
-  margin: 20px 0;
-  background: var(--bg-secondary);
-  border: 0.5px solid var(--border-subtle);
-  border-radius: 12px;
-  overflow: hidden;
-  padding-top: 48px; /* 为悬浮元素预留空间 */
-}
-
-/* 语言标签 - 左上角悬浮 */
-.markdown-content .code-language-label {
-  position: absolute;
-  top: 12px;
-  left: 16px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', 'Helvetica Neue', sans-serif;
-  opacity: 0.75;
-  transition: opacity 0.2s ease;
-  z-index: 10;
-}
-
-.markdown-content .code-block-wrapper:hover .code-language-label { opacity: 1; }
-.markdown-content .code-block-wrapper .code-language-label { opacity: 1; }
-
-/* 操作按钮容器 - 右上角悬浮 */
-.markdown-content .code-actions {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  z-index: 10;
-}
-
-.markdown-content .code-block-wrapper:hover .code-actions { opacity: 1; }
-.markdown-content .code-block-wrapper .code-actions { opacity: 1; }
-
-/* 代码操作按钮 - 简洁圆形设计 */
-.markdown-content .code-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
+/* Streamdown 原生代码块样式（贴近参考图） */
+.markdown-content [data-streamdown="code-block"] {
+  margin: 1em 0;
+  background: var(--code-block-bg);
   border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  border-radius: 50%;
-  font-size: 12px;
-  transition: all 0.2s ease;
-  opacity: 0.6;
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0 !important;
+  gap: 0 !important;
+  box-shadow: none;
+  position: relative;
 }
 
-.markdown-content .code-action-btn:hover {
-  background: var(--bg-tertiary);
+.markdown-content [data-streamdown="code-block-header"] {
+  min-height: 36px;
+  padding: 10px 16px 6px;
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-secondary);
+}
+
+.markdown-content [data-streamdown="code-block-header"] * {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif !important;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: capitalize;
   color: var(--text-primary);
+}
+
+.markdown-content [data-streamdown="code-block-header"] span::before {
+  content: "</> ";
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace !important;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0;
+  opacity: 0.5;
+}
+
+/* 将操作区的父容器绝对定位到右上角，与 header 中轴线对齐 */
+.markdown-content [data-streamdown="code-block"] > div:has([data-streamdown="code-block-actions"]) {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  margin: 0 !important;
+  min-height: 36px;
+  padding: 10px 12px 6px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.markdown-content [data-streamdown="code-block-actions"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  gap: 4px !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  pointer-events: auto;
+}
+
+.markdown-content [data-streamdown="code-block-copy-button"] {
+  width: 22px !important;
+  height: 22px !important;
+  border: none !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  opacity: 0.55;
+  transition: all 0.18s ease;
+  padding: 2px !important;
+}
+
+.markdown-content [data-streamdown="code-block-copy-button"]:hover {
   opacity: 1;
-  transform: scale(1.05);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  background: transparent !important;
+  color: var(--text-primary) !important;
 }
 
-.markdown-content .code-action-btn:active {
-  transform: translateY(0);
-}
-
-.markdown-content .code-action-btn .btn-label {
-  display: none; /* 隐藏文本标签，只显示图标 */
-}
-
-/* 隐藏原生代码块头部 */
-.markdown-content .code-block-header {
+.markdown-content [data-streamdown="code-block-download-button"] {
   display: none !important;
 }
 
-
-.markdown-content .code-block-body {
-  padding: 0;
-  overflow: hidden;
-}
-
-.markdown-content .code-block-body .streamdown-code-container {
-  margin: 0;
-}
-
-.markdown-content .code-block-body .streamdown-fallback-code {
-  padding: 12px 16px;
+.markdown-content [data-streamdown="code-block-body"] {
   overflow-x: auto;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border-top: none;
 }
 
-.markdown-content .code-block-body .streamdown-fallback-code code {
-  display: block;
-  white-space: pre;
-  word-break: normal;
-  overflow-wrap: normal;
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
-}
-
-.markdown-content .code-block-body [data-code-block-container] {
+.markdown-content [data-code-block-container],
+.markdown-content [data-code-block] {
   margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
   border: none !important;
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+  opacity: 1 !important;
 }
 
-.markdown-content .code-block-body [data-code-block] {
-  overflow-x: auto;
+.markdown-content [data-code-block] :where(pre, code) {
+  width: 100% !important;
+  max-width: 100% !important;
+  opacity: 1 !important;
 }
 
-.markdown-content .code-block-body [data-code-block] pre {
-  margin: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  /* 改善代码与容器边界的可读性 */
-  padding: 12px 16px;
+.markdown-content [data-streamdown="code-block-body"] :where(pre) {
+  margin: 0 !important;
+  padding: 14px 20px 16px !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }
 
-.markdown-content [data-code-block-header],
+.markdown-content [data-streamdown="code-block"] :where(pre, code) {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.markdown-content [data-streamdown="code-block-body"] :where(code) {
+  display: block;
+  font-family: Consolas, 'Liberation Mono', Menlo, 'Courier New', monospace !important;
+  font-size: 13.5px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  color: var(--text-primary) !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  opacity: 1 !important;
+}
+
+.markdown-content [data-streamdown="code-block-body"] :where(pre, code, span) {
+  opacity: 1 !important;
+}
+
+/* Shiki 主题代码块不叠加第二层背景 */
+.markdown-content [data-streamdown="code-block-body"] :where(pre[class*="shiki"]) {
+  background: transparent !important;
+}
+
+/* 隔离代码块内部 table 布局，避免被全局 markdown 表格样式污染 */
+.markdown-content [data-streamdown="code-block"] table,
+.markdown-content [data-streamdown="code-block"] thead,
+.markdown-content [data-streamdown="code-block"] tbody,
+.markdown-content [data-streamdown="code-block"] tr,
+.markdown-content [data-streamdown="code-block"] th,
+.markdown-content [data-streamdown="code-block"] td {
+  width: auto !important;
+  margin: 0 !important;
+  border: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+.markdown-content [data-streamdown="code-block"] table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+}
+
+.markdown-content [data-streamdown="code-block"] td + td {
+  padding-left: 0 !important;
+}
+
+/* 压缩 Shiki 可能生成的左侧辅助列（行号/占位列），避免中间竖线与窄列视觉 */
+.markdown-content [data-streamdown="code-block"] table td:first-child {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.markdown-content [data-streamdown="code-block"] table td:first-child * {
+  display: none !important;
+}
+
+.markdown-content [data-streamdown="code-block"] table td:last-child {
+  width: 100% !important;
+  border: none !important;
+}
+
+/* 不依赖 Tailwind 生成类名，直接使用 Streamdown/Shiki 注入的 CSS 变量上色 */
+.markdown-content [data-streamdown="code-block"] span[style*="--sdm-c"] {
+  color: var(--sdm-c) !important;
+}
+
+.chat-interface.dark .markdown-content [data-streamdown="code-block"] span[style*="--shiki-dark"] {
+  color: var(--shiki-dark) !important;
+}
+
+.markdown-content [data-streamdown="code-block"] span[style*="--sdm-tbg"] {
+  background: var(--sdm-tbg) !important;
+}
+
+.chat-interface.dark .markdown-content [data-streamdown="code-block"] span[style*="--shiki-dark-bg"] {
+  background: var(--shiki-dark-bg) !important;
+}
+
+/* 关闭行号前缀（若存在） */
+.markdown-content [data-streamdown="code-block"] code > span::before {
+  display: none !important;
+  content: none !important;
+}
+
+/* 隐藏不需要的图像/mermaid操作按钮 */
 .markdown-content [data-streamdown="image-wrapper"] button,
 .markdown-content [data-streamdown="mermaid-block"] button {
   display: none !important;
 }
 
-/* ========== 兼容 Streamdown（无 Tailwind 环境） ========== */
-/* Streamdown 会输出两个代码块（明/暗），依赖 tailwind 的 hidden/dark:block 切换。
-   在未引入 tailwind 的环境下需手动控制显示状态，避免出现“淡色重复影子”。 */
-.markdown-content .hidden { display: none !important; }
+/* 暗色/亮色 Shiki 主题切换 + Tailwind hidden/dark:block */
+.chat-interface.light .markdown-content [data-theme="dark"] { display: none !important; }
+.chat-interface.dark .markdown-content [data-theme="light"] { display: none !important; }
 
 /* 亮色主题：只显示明亮版本，隐藏暗色版本 */
 .chat-interface.light .markdown-content .dark\:block { display: none !important; }
@@ -783,100 +1742,274 @@
 .chat-interface.dark .markdown-content .dark\:hidden { display: none !important; }
 
 /* 引用 */
-.markdown-content blockquote {
-  margin: 16px 0;
-  padding-left: 16px;
-  border-left: 2px solid var(--border-subtle);
+.markdown-content :where(blockquote) {
+  margin: 1em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--border-subtle);
   color: var(--text-secondary);
   font-style: italic;
 }
 
-/* 链接 */
-.markdown-content a {
-  color: var(--text-secondary);
-  text-decoration: none;
-  border-bottom: 0.5px solid var(--text-secondary);
-  transition: border-color 0.2s ease;
+.markdown-content :where(blockquote p) {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
 }
 
-.markdown-content a:hover {
-  border-bottom-color: var(--text-secondary);
+/* 链接 */
+.markdown-content :where(a),
+.markdown-content [data-streamdown="link"] {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-subtle);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.2s ease;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.markdown-content :where(a):hover,
+.markdown-content [data-streamdown="link"]:hover {
+  text-decoration-color: var(--text-secondary);
 }
 
 /* 表格 */
-.markdown-content table {
+.markdown-content :where(table) {
   width: 100%;
   border-collapse: collapse;
-  margin: 16px 0;
-  font-size: 14px;
+  margin: 1em 0;
+  font-size: 0.875em;
+  line-height: 1.5;
+  display: table;
+  overflow-x: auto;
 }
 
-/* 图片与表格响应式，避免撑破导致异常间距 */
-.markdown-content img,
-.markdown-content table {
-  max-width: 100%;
+.markdown-content :where(thead) {
+  border-bottom: 2px solid var(--border-subtle);
 }
 
-.markdown-content th,
-.markdown-content td {
-  border: 0.5px solid var(--border-subtle);
-  padding: 10px 12px;
+.markdown-content [data-streamdown="table-wrapper"] thead {
+  border-bottom: none !important;
+}
+
+.markdown-content :where(th) {
+  padding: 0.6em 1em;
   text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  white-space: nowrap;
 }
 
-.markdown-content th {
-  background: var(--bg-secondary);
-  font-weight: 500;
+.markdown-content :where(td) {
+  padding: 0.6em 1em;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.markdown-content :where(tbody tr):last-child :where(td) {
+  border-bottom: none;
+}
+
+.markdown-content :where(tbody tr):hover {
+  background: var(--hover-bg);
+}
+
+/* 图片 */
+.markdown-content :where(img) {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 1em 0;
+}
+
+/* 加粗 */
+.markdown-content :where(strong) {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 任务列表 (GFM) */
+.markdown-content :where(ul):has(input[type="checkbox"]) {
+  list-style: none;
+  padding-left: 0.2em;
+}
+
+.markdown-content :where(li):has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
 }
 
 /* 分隔线 */
-.markdown-content hr {
+.markdown-content :where(hr) {
   border: none;
-  border-top: 0.5px solid var(--border-subtle);
-  margin: 24px 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1.6em 0;
+}
+
+/* ========== Streamdown 表格样式覆盖 ========== */
+
+/* 表格卡片容器：与代码块同系列的简洁卡片 */
+.markdown-content [data-streamdown="table-wrapper"] {
+  margin: 1em 0 !important;
+  background: var(--code-block-bg) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  overflow-x: auto !important;
+  gap: 0 !important;
+  position: relative !important;
+}
+
+/* 内层表格容器：去掉双重边框，清除所有间距 */
+.markdown-content [data-streamdown="table-wrapper"] > div:has(table),
+.markdown-content [data-streamdown="table-wrapper"] > div:last-child {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* 表格本体 */
+.markdown-content [data-streamdown="table"] {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  display: table !important;
+  table-layout: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 表头 */
+.markdown-content [data-streamdown="table-header"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.markdown-content [data-streamdown="table-header-cell"] {
+  padding: 10px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+  white-space: nowrap !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  letter-spacing: -0.01em;
+}
+
+/* 表体 */
+.markdown-content [data-streamdown="table-body"] {
+  background: transparent !important;
+}
+
+.markdown-content [data-streamdown="table-row"] {
+  border: none !important;
+  transition: background 0.12s ease;
+}
+
+.markdown-content [data-streamdown="table-row"]:hover {
+  background: var(--hover-bg) !important;
+}
+
+.markdown-content [data-streamdown="table-cell"] {
+  padding: 8px 16px !important;
+  font-size: 14px !important;
+  color: var(--text-primary) !important;
+  border-bottom: 0.5px solid var(--border-subtle) !important;
+}
+
+.markdown-content [data-streamdown="table-body"] [data-streamdown="table-row"]:last-child [data-streamdown="table-cell"] {
+  border-bottom: none !important;
+}
+
+/* 操作按钮行 — 绝对定位到右上角 */
+.markdown-content [data-streamdown="table-wrapper"] > div:first-child:not(:last-child) {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  padding: 8px 12px !important;
+  z-index: 5;
+  margin: 0 !important;
+  gap: 2px !important;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  height: auto !important;
+}
+
+.markdown-content [data-streamdown="table-wrapper"]:hover > div:first-child:not(:last-child) {
+  opacity: 1;
+}
+
+/* 复制/下载按钮：精致的小按钮 */
+.markdown-content [data-streamdown="table-wrapper"] button[title="Copy table"],
+.markdown-content [data-streamdown="table-wrapper"] button[title="Download table"] {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 6px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--code-block-bg) !important;
+  border: 0.5px solid var(--border-subtle) !important;
+  color: var(--text-tertiary) !important;
+  opacity: 0.7;
+  transition: all 0.15s ease;
+  padding: 0 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.markdown-content [data-streamdown="table-wrapper"] button[title="Copy table"]:hover,
+.markdown-content [data-streamdown="table-wrapper"] button[title="Download table"]:hover {
+  opacity: 1;
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none;
+  transform: none !important;
+}
+
+/* 隐藏表格按钮的下拉菜单（已由 JS 接管为直接操作） */
+.markdown-content [data-streamdown="table-wrapper"] div.absolute {
+  display: none !important;
 }
 
 /* ========== AI 头像样式优化 ========== */
-/* AI 头像统一为 24px,淡紫色背景,无边框 */
+/* AI 头像统一为 Moros 几何图形 */
 .chat-message.assistant .chat-message-avatar {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   background: transparent;
   border: none;
   box-shadow: none;
-  margin-top: 1px;
+  margin-top: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
-.chat-message.assistant .chat-message-avatar img {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
+.chat-ai-avatar-mark {
+  width: 28px;
+  height: 28px;
+  display: block;
+  color: var(--text-primary);
+  --moros-shape-accent: #d94632;
   opacity: 0.92;
-  filter: none;
 }
 
-/* Thinking 状态：圆点和文字垂直居中对齐 */
+/* Thinking 状态：保持头像正常显示 */
 .chat-message.thinking {
   align-items: center;
 }
 
 .chat-message.thinking .chat-message-avatar {
-  width: 8px;
-  height: 8px;
+  width: 30px;
+  height: 30px;
   margin-top: 0;
-  animation: avatarBreath 2s ease-in-out infinite;
-}
-
-/* 头像呼吸动效 - 放大缩小 */
-@keyframes avatarBreath {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  50% {
-    transform: scale(1.4);
-    opacity: 1;
-  }
+  animation: none;
+  border-radius: 0;
+  overflow: visible;
 }
 
 /* ========== Thinking 动效 ========== */
@@ -885,33 +2018,34 @@
 }
 
 .thinking-text {
-  font-size: 15px;
-  color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 400;
+  letter-spacing: -0.01em;
   position: relative;
   display: inline-block;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
   background: linear-gradient(
     90deg,
-    rgba(153, 153, 153, 0.3) 0%,
-    rgba(153, 153, 153, 0.4) 25%,
-    var(--text-primary) 50%,
-    rgba(153, 153, 153, 0.4) 75%,
-    rgba(153, 153, 153, 0.3) 100%
+    var(--text-tertiary, #999999) 0%,
+    var(--text-tertiary, #999999) 30%,
+    var(--text-primary, #1a1a1a) 50%,
+    var(--text-tertiary, #999999) 70%,
+    var(--text-tertiary, #999999) 100%
   );
-  background-size: 300% 100%;
+  background-size: 280% 100%;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: thinkingShimmer 2s ease-in-out infinite;
+  animation: thinkingShimmer 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* 光效流动动画 - 更明显更流畅 */
+/* 统一的光效流动动画 */
 @keyframes thinkingShimmer {
   0% {
-    background-position: 300% center;
+    background-position: 200% center;
   }
   100% {
-    background-position: -300% center;
+    background-position: -200% center;
   }
 }
 
@@ -921,12 +2055,19 @@
 }
 
 .streaming-indicator {
+  margin-top: 8px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-tertiary);
+  gap: 0;
   opacity: 1 !important;
   transform: translateY(0) !important;
+}
+
+.streaming-typing {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
 }
 
 .streaming-dot {
@@ -973,12 +2114,40 @@
   opacity: 0.9;
 }
 
-.chat-message.error .chat-message-avatar {
-  background: #d9534f;
+.chat-message.error .chat-error-note {
+  margin-top: 8px;
 }
 
 /* ========== 响应式调整 ========== */
 @media (max-width: 768px) {
+  .chat-shell {
+    flex-direction: column;
+  }
+
+  .chat-shell.artifacts-open .chat-main-column,
+  .chat-shell.artifacts-open .chat-artifacts-panel {
+    max-width: none;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .chat-top-actions {
+    padding: 10px 20px 0;
+  }
+
+  .chat-artifacts-panel {
+    width: 100%;
+    flex: 0 0 auto;
+    max-height: 50%;
+    border-left: none;
+    border-top: 0.5px solid var(--border-subtle);
+  }
+
+  .chat-artifacts-sidebar {
+    width: 180px;
+    flex: 0 0 180px;
+  }
+
   .chat-messages,
   .chat-input-container {
     padding-left: 20px;
@@ -988,6 +2157,15 @@
   .chat-messages {
     padding-top: 24px;
     padding-bottom: 24px;
+  }
+
+  .chat-empty {
+    padding: 32px 16px;
+  }
+
+  .chat-empty-ascii,
+  .chat-empty-ascii-glow {
+    font-size: clamp(6px, 1.4vw, 11px);
   }
 
   .chat-message-avatar {
@@ -1008,6 +2186,20 @@
     max-width: none;
   }
 
+  .chat-session-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .chat-session-status {
+    width: 100%;
+  }
+
+  .chat-session-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .chat-input-wrapper {
     padding: 6px 8px;
     border-radius: 999px;
@@ -1022,10 +2214,6 @@
   .markdown-content {
     font-size: 14px;
   }
-
-  .markdown-content h1 { font-size: 20px; }
-  .markdown-content h2 { font-size: 18px; }
-  .markdown-content h3 { font-size: 16px; }
 }
 
 /* Landing → Chat transition */

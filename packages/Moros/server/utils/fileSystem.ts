@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import type { Dirent } from 'fs'
 import path from 'path'
+import { spawn } from 'child_process'
 import { FileItem } from '../types/index.js'
 
 // 数据存储目录
@@ -8,6 +9,19 @@ const DATA_DIR = path.join(process.cwd(), 'markov-data')
 const ORDER_FILE = '.order.json'
 const METADATA_FILE = '.metadata.json'
 const LEGACY_WORKSPACE_CONFIG_FILE = '.moros-workspaces.json'
+const GLOBAL_SETTINGS_FILE = '.moros-settings.json'
+const FILE_TREE_CACHE_TTL_MS = 120000
+
+let fileTreeCache: { expiresAt: number; data: FileItem[] } | null = null
+let fileTreeInFlight: Promise<FileItem[]> | null = null
+
+function toRelativePath(fullPath: string): string {
+  return path.relative(DATA_DIR, fullPath).replace(/\\/g, '/')
+}
+
+function invalidateFileTreeCache() {
+  fileTreeCache = null
+}
 
 function resolveDataPath(targetPath: string): string {
   const fullPath = path.resolve(DATA_DIR, targetPath || '')
@@ -27,11 +41,6 @@ export async function ensureDataDir() {
   }
 }
 
-// 生成唯一 ID
-export function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2)
-}
-
 // 读取目录元数据
 async function readDirectoryMetadata(dirPath: string): Promise<{ [key: string]: any }> {
   try {
@@ -45,8 +54,15 @@ async function readDirectoryMetadata(dirPath: string): Promise<{ [key: string]: 
 // 获取文件系统树
 export async function getFileTree(): Promise<FileItem[]> {
   await ensureDataDir()
+  const now = Date.now()
+  if (fileTreeCache && fileTreeCache.expiresAt > now) {
+    return fileTreeCache.data
+  }
+  if (fileTreeInFlight) {
+    return await fileTreeInFlight
+  }
   
-  async function scanDirectory(dirPath: string, parentId?: string): Promise<FileItem[]> {
+  async function scanDirectory(dirPath: string, parentPath?: string): Promise<FileItem[]> {
     const items: FileItem[] = []
 
     try {
@@ -83,30 +99,52 @@ export async function getFileTree(): Promise<FileItem[]> {
 
       const sortedEntries = [...inOrder, ...remaining]
 
-      for (const entry of sortedEntries) {
-        if (entry.name === ORDER_FILE || entry.name === METADATA_FILE || entry.name === LEGACY_WORKSPACE_CONFIG_FILE) continue
+      const nodes = await Promise.all(sortedEntries.map(async (entry) => {
+        if (
+          entry.name === ORDER_FILE ||
+          entry.name === METADATA_FILE ||
+          entry.name === LEGACY_WORKSPACE_CONFIG_FILE ||
+          entry.name === GLOBAL_SETTINGS_FILE
+        ) {
+          return null
+        }
         const fullPath = path.join(dirPath, entry.name)
-        const relativePath = path.relative(DATA_DIR, fullPath)
-        const stats = await fs.stat(fullPath)
+        const relativePath = toRelativePath(fullPath)
+
+        let stats
+        try {
+          stats = await fs.stat(fullPath)
+        } catch (error: any) {
+          // 文件在 readdir 与 stat 之间被改名/删除时，直接跳过，避免整次扫描失败
+          if (error?.code === 'ENOENT') return null
+          throw error
+        }
 
         const item: FileItem = {
-          id: generateId(),
+          id: relativePath,
           name: entry.name,
           type: entry.isDirectory() ? 'folder' : 'file',
           path: relativePath,
-          parentId,
+          parentId: parentPath,
           createdAt: stats.birthtime.toISOString(),
           updatedAt: stats.mtime.toISOString(),
           size: entry.isFile() ? stats.size : undefined,
-          color: entry.isDirectory() ? metadata[entry.name]?.color : undefined
+          color: metadata[entry.name]?.color
         }
 
-        items.push(item)
+        if (!entry.isDirectory()) {
+          return { item, children: [] as FileItem[] }
+        }
 
-        // 递归扫描子目录
-        if (entry.isDirectory()) {
-          const children = await scanDirectory(fullPath, item.id)
-          items.push(...children)
+        const children = await scanDirectory(fullPath, relativePath)
+        return { item, children }
+      }))
+
+      for (const node of nodes) {
+        if (!node) continue
+        items.push(node.item)
+        if (node.children.length > 0) {
+          items.push(...node.children)
         }
       }
     } catch (error) {
@@ -116,7 +154,20 @@ export async function getFileTree(): Promise<FileItem[]> {
     return items
   }
   
-  return await scanDirectory(DATA_DIR)
+  fileTreeInFlight = (async () => {
+    const scanned = await scanDirectory(DATA_DIR)
+    fileTreeCache = {
+      expiresAt: Date.now() + FILE_TREE_CACHE_TTL_MS,
+      data: scanned,
+    }
+    return scanned
+  })()
+
+  try {
+    return await fileTreeInFlight
+  } finally {
+    fileTreeInFlight = null
+  }
 }
 
 // 创建文件夹
@@ -130,12 +181,13 @@ export async function createFolder(name: string, parentPath?: string): Promise<F
   const folderPath = path.join(baseDir, name)
 
   await fs.mkdir(folderPath, { recursive: true })
+  invalidateFileTreeCache()
 
   const stats = await fs.stat(folderPath)
-  const relativePath = path.relative(DATA_DIR, folderPath)
+  const relativePath = toRelativePath(folderPath)
   
   return {
-    id: generateId(),
+    id: relativePath,
     name,
     type: 'folder',
     path: relativePath,
@@ -159,12 +211,13 @@ export async function createFile(name: string, content: string = '', parentPath?
   await fs.mkdir(parentDir, { recursive: true })
 
   await fs.writeFile(filePath, content, 'utf-8')
+  invalidateFileTreeCache()
 
   const stats = await fs.stat(filePath)
-  const relativePath = path.relative(DATA_DIR, filePath)
+  const relativePath = toRelativePath(filePath)
   
   return {
-    id: generateId(),
+    id: relativePath,
     name,
     type: 'file',
     path: relativePath,
@@ -190,18 +243,27 @@ export async function writeFileContent(filePath: string, content: string): Promi
   await fs.mkdir(parentDir, { recursive: true })
 
   await fs.writeFile(fullPath, content, 'utf-8')
+  invalidateFileTreeCache()
 }
 
 // 删除文件或文件夹
 export async function deleteItem(itemPath: string): Promise<void> {
   const fullPath = resolveDataPath(itemPath)
-  const stats = await fs.stat(fullPath)
+  let stats
+  try {
+    stats = await fs.stat(fullPath)
+  } catch (error: any) {
+    // 幂等删除：目标不存在时视为已删除
+    if (error?.code === 'ENOENT') return
+    throw error
+  }
 
   if (stats.isDirectory()) {
     await fs.rm(fullPath, { recursive: true, force: true })
   } else {
     await fs.unlink(fullPath)
   }
+  invalidateFileTreeCache()
 }
 
 // 重命名文件或文件夹
@@ -213,13 +275,24 @@ export async function renameItem(oldPath: string, newName: string): Promise<File
   const parentDir = path.dirname(oldFullPath)
   const newFullPath = path.join(parentDir, newName)
 
-  await fs.rename(oldFullPath, newFullPath)
+  try {
+    await fs.rename(oldFullPath, newFullPath)
+  } catch (error: any) {
+    // 当同一次重命名被重复触发时，可能第一次已成功，第二次 oldPath 不存在
+    if (error?.code !== 'ENOENT') throw error
+    try {
+      await fs.stat(newFullPath)
+    } catch {
+      throw error
+    }
+  }
+  invalidateFileTreeCache()
   
   const stats = await fs.stat(newFullPath)
-  const relativePath = path.relative(DATA_DIR, newFullPath)
+  const relativePath = toRelativePath(newFullPath)
   
   return {
-    id: generateId(),
+    id: relativePath,
     name: newName,
     type: stats.isDirectory() ? 'folder' : 'file',
     path: relativePath,
@@ -242,6 +315,7 @@ export async function reorderItems(parentPath: string | undefined, orderedNames:
     JSON.stringify({ order: filtered }, null, 2),
     'utf-8'
   )
+  invalidateFileTreeCache()
 }
 
 // 移动文件或文件夹到新位置
@@ -269,12 +343,13 @@ export async function moveItem(sourcePath: string, targetParentPath?: string): P
   
   // 移动文件/文件夹
   await fs.rename(sourceFullPath, targetFullPath)
+  invalidateFileTreeCache()
   
   const stats = await fs.stat(targetFullPath)
-  const relativePath = path.relative(DATA_DIR, targetFullPath)
+  const relativePath = toRelativePath(targetFullPath)
   
   return {
-    id: generateId(),
+    id: relativePath,
     name: itemName,
     type: stats.isDirectory() ? 'folder' : 'file',
     path: relativePath,
@@ -316,4 +391,47 @@ export async function setFolderColor(folderPath: string, color?: string): Promis
     JSON.stringify(metadata, null, 2),
     'utf-8'
   )
+  invalidateFileTreeCache()
+}
+
+// 在系统文件管理器中定位文件/文件夹
+export async function revealInFileExplorer(itemPath: string): Promise<void> {
+  await ensureDataDir()
+  const fullPath = resolveDataPath(itemPath)
+  const stats = await fs.stat(fullPath)
+  const normalizedPath = path.normalize(fullPath)
+
+  await new Promise<void>((resolve, reject) => {
+    let command = ''
+    let args: string[] = []
+
+    if (process.platform === 'win32') {
+      command = 'explorer.exe'
+      args = stats.isDirectory()
+        ? [normalizedPath]
+        : [`/select,${normalizedPath}`]
+    } else if (process.platform === 'darwin') {
+      command = 'open'
+      args = stats.isDirectory()
+        ? [normalizedPath]
+        : ['-R', normalizedPath]
+    } else {
+      command = 'xdg-open'
+      args = [stats.isDirectory() ? normalizedPath : path.dirname(normalizedPath)]
+    }
+
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+    })
+
+    child.once('error', (error) => reject(error))
+    child.unref()
+    resolve()
+  })
+}
+
+// 获取项目的绝对路径
+export function getAbsoluteItemPath(itemPath: string): string {
+  return resolveDataPath(itemPath)
 }

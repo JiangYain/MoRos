@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url'
 import { filesRouter } from './routes/files.js'
 import { knowledgeRouter } from './routes/knowledge.js'
 import { proxyRouter } from './routes/proxy.js'
+import { agentRouter } from './routes/agent.js'
+import { settingsRouter } from './routes/settings.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -26,6 +28,8 @@ app.use(express.static(staticPath))
 app.use('/api/files', filesRouter)
 app.use('/api/knowledge', knowledgeRouter)
 app.use('/api/proxy', proxyRouter)
+app.use('/api/agent', agentRouter)
+app.use('/api/settings', settingsRouter)
 
 // 健康检查
 app.get('/api/health', (req, res) => {

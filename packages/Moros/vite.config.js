@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename)
 // https://vitejs.dev/config/
 export default defineConfig({
   base: './',
+  appType: 'spa',
   plugins: [react()],
   resolve: {
     alias: [
@@ -22,11 +23,11 @@ export default defineConfig({
     ],
   },
   server: {
-    port: 53210
+    port: 53210,
+    strictPort: true
   },
   optimizeDeps: {
     exclude: [
-      // 上游调试工程不参与本应用预构建，否则会拉入一批可选依赖并报缺失
       'vendor/excalidraw-upstream',
       '@excalidraw/excalidraw',
       'vendor/excalidraw'

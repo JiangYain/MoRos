@@ -12,10 +12,15 @@ import {
   renameItem,
   reorderItems,
   moveItem,
-  setFolderColor 
+  setFolderColor,
+  revealInFileExplorer,
+  getAbsoluteItemPath,
 } from '../utils/fileSystem.js'
 
 export const filesRouter = express.Router()
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+const BASE_TAG_REGEX = /<base\s[^>]*>/i
+const HEAD_OPEN_TAG_REGEX = /<head[^>]*>/i
 
 // 上传配置（内存存储）
 // 将单文件大小上限提升到 50MB，避免粘贴/拖拽大图失败
@@ -193,6 +198,36 @@ filesRouter.post('/folder-color', async (req, res) => {
   }
 })
 
+// 在系统文件管理器中显示文件/文件夹
+filesRouter.post('/reveal', async (req, res) => {
+  try {
+    const { itemPath } = req.body || {}
+    if (!itemPath) {
+      return res.status(400).json({ success: false, error: '路径不能为空' })
+    }
+    await revealInFileExplorer(itemPath)
+    res.json({ success: true })
+  } catch (error) {
+    console.error('打开资源管理器失败:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || '打开资源管理器失败' })
+  }
+})
+
+// 获取文件/文件夹的绝对路径
+filesRouter.post('/absolute-path', async (req, res) => {
+  try {
+    const { itemPath } = req.body || {}
+    if (!itemPath) {
+      return res.status(400).json({ success: false, error: '路径不能为空' })
+    }
+    const absolutePath = getAbsoluteItemPath(itemPath)
+    res.json({ success: true, data: { path: absolutePath } })
+  } catch (error) {
+    console.error('解析绝对路径失败:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || '解析绝对路径失败' })
+  }
+})
+
 // 上传文件（用于图片粘贴/插入）
 // 显式捕获 Multer 错误（例如文件过大），并返回统一 JSON
 filesRouter.post('/upload', (req, res) => {
@@ -259,6 +294,111 @@ filesRouter.post('/upload', (req, res) => {
       return res.status(500).json({ success: false, error: '上传文件失败' })
     }
   })
+})
+
+// 从绝对路径目录中读取文件（用于 HTML 内的相对资源）
+filesRouter.get('/raw-absolute-root/:encodedRoot/:relativePath(*)', async (req, res) => {
+  try {
+    const rootPath = String(req.params?.encodedRoot || '').trim()
+    const relativePath = String(req.params?.relativePath || '').trim()
+    if (!rootPath || !relativePath) {
+      return res.status(400).json({ success: false, error: '路径参数不能为空' })
+    }
+    if (!ABSOLUTE_PATH_PATTERN.test(rootPath)) {
+      return res.status(400).json({ success: false, error: '根路径必须是绝对路径' })
+    }
+
+    const resolvedRoot = path.resolve(rootPath)
+    const targetPath = path.resolve(resolvedRoot, relativePath)
+    if (!(targetPath === resolvedRoot || targetPath.startsWith(resolvedRoot + path.sep))) {
+      return res.status(400).json({ success: false, error: '非法相对路径' })
+    }
+
+    const stat = await fs.stat(targetPath)
+    if (!stat.isFile()) {
+      return res.status(400).json({ success: false, error: '目标路径不是文件' })
+    }
+    res.sendFile(targetPath)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ success: false, error: '文件不存在' })
+    }
+    console.error('读取绝对路径目录资源失败:', error)
+    res.status(500).json({ success: false, error: '读取绝对路径目录资源失败' })
+  }
+})
+
+// 读取绝对路径 HTML，并注入 base 以支持相对资源加载
+filesRouter.get('/raw-absolute-html', async (req, res) => {
+  try {
+    const requestedPath = String(req.query?.path || '').trim()
+    if (!requestedPath) {
+      return res.status(400).json({ success: false, error: '绝对路径不能为空' })
+    }
+
+    const normalizedInput = requestedPath.replace(/^"(.*)"$/, '$1')
+    if (!ABSOLUTE_PATH_PATTERN.test(normalizedInput)) {
+      return res.status(400).json({ success: false, error: '仅支持绝对路径预览' })
+    }
+
+    const fullPath = path.resolve(normalizedInput)
+    const stat = await fs.stat(fullPath)
+    if (!stat.isFile()) {
+      return res.status(400).json({ success: false, error: '目标路径不是文件' })
+    }
+
+    const html = await fs.readFile(fullPath, 'utf-8')
+    const rootDir = path.dirname(fullPath)
+    const baseHref = `/api/files/raw-absolute-root/${encodeURIComponent(rootDir)}/`
+    const baseTag = `<base href="${baseHref}">`
+    let patchedHtml = html
+
+    if (BASE_TAG_REGEX.test(patchedHtml)) {
+      patchedHtml = patchedHtml.replace(BASE_TAG_REGEX, baseTag)
+    } else if (HEAD_OPEN_TAG_REGEX.test(patchedHtml)) {
+      patchedHtml = patchedHtml.replace(HEAD_OPEN_TAG_REGEX, (matched) => `${matched}\n${baseTag}`)
+    } else {
+      patchedHtml = `${baseTag}\n${patchedHtml}`
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.send(patchedHtml)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ success: false, error: '文件不存在' })
+    }
+    console.error('读取绝对路径 HTML 失败:', error)
+    res.status(500).json({ success: false, error: '读取绝对路径 HTML 失败' })
+  }
+})
+
+// 读取原始文件（用于图片等静态资源）
+filesRouter.get('/raw-absolute', async (req, res) => {
+  try {
+    const requestedPath = String(req.query?.path || '').trim()
+    if (!requestedPath) {
+      return res.status(400).json({ success: false, error: '绝对路径不能为空' })
+    }
+
+    const normalizedInput = requestedPath.replace(/^"(.*)"$/, '$1')
+    if (!ABSOLUTE_PATH_PATTERN.test(normalizedInput)) {
+      return res.status(400).json({ success: false, error: '仅支持绝对路径预览' })
+    }
+
+    const fullPath = path.resolve(normalizedInput)
+    const stat = await fs.stat(fullPath)
+    if (!stat.isFile()) {
+      return res.status(400).json({ success: false, error: '目标路径不是文件' })
+    }
+
+    res.sendFile(fullPath)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ success: false, error: '文件不存在' })
+    }
+    console.error('读取绝对路径文件失败:', error)
+    res.status(500).json({ success: false, error: '读取绝对路径文件失败' })
+  }
 })
 
 // 读取原始文件（用于图片等静态资源）

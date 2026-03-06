@@ -4,7 +4,7 @@ import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import RightPanel from './components/RightPanel'
 import { isWhiteboardFile } from './components/Whiteboard'
-import { healthCheck } from './utils/api'
+import { settingsApi } from './utils/api'
 import { isMorosChatPath, markChatFileOpened } from './utils/chatFiles'
 import './App.css'
 import SplitCursorOverlay from './components/SplitCursorOverlay'
@@ -20,7 +20,10 @@ function App() {
   const [activeSection, setActiveSection] = useState('')
   const [currentFile, setCurrentFile] = useState(null)
   const [currentContent, setCurrentContent] = useState('')
-  const [serverConnected, setServerConnected] = useState(false)
+  const [skillPaths, setSkillPaths] = useState([])
+  const [globalSystemPrompt, setGlobalSystemPrompt] = useState('')
+  const [chatArtifactsVisible, setChatArtifactsVisible] = useState(false)
+  const [chatArtifactsCloseRequestSeq, setChatArtifactsCloseRequestSeq] = useState(0)
   const [language, setLanguage] = useState('zh-CN')
   const [avatar, setAvatar] = useState(null)
   const [username, setUsername] = useState('MoRos')
@@ -30,6 +33,7 @@ function App() {
   const [showFileExtensions, setShowFileExtensions] = useState(false)
   const [dynamicCursorGuide, setDynamicCursorGuide] = useState(true)
   const sidebarRef = useRef(null)
+  const sidebarAutoCollapsedByArtifactsRef = useRef(false)
   // 自定义CSS状态
   const [customCSS, setCustomCSS] = useState(null)
   // 样式面板状态（固定面板，非弹出）
@@ -97,6 +101,24 @@ function App() {
     }
     if (savedCustomCSS) {
       setCustomCSS(savedCustomCSS)
+    }
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    const loadGlobalSystemPrompt = async () => {
+      try {
+        const { systemPrompt } = await settingsApi.getSystemPrompt()
+        if (!disposed) {
+          setGlobalSystemPrompt(systemPrompt)
+        }
+      } catch (error) {
+        console.warn('读取全局 System Prompt 失败:', error)
+      }
+    }
+    void loadGlobalSystemPrompt()
+    return () => {
+      disposed = true
     }
   }, [])
 
@@ -188,30 +210,54 @@ function App() {
     // 注意：代码主题现在通过统一主题文件管理，不需要动态注入
   }, [darkMode])
 
-  // 检查服务器连接
-  useEffect(() => {
-    const checkServer = async () => {
-      try {
-        const connected = await healthCheck()
-        setServerConnected(connected)
-        if (!connected) {
-          console.warn('后端服务器未连接，请确保服务器正在运行')
-        }
-      } catch (error) {
-        console.error('服务器连接检查失败:', error)
-        setServerConnected(false)
-      }
-    }
-
-    checkServer()
-    const interval = setInterval(checkServer, 30000) // 每30秒检查一次
-    return () => clearInterval(interval)
+  const handleSaveGlobalSystemPrompt = useCallback(async (value) => {
+    const normalized = String(value ?? '').replace(/\r\n/g, '\n')
+    const { systemPrompt } = await settingsApi.saveSystemPrompt(normalized)
+    setGlobalSystemPrompt(systemPrompt)
+    return systemPrompt
   }, [])
 
   const handleGoHome = useCallback(() => {
     setCurrentFile(null)
     setCurrentContent('')
   }, [])
+
+  useEffect(() => {
+    if (isCurrentFileChat) return
+    setChatArtifactsVisible(false)
+    if (sidebarAutoCollapsedByArtifactsRef.current) {
+      sidebarAutoCollapsedByArtifactsRef.current = false
+      setSidebarCollapsed(false)
+    }
+  }, [isCurrentFileChat])
+
+  useEffect(() => {
+    if (!isCurrentFileChat || !chatArtifactsVisible) return
+    if (!sidebarCollapsed) {
+      sidebarAutoCollapsedByArtifactsRef.current = true
+      setSidebarCollapsed(true)
+    }
+  }, [chatArtifactsVisible, isCurrentFileChat, sidebarCollapsed])
+
+  useEffect(() => {
+    if (chatArtifactsVisible) return
+    if (sidebarAutoCollapsedByArtifactsRef.current && sidebarCollapsed) {
+      sidebarAutoCollapsedByArtifactsRef.current = false
+      setSidebarCollapsed(false)
+    }
+  }, [chatArtifactsVisible, sidebarCollapsed])
+
+  const handleToggleSidebarCollapse = useCallback(() => {
+    if (isCurrentFileChat && chatArtifactsVisible && sidebarCollapsed) {
+      sidebarAutoCollapsedByArtifactsRef.current = false
+      setChatArtifactsVisible(false)
+      setChatArtifactsCloseRequestSeq((seq) => seq + 1)
+      setSidebarCollapsed(false)
+      return
+    }
+    sidebarAutoCollapsedByArtifactsRef.current = false
+    setSidebarCollapsed((prev) => !prev)
+  }, [isCurrentFileChat, chatArtifactsVisible, sidebarCollapsed])
 
   const handleFileClick = (file) => {
     setStylePanelOpen(false)
@@ -392,29 +438,6 @@ function App() {
     }
   }, [dragging, sidebarWidth, rightpanelWidth, splitRatio, previewRatio, viewMode, stylePanelOpen, stylePanelWidth, shouldShowRightPanel])
 
-  // 如果服务器未连接，显示连接提示
-  if (!serverConnected) {
-    return (
-      <div className="app">
-        <div className="server-error">
-          <div className="error-content">
-            <h1>🔌 服务器连接失败</h1>
-            <p>请确保后端服务器正在运行</p>
-            <div className="error-instructions">
-              <h3>启动步骤：</h3>
-              <ol>
-                <li>打开终端</li>
-                <li>运行 <code>npm run dev</code></li>
-                <li>等待服务器启动完成</li>
-              </ol>
-            </div>
-            <button onClick={() => window.location.reload()}>重试连接</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <I18nProvider lang={language}>
     <div className={`app ${isSpecialFile ? 'whiteboard-mode' : ''} ${dragging ? 'resizing-col' : ''} ${modeSwitching ? 'mode-switching' : ''}`}
@@ -443,10 +466,12 @@ function App() {
         onShowFileExtensionsChange={handleShowFileExtensionsChange}
         dynamicCursorGuide={dynamicCursorGuide}
         onDynamicCursorGuideChange={handleDynamicCursorGuideChange}
+        globalSystemPrompt={globalSystemPrompt}
+        onSaveGlobalSystemPrompt={handleSaveGlobalSystemPrompt}
       />
       <Sidebar 
         collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggleCollapse={handleToggleSidebarCollapse}
         darkMode={darkMode}
         onToggleDarkMode={handleToggleDarkMode}
         searchTerm={searchTerm}
@@ -462,6 +487,7 @@ function App() {
         hoverPreview={hoverPreview}
         showFileExtensions={showFileExtensions}
         onGoHome={handleGoHome}
+        onSkillPathsChange={setSkillPaths}
         sidebarRef={sidebarRef}
       />
 
@@ -491,6 +517,10 @@ function App() {
         onOverlayChange={(s) => setOverlayState(s)}
         avatar={avatar}
         username={username}
+        skillPaths={skillPaths}
+        globalSystemPrompt={globalSystemPrompt}
+        onChatArtifactsVisibilityChange={setChatArtifactsVisible}
+        artifactsCloseRequestSeq={chatArtifactsCloseRequestSeq}
       />
       
       {/* 白板模式和对话模式下不显示右侧面板 */}

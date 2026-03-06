@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { 
   Search, ChevronLeft, ChevronRight, Sun, Moon, ChevronDown, 
-  ChevronRight as ChevronRightIcon, Folder, FileText, Plus, 
+  ChevronRight as ChevronRightIcon, Folder, FolderOpen, FileText, Plus, 
   MoreHorizontal, Edit, Trash2, FolderPlus, FilePlus, Shapes,
-  User, Globe, Palette, MessageSquare 
+  User, Palette, MessageSquare, Copy
 } from 'lucide-react'
 import { filesApi, knowledgeApi } from '../utils/api'
 import { useI18n } from '../utils/i18n'
@@ -16,32 +16,34 @@ import {
   unmarkChatFileOpened,
 } from '../utils/chatFiles'
 import HoverPreview from './HoverPreview'
+import MorosShapeIcon from './MorosShapeIcon'
 import './Sidebar.css'
 
 const DELETE_CONFIRM_SUPPRESS_KEY = 'moros-delete-confirm-suppressed'
 const MULTI_SELECT_CLICK_GUARD_MS = 360
+const FILE_TREE_SESSION_CACHE_KEY = 'moros-sidebar-file-tree-cache-v1'
 
 // 文件树项组件
-function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, creatingItem, onFinishCreating, onCancelCreating, onDragStart, onDragOver, onDrop, onDragLeave, onDragEnd, dragOverItem, dragOverPosition, isDragging, highlightPath, activePath, onHoverStart, onHoverEnd, hoverPreview, expandedFolders, onToggleFolder, collapsed, showFileExtensions, multiSelectMode, selectedPaths, onSelectToggle, onEnterMultiSelect }) {
+function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, creatingItem, onFinishCreating, onCancelCreating, onDragStart, onDragOver, onDrop, onDragLeave, onDragEnd, dragOverItem, dragOverPosition, isDragging, highlightPath, activePath, onHoverStart, onHoverEnd, hoverPreview, expandedFolders, onToggleFolder, collapsed, showFileExtensions, multiSelectMode, selectedPaths, onSelectToggle, onEnterMultiSelect, onOpenCreateMenu, onFolderColorPick }) {
   const { t } = useI18n()
   const expanded = item.type === 'folder' ? expandedFolders.has(item.path) : undefined
   const [editName, setEditName] = useState(item.name)
   const longPressTimerRef = React.useRef(null)
   const longPressTriggeredRef = React.useRef(false)
+  const renameCommittedRef = React.useRef(false)
   const indentPx = collapsed ? 8 : (12 + level * 14)
   const childIndentPx = collapsed ? 8 : (12 + (level + 1) * 14)
 
-  // 检测是否应该进入编辑状态
   useEffect(() => {
     if (item.isEditing) {
-      // 重命名时隐藏常见扩展名（.md、.excalidraw、.MoRos）
+      renameCommittedRef.current = false
       const nameWithoutExt = (item.name || '').replace(/\.(md|excalidraw|moros)$/i, '')
       setEditName(nameWithoutExt)
     }
   }, [item.isEditing, item.name])
 
   const handleClick = () => {
-    if (item.isEditing) return // 编辑状态下不处理点击
+    if (item.isEditing) return
     if (longPressTriggeredRef.current) { longPressTriggeredRef.current = false; return }
     if (multiSelectMode) {
       onSelectToggle?.(item)
@@ -61,7 +63,7 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
     longPressTimerRef.current = setTimeout(() => {
       longPressTriggeredRef.current = true
       onEnterMultiSelect?.(item)
-    }, 600) // 延长到 600ms,给拖拽更多时间
+    }, 600)
   }
 
   const clearLongPress = () => {
@@ -72,16 +74,17 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
   }
 
   const handleDragStartWrapper = (e) => {
-    // 拖拽开始时立即清除长按计时器
     clearLongPress()
     onDragStart?.(e, item)
   }
 
-  const handleRename = async () => {
+  const commitRename = async () => {
+    if (renameCommittedRef.current) return
+    renameCommittedRef.current = true
     const raw = editName.trim()
-    if (raw && raw !== item.name) {
+    const nameWithoutExt = (item.name || '').replace(/\.(md|excalidraw|moros)$/i, '')
+    if (raw && raw !== nameWithoutExt) {
       try {
-        // 根据原文件扩展名（仅支持 .md / .excalidraw / .MoRos）决定是否自动补齐
         const hasUserExt = /\.[^\s.]+$/i.test(raw)
         let finalName = raw
         if (!hasUserExt) {
@@ -90,26 +93,34 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
           else if (/\.moros$/i.test(item.name)) finalName = raw + '.MoRos'
         }
         await filesApi.renameItem(item.path, finalName)
-        onRename?.() // 通知父组件重新加载文件树
       } catch (error) {
         console.error('重命名失败:', error)
-        alert('重命名失败: ' + error.message)
-        const nameWithoutExt = (item.name || '').replace(/\.(md|excalidraw|moros)$/i, '')
         setEditName(nameWithoutExt)
       }
     }
-    // 通过父组件重新加载来退出编辑状态
     onRename?.()
   }
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      handleRename()
+      e.preventDefault()
+      commitRename()
     } else if (e.key === 'Escape') {
-      const nameWithoutExt = (item.name || '').replace(/\.(md|excalidraw|moros)$/i, '')
-      setEditName(nameWithoutExt)
-      onRename?.() // 取消编辑
+      e.preventDefault()
+      renameCommittedRef.current = true
+      onRename?.()
     }
+  }
+
+  const handleOpenCreateMenu = (e) => {
+    e.stopPropagation()
+    onOpenCreateMenu?.(e, item)
+  }
+
+  const handleOpenFolderColorPicker = (e) => {
+    if (item.type !== 'folder') return
+    e.stopPropagation()
+    onFolderColorPick?.(e, item)
   }
 
   return (
@@ -150,9 +161,14 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
             <span className="file-expand-placeholder" aria-hidden="true" />
           )}
           
-          <span className="file-icon" style={{ color: item.type === 'folder' && item.color ? item.color : undefined }}>
+          <span
+            className={`file-icon ${item.type === 'folder' ? 'folder-color-trigger' : ''}`}
+            style={{ color: item.color || undefined }}
+            onClick={item.type === 'folder' ? handleOpenFolderColorPicker : undefined}
+            title={item.type === 'folder' ? t('sidebar.context.set_color') : undefined}
+          >
             {item.type === 'folder' 
-              ? <Folder size={16} /> 
+              ? (expanded ? <FolderOpen size={16} /> : <Folder size={16} />)
               : (String(item.name || '').toLowerCase().endsWith('.excalidraw') 
                   ? <Shapes size={16} /> 
                   : (String(item.name || '').toLowerCase().endsWith('.moros')
@@ -165,8 +181,8 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
               className="file-name-input"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              onBlur={handleRename}
-              onKeyPress={handleKeyPress}
+              onBlur={commitRename}
+              onKeyDown={handleKeyDown}
               autoFocus
               onClick={(e) => e.stopPropagation()}
             />
@@ -183,15 +199,26 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
         </div>
         
         {!multiSelectMode && (
-          <button 
-            className="file-menu-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              onContextMenu?.(e, item)
-            }}
-          >
-            <MoreHorizontal size={14} />
-          </button>
+          <div className="file-item-actions">
+            {item.type === 'folder' && (
+              <button
+                className="file-quick-add-btn"
+                onClick={handleOpenCreateMenu}
+                title="New"
+              >
+                <Plus size={12} />
+              </button>
+            )}
+            <button 
+              className="file-menu-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                onContextMenu?.(e, item)
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          </div>
         )}
       </div>
       
@@ -253,6 +280,8 @@ function FileTreeItem({ item, level = 0, onFileClick, onContextMenu, onRename, c
               selectedPaths={selectedPaths}
               onSelectToggle={onSelectToggle}
               onEnterMultiSelect={onEnterMultiSelect}
+              onOpenCreateMenu={onOpenCreateMenu}
+              onFolderColorPick={onFolderColorPick}
             />
           ))}
         </div>
@@ -279,10 +308,19 @@ function Sidebar({
   hoverPreview,
   showFileExtensions,
   onGoHome,
+  onSkillPathsChange,
   sidebarRef,
 }) {
-  const [fileTree, setFileTree] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [fileTree, setFileTree] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(FILE_TREE_SESSION_CACHE_KEY)
+      const parsed = cached ? JSON.parse(cached) : []
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
+  const [loading, setLoading] = useState(() => fileTree.length === 0)
   const [contextMenu, setContextMenu] = useState(null)
   const [creatingItem, setCreatingItem] = useState(null) // { type: 'file'|'folder', parentPath: string }
   const [highlightPath, setHighlightPath] = useState('')
@@ -296,17 +334,22 @@ function Sidebar({
   const [searchLoading, setSearchLoading] = useState(false)
   const [showColorPicker, setShowColorPicker] = useState(null) // { item, x, y }
   const fileTreeRef = React.useRef(null)
-  const initialFileTreeLoadedRef = React.useRef(false)
+  const initialFileTreeLoadedRef = React.useRef(fileTree.length > 0)
+  const hasCachedTreeOnInitRef = React.useRef(fileTree.length > 0)
   const [hoverPreviewFile, setHoverPreviewFile] = useState(null)
   const [hoverPreviewPosition, setHoverPreviewPosition] = useState({ top: 0, left: 0 })
   // 计时器使用 ref，避免闭包导致取消失败
   const hoverTimeoutRef = React.useRef(null)
   // 管理展开的文件夹路径
   const [expandedFolders, setExpandedFolders] = useState(new Set())
+  const [skillsCollapsed, setSkillsCollapsed] = useState(false)
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false)
   const [filesCollapsed, setFilesCollapsed] = useState(false)
   const [foldersCollapsed, setFoldersCollapsed] = useState(false)
-  const [createMenu, setCreateMenu] = useState(null) // 用于显示创建菜单 { x, y, type: 'file' | 'folder', parentPath }
+  const [createMenu, setCreateMenu] = useState(null) // 用于显示创建菜单 { x, y, type: 'new-actions', parentPath }
+  const contextMenuRef = React.useRef(null)
+  const createMenuRef = React.useRef(null)
+  const colorPickerRef = React.useRef(null)
   const { t } = useI18n()
   const legacyMigrationAttemptedRef = React.useRef(false)
   // 多选：模式与选中集合
@@ -337,61 +380,124 @@ function Sidebar({
     setFoldersCollapsed(prev => !prev)
   }
 
+  // Skills 总开关
+  const handleToggleSkills = () => {
+    setSkillsCollapsed(prev => !prev)
+  }
+
   // WorkSpace 总开关
   const handleToggleWorkspace = () => {
     setWorkspaceCollapsed(prev => !prev)
   }
 
   const workspaceStorageKey = 'moros-workspace-paths'
+  const FIXED_SKILLS_ROOT = 'skills'
   const legacyWorkspaceConfigFile = '.moros-workspaces.json'
   const wsPathsCacheRef = React.useRef(null)
-  const workspaceMigrationDoneRef = React.useRef(false)
+  const workspaceConfigLoadedRef = React.useRef(false)
+  const [workspacePathsState, setWorkspacePathsState] = useState([])
+  const [skillPathsState, setSkillPathsState] = useState([FIXED_SKILLS_ROOT])
 
   const getWorkspacePaths = () => {
-    return wsPathsCacheRef.current || []
+    return wsPathsCacheRef.current || workspacePathsState
+  }
+
+  const getSkillPaths = () => {
+    return skillPathsState.length > 0 ? skillPathsState : [FIXED_SKILLS_ROOT]
   }
 
   const normalizeWorkspacePaths = (paths) => {
     if (!Array.isArray(paths)) return []
-    return Array.from(new Set(paths.filter((p) => typeof p === 'string' && p.trim().length > 0)))
+    return Array.from(
+      new Set(
+        paths
+          .filter((p) => typeof p === 'string' && p.trim().length > 0)
+          .map((p) => p.replace(/\\/g, '/').trim())
+      )
+    )
   }
 
-  const loadWorkspacePaths = async () => {
+  const parseWorkspaceConfig = (parsed) => {
+    if (Array.isArray(parsed)) return normalizeWorkspacePaths(parsed)
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.paths)) return normalizeWorkspacePaths(parsed.paths)
+      if (Array.isArray(parsed.workspaces)) return normalizeWorkspacePaths(parsed.workspaces)
+    }
+    return []
+  }
+
+  const persistWorkspaceConfig = async (paths) => {
     try {
-      const local = localStorage.getItem(workspaceStorageKey)
-      if (local) {
-        wsPathsCacheRef.current = normalizeWorkspacePaths(JSON.parse(local))
-        return wsPathsCacheRef.current
-      }
+      await filesApi.saveFile(legacyWorkspaceConfigFile, JSON.stringify(paths, null, 2))
+    } catch (error) {
+      console.warn('保存 WorkSpace 配置失败:', error)
+    }
+  }
+
+  const loadWorkspacePaths = async (options = {}) => {
+    const { force = false } = options
+    if (workspaceConfigLoadedRef.current && !force) {
+      return wsPathsCacheRef.current || []
+    }
+
+    let resolved = null
+    try {
+      const fileContent = await filesApi.readFile(legacyWorkspaceConfigFile)
+      const parsed = fileContent ? JSON.parse(fileContent) : []
+      resolved = parseWorkspaceConfig(parsed)
     } catch {
-      // ignore localStorage parse errors and fallback to legacy migration
+      resolved = null
     }
 
-    wsPathsCacheRef.current = []
-
-    // 仅在首次加载时尝试迁移旧版文件配置，并自动清理旧配置文件
-    if (!workspaceMigrationDoneRef.current) {
-      workspaceMigrationDoneRef.current = true
+    if (resolved === null) {
       try {
-        const content = await filesApi.readFile(legacyWorkspaceConfigFile)
-        const migrated = normalizeWorkspacePaths(JSON.parse(content || '[]'))
-        wsPathsCacheRef.current = migrated
-        if (migrated.length > 0) {
-          try { localStorage.setItem(workspaceStorageKey, JSON.stringify(migrated)) } catch {}
+        const local = localStorage.getItem(workspaceStorageKey)
+        if (local) {
+          resolved = parseWorkspaceConfig(JSON.parse(local))
         }
-        try { await filesApi.deleteItem(legacyWorkspaceConfigFile) } catch {}
       } catch {
-        // legacy file may not exist
+        resolved = []
+      }
+      if (resolved.length > 0) {
+        await persistWorkspaceConfig(resolved)
       }
     }
 
-    return wsPathsCacheRef.current
+    if (!resolved) {
+      resolved = []
+    }
+
+    wsPathsCacheRef.current = resolved
+    setWorkspacePathsState(resolved)
+    workspaceConfigLoadedRef.current = true
+    try { localStorage.setItem(workspaceStorageKey, JSON.stringify(resolved)) } catch {}
+
+    return resolved
+  }
+
+  const skillFolderEnsuredRef = React.useRef(false)
+  const loadSkillPaths = async () => {
+    if (!skillFolderEnsuredRef.current) {
+      skillFolderEnsuredRef.current = true
+      try {
+        await filesApi.createFolder(FIXED_SKILLS_ROOT)
+      } catch {
+        // ignore fixed skill folder creation errors
+      }
+    }
+    const fixedPaths = [FIXED_SKILLS_ROOT]
+    setSkillPathsState(fixedPaths)
+    onSkillPathsChange?.(fixedPaths)
+    return fixedPaths
   }
 
   const saveWorkspacePaths = async (paths) => {
     const normalized = normalizeWorkspacePaths(paths)
     wsPathsCacheRef.current = normalized
+    setWorkspacePathsState(normalized)
+    workspaceConfigLoadedRef.current = true
     try { localStorage.setItem(workspaceStorageKey, JSON.stringify(normalized)) } catch {}
+    await persistWorkspaceConfig(normalized)
   }
 
   const addWorkspacePath = async (p) => {
@@ -400,6 +506,7 @@ function Sidebar({
       await saveWorkspacePaths([...cur, p])
     }
   }
+
   const removeWorkspacePath = async (p) => {
     await saveWorkspacePaths(getWorkspacePaths().filter(x => x !== p))
   }
@@ -415,12 +522,16 @@ function Sidebar({
 
   const separatedItems = useMemo(() => {
     const wsPaths = getWorkspacePaths()
+    const skillPaths = getSkillPaths()
+    const skills = []
     const workspaces = []
     const folders = []
     const files = []
     
     fileTree.forEach(item => {
-      if (item.type === 'folder' && wsPaths.includes(item.path)) {
+      if (item.type === 'folder' && skillPaths.includes(item.path)) {
+        skills.push(item)
+      } else if (item.type === 'folder' && wsPaths.includes(item.path)) {
         workspaces.push(item)
       } else if (item.type === 'folder') {
         folders.push(item)
@@ -437,8 +548,24 @@ function Sidebar({
       })
     }
     
-    return { workspaces, folders, files }
-  }, [fileTree, filesManuallyOrdered])
+    return { skills, workspaces, folders, files }
+  }, [fileTree, filesManuallyOrdered, workspacePathsState, skillPathsState])
+
+  // 折叠模式下，只显示当前文件所在 Folder/WorkSpace 的内容
+  const collapsedViewItems = useMemo(() => {
+    if (!collapsed || !currentFile?.path) return null
+    const ap = currentFile.path
+    for (const s of separatedItems.skills) {
+      if (ap === s.path || ap.startsWith(s.path + '/')) return s.children || []
+    }
+    for (const w of separatedItems.workspaces) {
+      if (ap === w.path || ap.startsWith(w.path + '/')) return w.children || []
+    }
+    for (const f of separatedItems.folders) {
+      if (ap === f.path || ap.startsWith(f.path + '/')) return f.children || []
+    }
+    return separatedItems.files
+  }, [collapsed, currentFile, separatedItems])
 
   // 去重后的搜索结果：同一文件 + 相同片段 仅显示一次
   const uniqueSearchResults = useMemo(() => {
@@ -582,6 +709,44 @@ function Sidebar({
     onOpenSettings?.()
   }
 
+  const chatCleanupDoneRef = React.useRef(false)
+
+  const buildTree = (files) => {
+    const fileMap = new Map()
+    const rootFiles = []
+    files.forEach(file => {
+      fileMap.set(file.id, { ...file, children: [] })
+    })
+    files.forEach(file => {
+      const fileItem = fileMap.get(file.id)
+      if (file.parentId) {
+        const parent = fileMap.get(file.parentId)
+        if (parent) {
+          parent.children.push(fileItem)
+        }
+      } else {
+        rootFiles.push(fileItem)
+      }
+    })
+    return rootFiles
+  }
+
+  const persistFileTreeSnapshot = (nextTree) => {
+    setTimeout(() => {
+      try {
+        const serialized = JSON.stringify(nextTree)
+        // 避免超大树写入 sessionStorage 反而拖慢主线程
+        if (serialized.length > 2_000_000) return
+        sessionStorage.setItem(FILE_TREE_SESSION_CACHE_KEY, serialized)
+      } catch {}
+    }, 0)
+  }
+
+  const applyFileTree = (nextTree) => {
+    setFileTree(nextTree)
+    persistFileTreeSnapshot(nextTree)
+  }
+
   // 加载文件树
   const loadFileTree = async (options = {}) => {
     const {
@@ -593,7 +758,6 @@ function Sidebar({
       if (showLoading) {
         setLoading(true)
       }
-      await loadWorkspacePaths()
       let files = await filesApi.getFileTree()
 
       // 一次性迁移旧版 .markovchat 后缀为 .MoRos
@@ -613,62 +777,52 @@ function Sidebar({
         }
       }
 
-      // 自动清理：未被打开且内容为空的 .MoRos 文件直接清除
-      const openedChatPaths = new Set(getOpenedChatPaths())
-      if (isMorosChatPath(currentFile?.path)) {
-        openedChatPaths.add(currentFile.path)
-      }
-      const unopenedChatFiles = files.filter((file) => {
-        if (file.type !== 'file') return false
-        if (!isMorosChatPath(file.path || file.name)) return false
-        return !openedChatPaths.has(file.path)
-      })
-      if (unopenedChatFiles.length > 0) {
-        let removedAny = false
-        for (const file of unopenedChatFiles) {
-          try {
-            const content = await filesApi.readFile(file.path)
-            if (!isEmptyMorosChatContent(content)) continue
-            await filesApi.deleteItem(file.path)
-            unmarkChatFileOpened(file.path)
-            removedAny = true
-          } catch (error) {
-            console.warn('自动清理空对话失败:', file.path, error)
-          }
-        }
-        if (removedAny) {
-          files = await filesApi.getFileTree()
-        }
-      }
-      
-      // 构建层级结构
-      const fileMap = new Map()
-      const rootFiles = []
-      
-      files.forEach(file => {
-        fileMap.set(file.id, { ...file, children: [] })
-      })
-      
-      files.forEach(file => {
-        const fileItem = fileMap.get(file.id)
-        if (file.parentId) {
-          const parent = fileMap.get(file.parentId)
-          if (parent) {
-            parent.children.push(fileItem)
-          }
-        } else {
-          rootFiles.push(fileItem)
-        }
-      })
-      
-      // 保持后端顺序（.order.json 优先，其余保留后端默认：目录优先 + 字母序）
-      setFileTree(rootFiles)
+      applyFileTree(buildTree(files))
       if (typeof previousScrollTop === 'number') {
         requestAnimationFrame(() => {
           if (fileTreeRef.current) {
             fileTreeRef.current.scrollTop = previousScrollTop
           }
         })
+      }
+
+      // 自动清理空 .MoRos 文件（后台执行，只做一次，不阻塞UI）
+      if (!chatCleanupDoneRef.current) {
+        chatCleanupDoneRef.current = true
+        const filesToClean = files
+        ;(async () => {
+          try {
+            const openedChatPaths = new Set(getOpenedChatPaths())
+            if (isMorosChatPath(currentFile?.path)) {
+              openedChatPaths.add(currentFile.path)
+            }
+            const unopenedChatFiles = filesToClean.filter((file) => {
+              if (file.type !== 'file') return false
+              if (!isMorosChatPath(file.path || file.name)) return false
+              return !openedChatPaths.has(file.path)
+            })
+            if (unopenedChatFiles.length > 0) {
+              let removedAny = false
+              for (const file of unopenedChatFiles) {
+                try {
+                  const content = await filesApi.readFile(file.path)
+                  if (!isEmptyMorosChatContent(content)) continue
+                  await filesApi.deleteItem(file.path)
+                  unmarkChatFileOpened(file.path)
+                  removedAny = true
+                } catch (error) {
+                  console.warn('自动清理空对话失败:', file.path, error)
+                }
+              }
+              if (removedAny) {
+                const freshFiles = await filesApi.getFileTree()
+                applyFileTree(buildTree(freshFiles))
+              }
+            }
+          } catch (error) {
+            console.warn('自动清理空对话时出错:', error)
+          }
+        })()
       }
     } catch (error) {
       console.error('加载文件树失败:', error)
@@ -681,7 +835,9 @@ function Sidebar({
   }
 
   useEffect(() => {
-    loadFileTree({ showLoading: true, preserveScroll: false })
+    void loadWorkspacePaths()
+    void loadSkillPaths()
+    void loadFileTree({ showLoading: !hasCachedTreeOnInitRef.current, preserveScroll: false })
   }, [])
 
   React.useImperativeHandle(sidebarRef, () => ({
@@ -719,6 +875,14 @@ function Sidebar({
     }
   }
 
+  // 开始创建 Skills 目录（本质为根目录文件夹）
+  const handleCreateSkillFolder = () => {
+    setCreatingItem({ type: 'skill', parentPath: FIXED_SKILLS_ROOT })
+    if (skillsCollapsed) {
+      setSkillsCollapsed(false)
+    }
+  }
+
   // 开始创建白板（直接创建 .excalidraw 文件并打开）
   const handleCreateWhiteboard = async (parentPath) => {
     try {
@@ -737,9 +901,8 @@ function Sidebar({
         files: {} 
       }, null, 2)
       const file = await filesApi.createFile(baseName, initialContent, parentPath)
-      await loadFileTree()
-      // 直接触发打开
       onFileClick?.(file)
+      void loadFileTree({ showLoading: false })
     } catch (error) {
       alert('创建白板失败: ' + error.message)
     } finally {
@@ -768,9 +931,8 @@ function Sidebar({
       }, null, 2)
       const file = await filesApi.createFile(baseName, initialContent, parentPath)
       markChatFileOpened(file?.path)
-      await loadFileTree()
-      // 直接触发打开
       onFileClick?.(file)
+      void loadFileTree({ showLoading: false })
     } catch (error) {
       alert('创建对话失败: ' + error.message)
     } finally {
@@ -798,11 +960,11 @@ function Sidebar({
     }
 
     try {
-      if (creatingItem.type === 'folder' || creatingItem.type === 'workspace') {
+      if (creatingItem.type === 'folder' || creatingItem.type === 'workspace' || creatingItem.type === 'skill') {
         const created = await filesApi.createFolder(name.trim(), creatingItem.parentPath)
+        const createdPath = created?.path || name.trim()
         if (creatingItem.type === 'workspace') {
-          const wsPath = created?.path || name.trim()
-          await addWorkspacePath(wsPath)
+          await addWorkspacePath(createdPath)
         }
       } else {
         await filesApi.createFile(name.trim(), '', creatingItem.parentPath)
@@ -810,7 +972,8 @@ function Sidebar({
       await loadFileTree()
       setCreatingItem(null)
     } catch (error) {
-      alert(`创建${creatingItem.type === 'folder' ? '文件夹' : '文件'}失败: ${error.message}`)
+      const kind = creatingItem.type === 'file' ? '文件' : '文件夹'
+      alert(`创建${kind}失败: ${error.message}`)
       setCreatingItem(null)
     }
   }
@@ -1060,18 +1223,41 @@ function Sidebar({
     } catch {}
   }
 
+  const removePathsFromTree = (pathsToRemove) => {
+    const pathSet = new Set(pathsToRemove)
+    const filterTree = (items) =>
+      items
+        .filter((it) => !pathSet.has(it.path))
+        .map((it) => (it.children ? { ...it, children: filterTree(it.children) } : it))
+    setFileTree((prev) => {
+      const nextTree = filterTree(prev)
+      persistFileTreeSnapshot(nextTree)
+      return nextTree
+    })
+  }
+
   const performDelete = async (item) => {
     if (!item) return
-    // 如果是多个项目删除
+    const pathsToRemove = item.isMultiple && item.paths ? item.paths : [item.path]
+    removePathsFromTree(pathsToRemove)
+
+    const currentWorkspacePaths = getWorkspacePaths()
+    const nextWorkspacePaths = currentWorkspacePaths.filter((workspacePath) => {
+      return !pathsToRemove.some((removedPath) => {
+        return workspacePath === removedPath || workspacePath.startsWith(`${removedPath}/`)
+      })
+    })
+    if (nextWorkspacePaths.length !== currentWorkspacePaths.length) {
+      await saveWorkspacePaths(nextWorkspacePaths)
+    }
+
     if (item.isMultiple && item.paths) {
-      for (const path of item.paths) {
-        await filesApi.deleteItem(path)
-        unmarkChatFileOpened(path)
+      for (const p of item.paths) {
+        await filesApi.deleteItem(p)
+        unmarkChatFileOpened(p)
       }
-      // 清除多选状态
       clearMultiSelect()
     } else {
-      // 单个项目删除
       await filesApi.deleteItem(item.path)
       unmarkChatFileOpened(item.path)
     }
@@ -1089,6 +1275,54 @@ function Sidebar({
       return
     }
     setDeleteConfirm({ visible: true, item })
+  }
+
+  const handleCopyItemPath = async (item) => {
+    const path = String(item?.path || '').trim()
+    if (!path) return
+    try {
+      const absolutePath = await filesApi.getAbsolutePath(path)
+      await navigator.clipboard.writeText(absolutePath || path)
+    } catch (error) {
+      console.error('复制路径失败:', error)
+      alert('复制路径失败: ' + (error?.message || '未知错误'))
+    }
+  }
+
+  const handleOpenReview = (item) => {
+    if (!item) return
+    if (item.type === 'file') {
+      onFileClick?.(item)
+      return
+    }
+    handleToggleFolder(item.path)
+  }
+
+  const handleRevealInExplorer = async (item) => {
+    const targetPath = String(item?.path || '').trim()
+    if (!targetPath) return
+    try {
+      await filesApi.revealInFileExplorer(targetPath)
+    } catch (error) {
+      alert('打开资源管理器失败: ' + (error?.message || '未知错误'))
+    }
+  }
+
+  const handleAddToMoRos = async (item) => {
+    const targetPath = String(item?.path || '').trim()
+    if (!targetPath) return
+    try {
+      window.dispatchEvent(new CustomEvent('moros:add-chat-attachment', {
+        detail: {
+          path: targetPath,
+          name: item?.name || '',
+        },
+      }))
+      await navigator.clipboard.writeText(`@${targetPath}`)
+    } catch (error) {
+      console.error('复制引用失败:', error)
+      alert('复制引用失败: ' + (error?.message || '未知错误'))
+    }
   }
 
   const confirmDelete = async (suppressFuture = false) => {
@@ -1129,13 +1363,12 @@ function Sidebar({
     }
     
     e.preventDefault()
-    const inWorkspaceSection = !!e.target.closest('.workspace-section')
-    const inFoldersSection = !!e.target.closest('.folders-section')
+    const clickedInSkillsSection = Boolean(e.target?.closest?.('.skills-section'))
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
       item: null, // 空白处右键，item 为 null
-      allowCreateFolder: inWorkspaceSection || inFoldersSection
+      parentPath: clickedInSkillsSection ? FIXED_SKILLS_ROOT : undefined,
     })
   }
 
@@ -1160,6 +1393,117 @@ function Sidebar({
       y: e.clientY
     })
   }
+
+  const resolveCreateParentPath = (item) => {
+    if (!item) return undefined
+    if (item.type === 'folder') return item.path
+    const fullPath = String(item.path || '')
+    const slashIndex = fullPath.lastIndexOf('/')
+    if (slashIndex <= 0) return undefined
+    return fullPath.slice(0, slashIndex)
+  }
+
+  const isPathInSkillArea = (targetPath) => {
+    const normalized = String(targetPath || '').replace(/\\/g, '/').trim()
+    if (!normalized) return false
+    const skillRoots = getSkillPaths()
+      .map((item) => String(item || '').replace(/\\/g, '/').trim())
+      .filter(Boolean)
+    return skillRoots.some((rootPath) => normalized === rootPath || normalized.startsWith(`${rootPath}/`))
+  }
+
+  const canCreateConversationalFiles = (parentPath) => {
+    return !isPathInSkillArea(parentPath)
+  }
+
+  const handleOpenCreateMenu = (e, item) => {
+    e.stopPropagation()
+    setContextMenu(null)
+    setCreateMenu({
+      x: e.clientX,
+      y: e.clientY,
+      type: 'new-actions',
+      parentPath: resolveCreateParentPath(item),
+    })
+  }
+
+  const getSmartPopupPosition = (anchorX, anchorY, popupEl) => {
+    if (!popupEl) return { x: anchorX, y: anchorY }
+    const margin = 8
+    const rect = popupEl.getBoundingClientRect()
+    const popupWidth = rect.width
+    const popupHeight = rect.height
+
+    let x = anchorX
+    let y = anchorY
+
+    // 右侧溢出则向左回收
+    if (x + popupWidth + margin > window.innerWidth) {
+      x = Math.max(margin, window.innerWidth - popupWidth - margin)
+    }
+
+    // 下方溢出则优先向上弹出（满足“底部不截断”）
+    if (y + popupHeight + margin > window.innerHeight) {
+      y = Math.max(margin, anchorY - popupHeight - 6)
+    }
+
+    // 兜底：仍溢出则贴合窗口边界
+    if (y + popupHeight + margin > window.innerHeight) {
+      y = Math.max(margin, window.innerHeight - popupHeight - margin)
+    }
+    if (x < margin) x = margin
+    if (y < margin) y = margin
+
+    return { x, y }
+  }
+
+  const handleCreateMenuAction = (action, parentPath) => {
+    setContextMenu(null)
+    setCreateMenu(null)
+    if ((action === 'moros' || action === 'whiteboard') && !canCreateConversationalFiles(parentPath)) {
+      alert('Skills 区域不支持创建 MoRos 或白板')
+      return
+    }
+    if (action === 'folder') {
+      handleCreateFolder(parentPath)
+      return
+    }
+    if (action === 'file') {
+      handleCreateFile(parentPath)
+      return
+    }
+    if (action === 'whiteboard') {
+      handleCreateWhiteboard(parentPath)
+      return
+    }
+    if (action === 'moros') {
+      handleCreateChat(parentPath)
+    }
+  }
+
+  useEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return
+    const next = getSmartPopupPosition(contextMenu.x, contextMenu.y, contextMenuRef.current)
+    if (next.x !== contextMenu.x || next.y !== contextMenu.y) {
+      setContextMenu((prev) => (prev ? { ...prev, x: next.x, y: next.y } : prev))
+    }
+  }, [contextMenu?.x, contextMenu?.y, contextMenu?.item])
+
+  useEffect(() => {
+    if (!createMenu || !createMenuRef.current) return
+    const next = getSmartPopupPosition(createMenu.x, createMenu.y, createMenuRef.current)
+    if (next.x !== createMenu.x || next.y !== createMenu.y) {
+      setCreateMenu((prev) => (prev ? { ...prev, x: next.x, y: next.y } : prev))
+    }
+  }, [createMenu?.x, createMenu?.y, createMenu?.type, createMenu?.parentPath])
+
+  useEffect(() => {
+    if (!showColorPicker || !colorPickerRef.current) return
+    const next = getSmartPopupPosition(showColorPicker.x, showColorPicker.y, colorPickerRef.current)
+    if (next.x !== showColorPicker.x || next.y !== showColorPicker.y) {
+      setShowColorPicker((prev) => (prev ? { ...prev, x: next.x, y: next.y } : prev))
+    }
+  }, [showColorPicker?.x, showColorPicker?.y, showColorPicker?.item?.path])
 
   // 关闭右键菜单、颜色选择器、创建菜单，以及退出多选模式
   useEffect(() => {
@@ -1188,7 +1532,9 @@ function Sidebar({
         <div className="sidebar-title">
           {!collapsed && (
               <div className="brand" onClick={() => onGoHome?.()} style={{ cursor: 'pointer' }}>
-              <span className="brand-logo" aria-hidden="true" />
+              <span className="brand-logo" aria-hidden="true">
+                <MorosShapeIcon className="brand-logo-mark" />
+              </span>
               <span className="brand-name">MoRos CoWork</span>
             </div>
           )}
@@ -1300,14 +1646,144 @@ function Sidebar({
             }}
           >
             {loading ? (
-              <div className="loading">{t('sidebar.state.loading')}</div>
+              <div className="sidebar-loading-skeleton" role="status" aria-label={t('sidebar.state.loading')}>
+                <div className="sidebar-skeleton-block">
+                  <div className="sidebar-skeleton-line w-48" />
+                  <div className="sidebar-skeleton-line w-72" />
+                  <div className="sidebar-skeleton-line w-64" />
+                  <div className="sidebar-skeleton-line w-80" />
+                  <div className="sidebar-skeleton-line w-56" />
+                  <div className="sidebar-skeleton-line w-70" />
+                </div>
+              </div>
             ) : fileTree.length === 0 ? (
               <div className="empty-state">
                 <p>{t('sidebar.state.empty')}</p>
                 <p className="empty-hint">{t('sidebar.state.hint')}</p>
               </div>
+            ) : collapsed && collapsedViewItems ? (
+              <div className="collapsed-file-list">
+                {collapsedViewItems.map(item => (
+                  <FileTreeItem
+                    key={item.id}
+                    item={item}
+                    onFileClick={onFileClick}
+                    onContextMenu={handleContextMenu}
+                    onRename={loadFileTree}
+                    creatingItem={creatingItem}
+                    onFinishCreating={handleFinishCreating}
+                    onCancelCreating={handleCancelCreating}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onDragLeave={handleDragLeave}
+                    onDragEnd={handleDragEnd}
+                    dragOverItem={dragOverItem}
+                    dragOverPosition={dragOverPosition}
+                    isDragging={isDragging}
+                    highlightPath={highlightPath}
+                    activePath={currentFile?.path}
+                    onHoverStart={handleHoverStart}
+                    onHoverEnd={handleHoverEnd}
+                    hoverPreview={hoverPreview}
+                    expandedFolders={expandedFolders}
+                    onToggleFolder={handleToggleFolder}
+                    collapsed={collapsed}
+                    showFileExtensions={showFileExtensions}
+                    multiSelectMode={multiSelectMode}
+                    selectedPaths={selectedPaths}
+                    onSelectToggle={toggleSelect}
+                    onEnterMultiSelect={enterMultiSelect}
+                    onOpenCreateMenu={handleOpenCreateMenu}
+                    onFolderColorPick={handleShowColorPicker}
+                  />
+                ))}
+              </div>
             ) : (
               <>
+                <div className={`workspace-section skills-section ${skillsCollapsed ? 'collapsed' : ''}`}>
+                  <div className="workspace-header" onClick={handleToggleSkills}>
+                    <span className="workspace-title">{t('sidebar.sections.skills')}</span>
+                    <div className="workspace-header-right">
+                      <button
+                        className="workspace-create-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleCreateSkillFolder()
+                        }}
+                        title={t('sidebar.tooltips.create_skill_item')}
+                      >
+                        <Plus size={12} />
+                      </button>
+                      <span className="workspace-toggle">
+                        {skillsCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      </span>
+                    </div>
+                  </div>
+                  {!skillsCollapsed && (
+                    <div className="workspace-content">
+                      {creatingItem && creatingItem.type === 'skill' && creatingItem.parentPath === FIXED_SKILLS_ROOT && (
+                        <div className="file-tree-item">
+                          <div className="file-item creating">
+                            <div className="file-item-content" style={{ paddingLeft: '12px' }}>
+                              <span className="file-icon">
+                                <Folder size={16} />
+                              </span>
+                              <input
+                                className="file-name-input"
+                                placeholder={t('sidebar.placeholders.new_skill_name')}
+                                onBlur={(e) => handleFinishCreating(e.target.value)}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleFinishCreating(e.target.value)
+                                  } else if (e.key === 'Escape') {
+                                    handleCancelCreating()
+                                  }
+                                }}
+                                autoFocus
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {separatedItems.skills.map(item => (
+                        <FileTreeItem
+                          key={item.id}
+                          item={item}
+                          onFileClick={onFileClick}
+                          onContextMenu={handleContextMenu}
+                          onRename={loadFileTree}
+                          creatingItem={creatingItem}
+                          onFinishCreating={handleFinishCreating}
+                          onCancelCreating={handleCancelCreating}
+                          onDragStart={handleDragStart}
+                          onDragOver={handleDragOver}
+                          onDrop={handleDrop}
+                          onDragLeave={handleDragLeave}
+                          onDragEnd={handleDragEnd}
+                          dragOverItem={dragOverItem}
+                          dragOverPosition={dragOverPosition}
+                          isDragging={isDragging}
+                          highlightPath={highlightPath}
+                          activePath={currentFile?.path}
+                          onHoverStart={handleHoverStart}
+                          onHoverEnd={handleHoverEnd}
+                          hoverPreview={hoverPreview}
+                          expandedFolders={expandedFolders}
+                          onToggleFolder={handleToggleFolder}
+                          collapsed={collapsed}
+                          showFileExtensions={showFileExtensions}
+                          multiSelectMode={multiSelectMode}
+                          selectedPaths={selectedPaths}
+                          onSelectToggle={toggleSelect}
+                          onEnterMultiSelect={enterMultiSelect}
+                          onOpenCreateMenu={handleOpenCreateMenu}
+                          onFolderColorPick={handleShowColorPicker}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className={`workspace-section ${workspaceCollapsed ? 'collapsed' : ''}`}>
                   <div className="workspace-header" onClick={handleToggleWorkspace}>
                     <span className="workspace-title">{t('sidebar.sections.workspace')}</span>
@@ -1384,6 +1860,8 @@ function Sidebar({
                           selectedPaths={selectedPaths}
                           onSelectToggle={toggleSelect}
                           onEnterMultiSelect={enterMultiSelect}
+                          onOpenCreateMenu={handleOpenCreateMenu}
+                          onFolderColorPick={handleShowColorPicker}
                         />
                       ))}
                     </div>
@@ -1402,7 +1880,7 @@ function Sidebar({
                             setCreateMenu({ 
                               x: e.clientX, 
                               y: e.clientY, 
-                              type: 'folder', 
+                              type: 'new-actions',
                               parentPath: undefined 
                             })
                           }}
@@ -1473,6 +1951,8 @@ function Sidebar({
                             selectedPaths={selectedPaths}
                             onSelectToggle={toggleSelect}
                             onEnterMultiSelect={enterMultiSelect}
+                            onOpenCreateMenu={handleOpenCreateMenu}
+                            onFolderColorPick={handleShowColorPicker}
                           />
                         ))}
                       </div>
@@ -1492,7 +1972,7 @@ function Sidebar({
                             setCreateMenu({ 
                               x: e.clientX, 
                               y: e.clientY, 
-                              type: 'file', 
+                              type: 'new-actions',
                               parentPath: undefined 
                             })
                           }}
@@ -1563,6 +2043,8 @@ function Sidebar({
                             selectedPaths={selectedPaths}
                             onSelectToggle={toggleSelect}
                             onEnterMultiSelect={enterMultiSelect}
+                            onOpenCreateMenu={handleOpenCreateMenu}
+                            onFolderColorPick={handleShowColorPicker}
                           />
                         ))}
                       </div>
@@ -1635,74 +2117,77 @@ function Sidebar({
           {contextMenu && (
             <div 
               className="context-menu"
+              ref={contextMenuRef}
               style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={(e) => e.stopPropagation()}
             >
               {contextMenu.item ? (
                 <>
-                  <button onClick={() => {
+                  <button className="context-menu-item" onClick={() => {
+                    handleOpenReview(contextMenu.item)
+                    setContextMenu(null)
+                  }}>
+                    <FileText size={14} /> Open Review
+                  </button>
+                  <button className="context-menu-item" onClick={() => {
+                    void handleRevealInExplorer(contextMenu.item)
+                    setContextMenu(null)
+                  }}>
+                    <FolderOpen size={14} /> reveal in File Explorer
+                  </button>
+                  <button className="context-menu-item" onClick={() => {
+                    void handleAddToMoRos(contextMenu.item)
+                    setContextMenu(null)
+                  }}>
+                    <MessageSquare size={14} /> Add to MoRos
+                  </button>
+                  <button className="context-menu-item" onClick={() => {
+                    void handleCopyItemPath(contextMenu.item)
+                    setContextMenu(null)
+                  }}>
+                    <Copy size={14} /> Copy Path
+                  </button>
+                  <button className="context-menu-item" onClick={() => {
                     handleRenameItem(contextMenu.item)
                     setContextMenu(null)
                   }}>
-                    <Edit size={14} /> {t('sidebar.context.rename')}
+                    <Edit size={14} /> Rename...
                   </button>
-                  <button onClick={() => {
+                  <button
+                    className="context-menu-item"
+                    style={contextMenu.item.color ? { color: contextMenu.item.color } : undefined}
+                    onClick={(e) => handleShowColorPicker(e, contextMenu.item)}
+                  >
+                    <Palette size={14} style={{ color: 'currentColor' }} />
+                    Set Color
+                  </button>
+                  <hr />
+                  <button className="context-menu-item danger" onClick={() => {
                     handleDeleteItem(contextMenu.item)
                     setContextMenu(null)
                   }}>
-                    <Trash2 size={14} /> {t('sidebar.context.delete')}
+                    <Trash2 size={14} /> Delete
                   </button>
-                  {contextMenu.item.type === 'folder' && (
-                    <>
-                      <hr />
-                      <button onClick={(e) => handleShowColorPicker(e, contextMenu.item)}>
-                        <Palette size={14} style={{ color: contextMenu.item.color || 'var(--text-secondary)' }} />
-                        {t('sidebar.context.set_color')}
-                      </button>
-                      <hr />
-                      <button onClick={() => {
-                        handleCreateFolder(contextMenu.item.path)
-                        setContextMenu(null)
-                      }}>
-                        <FolderPlus size={14} /> {t('sidebar.context.new_folder')}
-                      </button>
-                      <button onClick={() => {
-                        handleCreateFile(contextMenu.item.path)
-                        setContextMenu(null)
-                      }}>
-                        <FilePlus size={14} /> {t('sidebar.context.new_file')}
-                      </button>
-                      <button onClick={() => handleCreateWhiteboard(contextMenu.item.path)}>
-                        <Shapes size={14} /> {t('sidebar.context.new_whiteboard')}
-                      </button>
-                      <button onClick={() => handleCreateChat(contextMenu.item.path)}>
-                        <MessageSquare size={14} /> {t('sidebar.context.new_chat')}
-                      </button>
-                    </>
-                  )}
                 </>
               ) : (
-                // 空白处右键菜单
                 <>
-                  <button onClick={() => {
-                    handleCreateFile()
-                    setContextMenu(null)
-                  }}>
-                    <FilePlus size={14} /> {t('sidebar.context.new_file')}
-                  </button>
-                  <button onClick={() => handleCreateWhiteboard()}>
-                    <Shapes size={14} /> {t('sidebar.context.new_whiteboard')}
-                  </button>
-                  <button onClick={() => handleCreateChat()}>
-                    <MessageSquare size={14} /> {t('sidebar.context.new_chat')}
-                  </button>
-                  {contextMenu.allowCreateFolder && (
-                    <button onClick={() => {
-                      handleCreateFolder()
-                      setContextMenu(null)
-                    }}>
-                      <FolderPlus size={14} /> {t('sidebar.context.new_folder')}
+                  <div className="context-menu-section-title">Create</div>
+                  {canCreateConversationalFiles(contextMenu.parentPath) && (
+                    <button className="context-menu-item" onClick={() => handleCreateMenuAction('moros', contextMenu.parentPath)}>
+                      <MessageSquare size={14} /> {t('sidebar.context.new_moros')}
                     </button>
                   )}
+                  <button className="context-menu-item" onClick={() => handleCreateMenuAction('file', contextMenu.parentPath)}>
+                    <FilePlus size={14} /> {t('sidebar.context.new_file')}
+                  </button>
+                  {canCreateConversationalFiles(contextMenu.parentPath) && (
+                    <button className="context-menu-item" onClick={() => handleCreateMenuAction('whiteboard', contextMenu.parentPath)}>
+                      <Shapes size={14} /> {t('sidebar.context.new_whiteboard')}
+                    </button>
+                  )}
+                  <button className="context-menu-item" onClick={() => handleCreateMenuAction('folder', contextMenu.parentPath)}>
+                    <FolderPlus size={14} /> {t('sidebar.context.new_folder')}
+                  </button>
                 </>
               )}
             </div>
@@ -1712,38 +2197,27 @@ function Sidebar({
           {createMenu && (
             <div 
               className="context-menu"
+              ref={createMenuRef}
               style={{ left: createMenu.x, top: createMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
-              {createMenu.type === 'file' ? (
-                <>
-                  <button onClick={() => {
-                    handleCreateFile(createMenu.parentPath)
-                    setCreateMenu(null)
-                  }}>
-                    <FilePlus size={14} /> {t('sidebar.context.new_file')}
-                  </button>
-                  <button onClick={() => {
-                    handleCreateWhiteboard(createMenu.parentPath)
-                    setCreateMenu(null)
-                  }}>
-                    <Shapes size={14} /> {t('sidebar.context.new_whiteboard')}
-                  </button>
-                  <button onClick={() => {
-                    handleCreateChat(createMenu.parentPath)
-                    setCreateMenu(null)
-                  }}>
-                    <MessageSquare size={14} /> {t('sidebar.context.new_chat')}
-                  </button>
-                </>
-              ) : (
-                <button onClick={() => {
-                  handleCreateFolder(createMenu.parentPath)
-                  setCreateMenu(null)
-                }}>
-                  <FolderPlus size={14} /> {t('sidebar.context.new_folder')}
+              <div className="context-menu-section-title">Create</div>
+              {canCreateConversationalFiles(createMenu.parentPath) && (
+                <button className="context-menu-item" onClick={() => handleCreateMenuAction('moros', createMenu.parentPath)}>
+                  <MessageSquare size={14} /> {t('sidebar.context.new_moros')}
                 </button>
               )}
+              <button className="context-menu-item" onClick={() => handleCreateMenuAction('file', createMenu.parentPath)}>
+                <FilePlus size={14} /> {t('sidebar.context.new_file')}
+              </button>
+              {canCreateConversationalFiles(createMenu.parentPath) && (
+                <button className="context-menu-item" onClick={() => handleCreateMenuAction('whiteboard', createMenu.parentPath)}>
+                  <Shapes size={14} /> {t('sidebar.context.new_whiteboard')}
+                </button>
+              )}
+              <button className="context-menu-item" onClick={() => handleCreateMenuAction('folder', createMenu.parentPath)}>
+                <FolderPlus size={14} /> {t('sidebar.context.new_folder')}
+              </button>
             </div>
           )}
 
@@ -1776,6 +2250,7 @@ function Sidebar({
       {showColorPicker && (
         <div 
           className="color-picker"
+          ref={colorPickerRef}
           style={{ left: showColorPicker.x, top: showColorPicker.y }}
           onClick={(e) => e.stopPropagation()}
         >

@@ -1,7 +1,13 @@
-/* 导入highlight.js样式 */
+/* ── 所有 @import 必须在文件最前面 ── */
 @import 'highlight.js/styles/atom-one-dark.css';
-/* 导入 KaTeX 样式供 Streamdown 渲染数学公式 */
 @import 'katex/dist/katex.min.css';
+@import 'streamdown/styles.css';
+
+/* ── Tailwind v4（仅 theme + utilities，跳过 preflight 以不影响既有样式） ── */
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+@plugin "@tailwindcss/typography";
+@source "../node_modules/streamdown/dist/*.js";
 
 /* 全局样式重置和基础设置 */
 * {
@@ -44,8 +50,6 @@ html, body {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-
-/* 代码高亮样式将通过主题动态应用，不再强制覆盖 */
 
 /* 选中文本样式 */
 ::selection {

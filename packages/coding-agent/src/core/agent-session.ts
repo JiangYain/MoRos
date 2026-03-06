@@ -23,7 +23,7 @@ import type {
 	AgentTool,
 	ThinkingLevel,
 } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@mariozechner/pi-ai";
+import type { AssistantMessage, ImageContent, Message, Model, TextContent, ToolCall } from "@mariozechner/pi-ai";
 import { isContextOverflow, modelsAreEqual, resetApiProviders, supportsXhigh } from "@mariozechner/pi-ai";
 import { getDocsPath } from "../config.js";
 import { theme } from "../modes/interactive/theme/theme.js";
@@ -2080,6 +2080,33 @@ export class AgentSession {
 	 * Check if an error is retryable (overloaded, rate limit, server errors).
 	 * Context overflow errors are NOT retryable (handled by compaction instead).
 	 */
+	private _hasNonEmptyAssistantText(message: AssistantMessage): boolean {
+		return message.content.some((block) => {
+			if (block.type !== "text") return false;
+			return String(block.text || "").trim().length > 0;
+		});
+	}
+
+	private _hasLikelyPartialToolCall(message: AssistantMessage): boolean {
+		return message.content.some((block) => {
+			if (block.type !== "toolCall") return false;
+			const partialJson = String((block as any)?.partialJson || "").trim();
+			if (partialJson.length > 0) return true;
+
+			const args = (block as ToolCall).arguments;
+			return !args || (typeof args === "object" && Object.keys(args).length === 0);
+		});
+	}
+
+	private _shouldRetryTerminatedError(message: AssistantMessage): boolean {
+		// "terminated" from upstream proxies is often a stream cutoff. If there is
+		// already partial assistant output (text/tool-call shell), blind retries tend
+		// to loop and repeatedly restart from the beginning instead of progressing.
+		if (this._hasNonEmptyAssistantText(message)) return false;
+		if (this._hasLikelyPartialToolCall(message)) return false;
+		return true;
+	}
+
 	private _isRetryableError(message: AssistantMessage): boolean {
 		if (message.stopReason !== "error" || !message.errorMessage) return false;
 
@@ -2087,7 +2114,13 @@ export class AgentSession {
 		const contextWindow = this.model?.contextWindow ?? 0;
 		if (isContextOverflow(message, contextWindow)) return false;
 
-		const err = message.errorMessage;
+		const err = String(message.errorMessage);
+		const normalizedErr = err.toLowerCase();
+
+		if (/\bterminated\b/i.test(normalizedErr) && !this._shouldRetryTerminatedError(message)) {
+			return false;
+		}
+
 		// Match: overloaded_error, rate limit, 429, 500, 502, 503, 504, service unavailable, connection errors, fetch failed, terminated, retry delay exceeded
 		return /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server error|internal error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|terminated|retry delay/i.test(
 			err,

@@ -7,49 +7,141 @@
   position: absolute;
   left: 6px;
   bottom: calc(100% + 8px);
-  min-width: 240px;
-  max-height: 320px;
+  min-width: 220px;
+  max-width: min(260px, calc(100vw - 32px));
+  max-height: 360px;
   overflow-y: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-primary);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
-  padding: 8px;
+  border: 0.5px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: var(--bg-primary, #ffffff);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.04);
+  padding: 5px;
   z-index: 30;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
+  animation: menuFadeIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chat-composer-add-menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-composer-add-menu-section + .chat-composer-add-menu-section {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.chat-composer-add-menu-section-title {
+  padding: 4px 10px 4px;
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--text-tertiary, #aaaaaa);
+  user-select: none;
 }
 
 .chat-composer-add-menu-item {
   width: 100%;
   border: none;
   background: transparent;
-  color: var(--text-primary);
-  border-radius: 8px;
-  padding: 8px 10px;
+  color: var(--text-primary, #1a1a1a);
+  border-radius: 6px;
+  padding: 7px 10px;
   text-align: left;
   cursor: pointer;
   font-size: 13px;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 0.12s ease;
+  position: relative;
+}
+
+.chat-composer-add-menu-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  letter-spacing: -0.01em;
 }
 
 .chat-composer-add-menu-item:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
 }
 
 .chat-composer-add-menu-item.selected {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.12);
-  color: var(--text-primary);
-  font-weight: 600;
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  color: var(--text-primary, #1a1a1a);
+  font-weight: 500;
+}
+
+.chat-composer-add-menu-item-check {
+  display: none;
+}
+
+.model-logo {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: cover;
+  opacity: 0.75;
+  border-radius: 50%;
+}
+
+.chat-composer-add-menu-item.selected .model-logo {
+  opacity: 1;
 }
 
 .chat-composer-add-menu-item:disabled {
-  opacity: 0.55;
+  opacity: 0.38;
   cursor: not-allowed;
 }
 
-.chat-composer-add-menu-separator {
-  height: 1px;
-  background: var(--border-color);
-  margin: 6px 4px;
+.chat-composer-add {
+  overflow: hidden;
+}
+
+.chat-composer-add-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition: transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.24s ease, opacity 0.24s ease;
+  user-select: none;
+  opacity: 0.72;
+}
+
+.chat-composer-add:hover .chat-composer-add-glyph {
+  opacity: 1;
+}
+
+.chat-composer-add.open .chat-composer-add-glyph {
+  transform: rotate(135deg);
+  color: var(--accent-color, var(--text-primary));
+  opacity: 1;
 }
 
 .chat-composer-resize-handle {
@@ -85,7 +177,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  min-height: 64px;
+  padding: 10px 12px;
   border-radius: 18px;
   border: 1px solid var(--border-subtle, var(--border-color));
   background: var(--bg-primary);
@@ -106,8 +199,8 @@
   font-size: 15px;
   font-family: inherit;
   line-height: 1.5;
-  padding: 8px 4px;
-  min-height: 20px;
+  padding: 10px 4px;
+  min-height: 24px;
 }
 
 .chat-composer-input::placeholder {

@@ -41,7 +41,7 @@ const AccountSettings = ({ avatar, onAvatarChange, username, onUsernameChange })
 
   return (
     <div className="settings-view">
-      <h1 className="settings-view-title">Account</h1>
+      <h1 className="settings-view-title">{t('settings.profile') || 'Account'}</h1>
       <p className="settings-view-subtitle">Profile and identity</p>
 
       <div className="settings-card">
@@ -91,6 +91,8 @@ const GeneralSettings = ({
   onThemeModeChange,
   darkMode,
   onToggleDarkMode,
+  globalSystemPrompt,
+  onSaveGlobalSystemPrompt,
 }) => {
   const { t } = useI18n()
   const currentTheme = themeMode || (darkMode ? 'dark' : 'light')
@@ -108,9 +110,35 @@ const GeneralSettings = ({
     }
   }
 
+  const [systemPromptDraft, setSystemPromptDraft] = useState(() => String(globalSystemPrompt || ''))
+  const [systemPromptSaving, setSystemPromptSaving] = useState(false)
+  const [systemPromptStatus, setSystemPromptStatus] = useState({ type: '', message: '' })
+
+  useEffect(() => {
+    setSystemPromptDraft(String(globalSystemPrompt || ''))
+    setSystemPromptStatus({ type: '', message: '' })
+  }, [globalSystemPrompt])
+
+  const handleSaveSystemPrompt = async () => {
+    if (!onSaveGlobalSystemPrompt || systemPromptSaving) return
+    try {
+      setSystemPromptSaving(true)
+      setSystemPromptStatus({ type: '', message: '' })
+      await onSaveGlobalSystemPrompt(systemPromptDraft)
+      setSystemPromptStatus({ type: 'success', message: '已保存到当前项目' })
+    } catch (error) {
+      setSystemPromptStatus({
+        type: 'error',
+        message: `保存失败：${error?.message || '未知错误'}`,
+      })
+    } finally {
+      setSystemPromptSaving(false)
+    }
+  }
+
   return (
     <div className="settings-view">
-      <h1 className="settings-view-title">Settings</h1>
+      <h1 className="settings-view-title">{t('settings.app_settings') || 'Settings'}</h1>
       <p className="settings-view-subtitle">General behavior and appearance</p>
 
       <div className="settings-card">
@@ -159,6 +187,33 @@ const GeneralSettings = ({
               <span>Follow System</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="settings-card">
+        <div className="field-item">
+          <label className="field-label">Global System Prompt</label>
+          <textarea
+            className="field-input settings-textarea"
+            value={systemPromptDraft}
+            onChange={(e) => setSystemPromptDraft(e.target.value)}
+            placeholder="为当前项目定义全局系统提示词（会应用到所有 Chat 请求）"
+            rows={8}
+          />
+          <div className="settings-inline-row">
+            <p className="field-hint">该配置会写入项目配置文件，重启后仍生效。</p>
+            <span className="field-hint">{systemPromptDraft.length}/20000</span>
+          </div>
+        </div>
+        <div className="field-item">
+          <button className="settings-btn" onClick={handleSaveSystemPrompt} disabled={systemPromptSaving}>
+            {systemPromptSaving ? '保存中...' : '保存到当前项目'}
+          </button>
+          {systemPromptStatus.message && (
+            <span className={`connection-status ${systemPromptStatus.type === 'error' ? 'error' : 'success'}`}>
+              {systemPromptStatus.message}
+            </span>
+          )}
         </div>
       </div>
 
@@ -303,7 +358,7 @@ const IntegrationsSettings = () => {
 
   return (
     <div className="settings-view">
-      <h1 className="settings-view-title">Integrations</h1>
+      <h1 className="settings-view-title">{t('settings.integrations') || 'Integrations'}</h1>
       <p className="settings-view-subtitle">External API connections</p>
 
       <div className="settings-card">
@@ -510,6 +565,8 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
     hoverPreview, onHoverPreviewChange,
     showFileExtensions, onShowFileExtensionsChange,
     dynamicCursorGuide, onDynamicCursorGuideChange,
+    globalSystemPrompt,
+    onSaveGlobalSystemPrompt,
   } = props
 
   const [activeCategory, setActiveCategory] = useState('account')
@@ -553,6 +610,8 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
             themeMode={themeMode}
             onThemeModeChange={onThemeModeChange}
             onToggleDarkMode={onToggleDarkMode}
+            globalSystemPrompt={globalSystemPrompt}
+            onSaveGlobalSystemPrompt={onSaveGlobalSystemPrompt}
           />
         )
       case 'integrations':
@@ -584,14 +643,14 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
             onClick={() => setActiveCategory('account')}
           >
             <User size={15} />
-            <span>Account</span>
+            <span>{t('settings.profile') || 'Account'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveCategory('settings')}
           >
             <SettingsIcon size={15} />
-            <span>Settings</span>
+            <span>{t('settings.app_settings') || 'Settings'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'integrations' ? 'active' : ''}`}

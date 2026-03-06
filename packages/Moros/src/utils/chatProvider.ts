@@ -1,4 +1,4 @@
-export type ChatProvider = "dify" | "github-copilot";
+export type ChatProvider = "github-copilot";
 
 export type ChatModelOption = {
 	id: string;
@@ -9,7 +9,6 @@ const LS_PROVIDER_KEY = "moros-active-chat-provider";
 const LS_MODEL_KEY = "moros-active-chat-model";
 
 export const CHAT_PROVIDER_OPTIONS: Array<{ id: ChatProvider; label: string }> = [
-	{ id: "dify", label: "Dify" },
 	{ id: "github-copilot", label: "GitHub Copilot" },
 ];
 
@@ -19,17 +18,47 @@ export const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
 	{ id: "gpt-4o", label: "GPT-4o" },
 ];
 
-export const DEFAULT_CHAT_PROVIDER: ChatProvider = "dify";
+export const DEFAULT_CHAT_PROVIDER: ChatProvider = "github-copilot";
 export const DEFAULT_CHAT_MODEL = CHAT_MODEL_OPTIONS[0].id;
 
-export const normalizeChatProvider = (value: unknown): ChatProvider => {
-	return value === "github-copilot" ? "github-copilot" : "dify";
+const normalizeModelKey = (value: string): string => {
+	return String(value || "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, "");
+};
+
+const MODEL_ALIAS_CANDIDATES: Record<string, string[]> = {
+	"claude-sonnet-4.6": ["claudesonnet46", "claudesonnet4", "claudesonnet"],
+	"gpt-5.3-codex": ["gpt53codex", "gpt5codex", "gpt52codex", "gpt5"],
+	"gpt-4o": ["gpt4o", "gpt41mini", "gpt41"],
+};
+
+const canonicalizeKnownModel = (model: string): string => {
+	const normalized = String(model || "").trim();
+	if (!normalized) return DEFAULT_CHAT_MODEL;
+	if (CHAT_MODEL_OPTIONS.some((option) => option.id === normalized)) return normalized;
+
+	const key = normalizeModelKey(normalized);
+	if (!key) return DEFAULT_CHAT_MODEL;
+	for (const option of CHAT_MODEL_OPTIONS) {
+		const aliases = MODEL_ALIAS_CANDIDATES[option.id] || [normalizeModelKey(option.id)];
+		for (const alias of aliases) {
+			if (!alias) continue;
+			if (key === alias || key.includes(alias) || alias.includes(key)) {
+				return option.id;
+			}
+		}
+	}
+	return DEFAULT_CHAT_MODEL;
+};
+
+export const normalizeChatProvider = (_value: unknown): ChatProvider => {
+	return "github-copilot";
 };
 
 export const normalizeChatModel = (value: unknown): string => {
 	const model = String(value || "").trim();
-	if (!model) return DEFAULT_CHAT_MODEL;
-	return CHAT_MODEL_OPTIONS.some((option) => option.id === model) ? model : DEFAULT_CHAT_MODEL;
+	return canonicalizeKnownModel(model);
 };
 
 export const getActiveChatProvider = (): ChatProvider => {

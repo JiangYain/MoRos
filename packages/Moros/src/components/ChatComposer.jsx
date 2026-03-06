@@ -1,9 +1,44 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { ArrowUp, Plus, StopCircle } from 'lucide-react'
+import { ArrowUp, StopCircle } from 'lucide-react'
 import './ChatComposer.css'
 
-const MIN_HEIGHT = 56
+const MIN_HEIGHT = 64
 const MAX_HEIGHT = 320
+
+const resolveMenuSectionType = (optionId) => {
+  const id = String(optionId || '')
+  if (id.startsWith('action:')) return 'action'
+  if (id.startsWith('provider:')) return 'provider'
+  if (id.startsWith('model:')) return 'model'
+  return 'general'
+}
+
+const resolveMenuSectionTitle = (sectionType) => {
+  if (sectionType === 'action') return 'Action'
+  if (sectionType === 'provider') return 'Provider'
+  if (sectionType === 'model') return 'Model'
+  return 'Options'
+}
+
+const resolveOptionLabel = (label) => {
+  return String(label || '')
+    .replace(/^Provider:\s*/i, '')
+    .replace(/^Model:\s*/i, '')
+    .trim()
+}
+
+const MODEL_LOGO_MAP = {
+  'claude-sonnet-4.6': '/assets/model-icons/claude.png',
+  'gpt-5.3-codex': '/assets/model-icons/openai.png',
+  'gpt-4o': '/assets/model-icons/openai.png',
+}
+
+const resolveModelLogo = (optionId) => {
+  const id = String(optionId || '').replace(/^model:/, '')
+  const logoUrl = MODEL_LOGO_MAP[id]
+  if (!logoUrl) return null
+  return <img src={logoUrl} alt="" className="model-logo" />
+}
 
 function ChatComposer({
   value,
@@ -23,6 +58,10 @@ function ChatComposer({
   inputRef,
   className = '',
   dragOver = false,
+  onDragEnter,
+  onDragOver,
+  onDragLeave,
+  onDrop,
   addMenuOptions = null,
   onAddMenuSelect,
   attachTitle = 'Attach file',
@@ -39,6 +78,29 @@ function ChatComposer({
   const startHeightRef = useRef(MIN_HEIGHT)
   const addMenuRef = useRef(null)
   const hasAddMenu = Array.isArray(addMenuOptions) && addMenuOptions.length > 0
+  const addMenuSections = React.useMemo(() => {
+    if (!hasAddMenu) return []
+    const sections = []
+    let current = []
+    for (const option of addMenuOptions) {
+      if (option?.type === 'separator') {
+        if (current.length > 0) sections.push(current)
+        current = []
+        continue
+      }
+      if (!option || !option.id) continue
+      current.push(option)
+    }
+    if (current.length > 0) sections.push(current)
+    return sections.map((items, index) => {
+      const sectionType = resolveMenuSectionType(items[0]?.id)
+      return {
+        id: `${sectionType}-${index}`,
+        title: resolveMenuSectionTitle(sectionType),
+        items,
+      }
+    })
+  }, [hasAddMenu, addMenuOptions])
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault()
@@ -129,22 +191,24 @@ function ChatComposer({
     <div className="chat-composer-wrapper" ref={addMenuRef}>
       {hasAddMenu && isAddMenuOpen && (
         <div className="chat-composer-add-menu">
-          {addMenuOptions.map((option) => {
-            if (option?.type === 'separator') {
-              return <div key={option.id} className="chat-composer-add-menu-separator" />
-            }
-            return (
-              <button
-                key={option.id}
-                type="button"
-                className={`chat-composer-add-menu-item ${option.selected ? 'selected' : ''}`}
-                onClick={() => handleAddMenuSelect(option)}
-                disabled={option.disabled}
-              >
-                <span>{option.label}</span>
-              </button>
-            )
-          })}
+          {addMenuSections.map((section) => (
+            <div key={section.id} className="chat-composer-add-menu-section">
+              <div className="chat-composer-add-menu-section-title">{section.title}</div>
+              {section.items.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`chat-composer-add-menu-item ${option.selected ? 'selected' : ''}`}
+                  onClick={() => handleAddMenuSelect(option)}
+                  disabled={option.disabled}
+                >
+                  {resolveModelLogo(option.id)}
+                  <span className="chat-composer-add-menu-item-label">{resolveOptionLabel(option.label)}</span>
+                  {option.selected && <span className="chat-composer-add-menu-item-check" aria-hidden />}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
       )}
       <div
@@ -154,16 +218,21 @@ function ChatComposer({
       <form
         className={wrapperClassName}
         onSubmit={handleSubmit}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
         style={composerHeight > MIN_HEIGHT ? { minHeight: composerHeight + 'px', alignItems: 'flex-end' } : undefined}
       >
         <button
           type="button"
-          className="chat-input-action chat-composer-add"
+          className={`chat-input-action chat-composer-add ${isAddMenuOpen ? 'open' : ''}`}
           onClick={handleAddButtonClick}
           title={attachTitle}
           disabled={disabled || isLoading}
+          aria-expanded={hasAddMenu ? isAddMenuOpen : undefined}
         >
-          <Plus size={18} />
+          <span className="chat-composer-add-glyph" aria-hidden>/</span>
         </button>
 
         {useMultiline ? (

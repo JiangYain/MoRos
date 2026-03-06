@@ -1,5 +1,9 @@
 export const API_BASE = "http://localhost:53211/api";
 
+function encodePathSegments(p: string): string {
+	return p.split("/").map(encodeURIComponent).join("/");
+}
+
 interface ApiResponse<T = any> {
 	success: boolean;
 	data?: T;
@@ -38,7 +42,7 @@ export const filesApi = {
 	},
 
 	async readFile(filePath: string): Promise<string> {
-		const response = await fetch(`${API_BASE}/files/content/${encodeURIComponent(filePath)}`);
+		const response = await fetch(`${API_BASE}/files/content/${encodePathSegments(filePath)}`);
 		const result = (await response.json()) as ApiResponse;
 		if (!result.success) throw new Error(result.error);
 		return result.data?.content || "";
@@ -49,7 +53,7 @@ export const filesApi = {
 		content: string,
 		options?: { keepalive?: boolean; signal?: AbortSignal },
 	): Promise<void> {
-		const response = await fetch(`${API_BASE}/files/content/${encodeURIComponent(filePath)}`, {
+		const response = await fetch(`${API_BASE}/files/content/${encodePathSegments(filePath)}`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ content }),
@@ -71,7 +75,7 @@ export const filesApi = {
 	},
 
 	async deleteItem(itemPath: string): Promise<void> {
-		const response = await fetch(`${API_BASE}/files/${encodeURIComponent(itemPath)}`, {
+		const response = await fetch(`${API_BASE}/files/${encodePathSegments(itemPath)}`, {
 			method: "DELETE",
 		});
 		const result = (await response.json()) as ApiResponse;
@@ -79,7 +83,7 @@ export const filesApi = {
 	},
 
 	async renameItem(oldPath: string, newName: string): Promise<any> {
-		const response = await fetch(`${API_BASE}/files/rename/${encodeURIComponent(oldPath)}`, {
+		const response = await fetch(`${API_BASE}/files/rename/${encodePathSegments(oldPath)}`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ newName }),
@@ -120,6 +124,27 @@ export const filesApi = {
 		if (!result.success) throw new Error(result.error);
 	},
 
+	async revealInFileExplorer(itemPath: string): Promise<void> {
+		const response = await fetch(`${API_BASE}/files/reveal`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ itemPath }),
+		});
+		const result = (await response.json()) as ApiResponse;
+		if (!result.success) throw new Error(result.error);
+	},
+
+	async getAbsolutePath(itemPath: string): Promise<string> {
+		const response = await fetch(`${API_BASE}/files/absolute-path`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ itemPath }),
+		});
+		const result = (await response.json()) as ApiResponse<{ path?: string }>;
+		if (!result.success) throw new Error(result.error);
+		return String(result.data?.path || "");
+	},
+
 	async uploadFile(
 		file: File,
 		parentPath?: string,
@@ -150,7 +175,15 @@ export const filesApi = {
 	},
 
 	getRawFileUrl(relativePath: string): string {
-		return `${API_BASE}/files/raw/${encodeURIComponent(relativePath)}`;
+		return `${API_BASE}/files/raw/${encodePathSegments(relativePath)}`;
+	},
+
+	getRawAbsoluteFileUrl(absolutePath: string): string {
+		return `${API_BASE}/files/raw-absolute?path=${encodeURIComponent(absolutePath)}`;
+	},
+
+	getRawAbsoluteHtmlUrl(absolutePath: string): string {
+		return `${API_BASE}/files/raw-absolute-html?path=${encodeURIComponent(absolutePath)}`;
 	},
 };
 
@@ -163,7 +196,7 @@ export const knowledgeApi = {
 	},
 
 	async getRelatedFiles(filePath: string): Promise<any[]> {
-		const response = await fetch(`${API_BASE}/knowledge/related/${encodeURIComponent(filePath)}`);
+		const response = await fetch(`${API_BASE}/knowledge/related/${encodePathSegments(filePath)}`);
 		const result = (await response.json()) as ApiResponse;
 		if (!result.success) throw new Error(result.error);
 		return result.data || [];
@@ -174,6 +207,32 @@ export const knowledgeApi = {
 		const result = (await response.json()) as ApiResponse;
 		if (!result.success) throw new Error(result.error);
 		return (result.data as any[]) || [];
+	},
+};
+
+export const settingsApi = {
+	async getSystemPrompt(): Promise<{ systemPrompt: string; updatedAt?: string }> {
+		const response = await fetch(`${API_BASE}/settings/system-prompt`);
+		const result = (await response.json()) as ApiResponse<{ systemPrompt?: string; updatedAt?: string }>;
+		if (!result.success) throw new Error(result.error);
+		return {
+			systemPrompt: String(result.data?.systemPrompt || ""),
+			updatedAt: result.data?.updatedAt,
+		};
+	},
+
+	async saveSystemPrompt(systemPrompt: string): Promise<{ systemPrompt: string; updatedAt?: string }> {
+		const response = await fetch(`${API_BASE}/settings/system-prompt`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ systemPrompt }),
+		});
+		const result = (await response.json()) as ApiResponse<{ systemPrompt?: string; updatedAt?: string }>;
+		if (!result.success) throw new Error(result.error);
+		return {
+			systemPrompt: String(result.data?.systemPrompt || ""),
+			updatedAt: result.data?.updatedAt,
+		};
 	},
 };
 

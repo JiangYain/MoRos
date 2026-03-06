@@ -8,6 +8,50 @@ import { spawn } from "child_process";
 import { getShellConfig, getShellEnv, killProcessTree } from "../../utils/shell.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateTail } from "./truncate.js";
 
+const DEFAULT_BASH_TIMEOUT_SECONDS = 90;
+const WINDOWS_PATH_DOUBLE_QUOTED_REGEX = /"([A-Za-z]:[\\/][^"\r\n]+)"/g;
+const WINDOWS_PATH_SINGLE_QUOTED_REGEX = /'([A-Za-z]:[\\/][^'\r\n]+)'/g;
+const WINDOWS_PATH_UNQUOTED_REGEX = /\b([A-Za-z]:[\\/][^\s"'`|&;<>]+)/g;
+
+function convertWindowsAbsolutePathToBashPath(input: string): string {
+	const normalized = String(input || "")
+		.trim()
+		.replace(/\\/g, "/");
+	const drive = normalized.slice(0, 1).toLowerCase();
+	let rest = normalized.slice(2);
+	if (!rest.startsWith("/")) rest = `/${rest}`;
+	return `/${drive}${rest}`;
+}
+
+function shouldNormalizeWindowsPathsForBash(): boolean {
+	if (process.platform !== "win32") return false;
+	try {
+		const { shell } = getShellConfig();
+		const normalizedShell = String(shell || "")
+			.replace(/\\/g, "/")
+			.toLowerCase();
+		return normalizedShell.endsWith("/bash.exe") || normalizedShell.endsWith("/bash");
+	} catch {
+		return false;
+	}
+}
+
+function normalizeWindowsPathsForBashCommand(command: string): string {
+	const source = String(command || "");
+	if (!source) return source;
+
+	let converted = source.replace(WINDOWS_PATH_DOUBLE_QUOTED_REGEX, (_match, pathValue) => {
+		return `"${convertWindowsAbsolutePathToBashPath(pathValue)}"`;
+	});
+	converted = converted.replace(WINDOWS_PATH_SINGLE_QUOTED_REGEX, (_match, pathValue) => {
+		return `'${convertWindowsAbsolutePathToBashPath(pathValue)}'`;
+	});
+	converted = converted.replace(WINDOWS_PATH_UNQUOTED_REGEX, (_match, pathValue) => {
+		return convertWindowsAbsolutePathToBashPath(pathValue);
+	});
+	return converted;
+}
+
 /**
  * Generate a unique temp file path for bash output
  */
@@ -18,7 +62,9 @@ function getTempFilePath(): string {
 
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
-	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+	timeout: Type.Optional(
+		Type.Number({ description: "Timeout in seconds (optional, default is 90s, set 0 to disable timeout)" }),
+	),
 });
 
 export type BashToolInput = Static<typeof bashSchema>;
@@ -161,17 +207,23 @@ export interface BashToolOptions {
 	commandPrefix?: string;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
+	/** Default timeout in seconds for commands without an explicit timeout */
+	defaultTimeoutSeconds?: number;
 }
 
 export function createBashTool(cwd: string, options?: BashToolOptions): AgentTool<typeof bashSchema> {
 	const ops = options?.operations ?? defaultBashOperations;
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
+	const defaultTimeoutSeconds =
+		typeof options?.defaultTimeoutSeconds === "number" && options.defaultTimeoutSeconds > 0
+			? options.defaultTimeoutSeconds
+			: DEFAULT_BASH_TIMEOUT_SECONDS;
 
 	return {
 		name: "bash",
 		label: "bash",
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Commands use a default timeout of ${DEFAULT_BASH_TIMEOUT_SECONDS}s unless timeout is provided. Set timeout=0 to disable timeout for that command.`,
 		parameters: bashSchema,
 		execute: async (
 			_toolCallId: string,
@@ -181,7 +233,10 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 		) => {
 			// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
-			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
+			const shellCommand = shouldNormalizeWindowsPathsForBash()
+				? normalizeWindowsPathsForBashCommand(resolvedCommand)
+				: resolvedCommand;
+			const spawnContext = resolveSpawnContext(shellCommand, cwd, spawnHook);
 
 			return new Promise((resolve, reject) => {
 				// We'll stream to a temp file if output gets large
@@ -238,10 +293,13 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 					}
 				};
 
+				const effectiveTimeout =
+					timeout === 0 ? undefined : typeof timeout === "number" && timeout > 0 ? timeout : defaultTimeoutSeconds;
+
 				ops.exec(spawnContext.command, spawnContext.cwd, {
 					onData: handleData,
 					signal,
-					timeout,
+					timeout: effectiveTimeout,
 					env: spawnContext.env,
 				})
 					.then(({ exitCode }) => {
