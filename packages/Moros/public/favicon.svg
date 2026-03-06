@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <circle cx="16" cy="16" r="12" fill="none" stroke="#1a1a1a" stroke-width="4"/>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="32"
+  height="32"
+  viewBox="0 0 180 120"
+  role="img"
+  aria-label="MoRos"
+>
+  <g fill="none" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="60,20 20,60 60,100" stroke="#111827" />
+    <line x1="75" y1="100" x2="105" y2="20" stroke="#D94632" />
+    <polyline points="120,20 160,60 120,100" stroke="#111827" />
+  </g>
 </svg>
