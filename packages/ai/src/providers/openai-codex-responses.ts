@@ -1,18 +1,47 @@
+import type * as NodeDns from "node:dns";
 import type * as NodeOs from "node:os";
 import type { Tool as OpenAITool, ResponseInput, ResponseStreamEvent } from "openai/resources/responses/responses.js";
+import type * as Undici from "undici";
 
 // NEVER convert to top-level runtime imports - breaks browser/Vite builds (web-ui)
 let _os: typeof NodeOs | null = null;
+let _dns: typeof NodeDns | null = null;
+let _dnsResolver: NodeDns.Resolver | null = null;
+let _undici: typeof Undici | null = null;
+let _codexDispatcher: Undici.Agent | null = null;
 
 type DynamicImport = (specifier: string) => Promise<unknown>;
 
 const dynamicImport: DynamicImport = (specifier) => import(specifier);
 const NODE_OS_SPECIFIER = "node:" + "os";
+const NODE_DNS_SPECIFIER = "node:" + "dns";
+const UNDICI_SPECIFIER = "undici";
+const TRUSTED_DNS_SERVERS = ["1.1.1.1", "8.8.8.8"] as const;
+const DNS_OVERRIDE_HOST_SUFFIXES = ["chatgpt.com", "chat.openai.com", "api.openai.com"] as const;
 
 if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
 	dynamicImport(NODE_OS_SPECIFIER).then((m) => {
 		_os = m as typeof NodeOs;
 	});
+	dynamicImport(NODE_DNS_SPECIFIER)
+		.then((m) => {
+			const dnsModule = m as typeof NodeDns;
+			_dns = dnsModule;
+			const resolver = new dnsModule.Resolver();
+			resolver.setServers([...TRUSTED_DNS_SERVERS]);
+			_dnsResolver = resolver;
+		})
+		.catch(() => {
+			_dns = null;
+			_dnsResolver = null;
+		});
+	dynamicImport(UNDICI_SPECIFIER)
+		.then((m) => {
+			_undici = m as typeof Undici;
+		})
+		.catch(() => {
+			_undici = null;
+		});
 }
 
 import { getEnvApiKey } from "../env-api-keys.js";
@@ -103,6 +132,87 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 	});
 }
 
+function formatNetworkError(error: unknown): string {
+	const message =
+		error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+			? (error as { message: string }).message
+			: String(error || "Request failed");
+	if (!error || typeof error !== "object") return message;
+	const code = (error as { code?: unknown }).code;
+	if (typeof code === "string" && !message.includes(code)) {
+		return `${message} (${code})`;
+	}
+	const cause = (error as { cause?: unknown }).cause;
+	if (cause && typeof cause === "object") {
+		const causeCode = (cause as { code?: unknown }).code;
+		const causeMessage = (cause as { message?: unknown }).message;
+		if (typeof causeCode === "string" && !message.includes(causeCode)) {
+			return `${message} (${causeCode})`;
+		}
+		if (typeof causeMessage === "string" && causeMessage && !message.includes(causeMessage)) {
+			return `${message}: ${causeMessage}`;
+		}
+	}
+	return message;
+}
+
+function shouldUseDnsOverride(urlText: string): boolean {
+	try {
+		const url = new URL(urlText);
+		const hostname = url.hostname.toLowerCase();
+		return DNS_OVERRIDE_HOST_SUFFIXES.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`));
+	} catch {
+		return false;
+	}
+}
+
+function getCodexDispatcher(urlText: string): unknown {
+	if (!shouldUseDnsOverride(urlText)) return undefined;
+	if (!_undici || !_dns || !_dnsResolver) return undefined;
+	if (_codexDispatcher) return _codexDispatcher;
+
+	_codexDispatcher = new _undici.Agent({
+		connect: {
+			family: 4,
+			lookup: ((hostname: string, _options: unknown, callback: any) => {
+				const normalizedHost = String(hostname || "").toLowerCase();
+				const useTrustedResolver = DNS_OVERRIDE_HOST_SUFFIXES.some(
+					(suffix) => normalizedHost === suffix || normalizedHost.endsWith(`.${suffix}`),
+				);
+
+				const fallbackLookup = () => {
+					if (!_dns) {
+						callback(new Error(`DNS lookup failed for ${hostname}`));
+						return;
+					}
+					_dns.lookup(hostname, { family: 4 }, (lookupError, address, family) => {
+						if (lookupError) {
+							callback(lookupError as Error);
+							return;
+						}
+						callback(null, address, family);
+					});
+				};
+
+				if (!useTrustedResolver || !_dnsResolver) {
+					fallbackLookup();
+					return;
+				}
+
+				_dnsResolver.resolve4(hostname, (resolveError, addresses) => {
+					if (!resolveError && Array.isArray(addresses) && addresses.length > 0) {
+						callback(null, addresses[0], 4);
+						return;
+					}
+					fallbackLookup();
+				});
+			}) as any,
+		},
+	} as any);
+
+	return _codexDispatcher;
+}
+
 // ============================================================================
 // Main Stream Function
 // ============================================================================
@@ -189,12 +299,18 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 				}
 
 				try {
-					response = await fetch(resolveCodexUrl(model.baseUrl), {
+					const requestUrl = resolveCodexUrl(model.baseUrl);
+					const fetchOptions: RequestInit = {
 						method: "POST",
 						headers,
 						body: bodyJson,
 						signal: options?.signal,
-					});
+					};
+					const dispatcher = getCodexDispatcher(requestUrl);
+					if (dispatcher) {
+						(fetchOptions as any).dispatcher = dispatcher as any;
+					}
+					response = await fetch(requestUrl, fetchOptions as any);
 
 					if (response.ok) {
 						break;
@@ -215,19 +331,22 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 					const info = await parseErrorResponse(fakeResponse);
 					throw new Error(info.friendlyMessage || info.message);
 				} catch (error) {
+					const formattedError = formatNetworkError(error);
 					if (error instanceof Error) {
 						if (error.name === "AbortError" || error.message === "Request was aborted") {
 							throw new Error("Request was aborted");
 						}
 					}
-					lastError = error instanceof Error ? error : new Error(String(error));
+					lastError = new Error(formattedError);
 					// Network errors are retryable
-					if (attempt < MAX_RETRIES && !lastError.message.includes("usage limit")) {
+					if (attempt < MAX_RETRIES && !formattedError.includes("usage limit")) {
 						const delayMs = BASE_DELAY_MS * 2 ** attempt;
 						await sleep(delayMs, options?.signal);
 						continue;
 					}
-					throw lastError;
+					throw new Error(
+						`Codex request failed: ${formattedError}. Check VPN/DNS reachability for chatgpt.com/backend-api.`,
+					);
 				}
 			}
 
@@ -835,7 +954,11 @@ function extractAccountId(token: string): string {
 	try {
 		const parts = token.split(".");
 		if (parts.length !== 3) throw new Error("Invalid token");
-		const payload = JSON.parse(atob(parts[1]));
+		const payloadBase64 = parts[1]
+			.replace(/-/g, "+")
+			.replace(/_/g, "/")
+			.padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
+		const payload = JSON.parse(atob(payloadBase64));
 		const accountId = payload?.[JWT_CLAIM_PATH]?.chatgpt_account_id;
 		if (!accountId) throw new Error("No account ID in token");
 		return accountId;

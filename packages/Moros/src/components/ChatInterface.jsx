@@ -7,6 +7,7 @@ import {
   resolveGitHubCopilotModel,
 } from '../utils/githubCopilot'
 import { chatWithLocalCliStreaming, abortLocalCliSession, closeLocalCliSession } from '../utils/localCliAgent'
+import { getValidOpenAICodexCredentials } from '../utils/openaiCodex'
 import { getOpenCodeGoApiKey, getOpenCodeGoBaseUrl } from '../utils/opencodeGo'
 import {
   CHAT_PROVIDER_OPTIONS,
@@ -1541,10 +1542,12 @@ function ChatInterface({
       return finalSegments
     }
 
-    const isLocalCliProvider = chatProvider === 'github-copilot' || chatProvider === 'opencode-go'
+    const isLocalCliProvider =
+      chatProvider === 'github-copilot' || chatProvider === 'openai-codex' || chatProvider === 'opencode-go'
     if (isLocalCliProvider) {
       let requestModel = normalizeChatModel(chatModel, chatProvider)
       let copilotAccessToken = ''
+      let openaiCodexCredentials = null
       let opencodeApiKey = ''
       let opencodeGoBaseUrl = ''
       if (chatProvider === 'github-copilot') {
@@ -1591,6 +1594,30 @@ function ChatInterface({
           }
         } catch {}
       }
+      if (chatProvider === 'openai-codex') {
+        openaiCodexCredentials = await getValidOpenAICodexCredentials()
+        if (!openaiCodexCredentials) {
+          const authErrorMessage = {
+            role: 'assistant',
+            content: '请先在 Settings -> Integrations 中完成 OpenAI Codex OAuth 登录。',
+            error: true,
+            timestamp: new Date().toISOString()
+          }
+          setMessages([...newMessages, authErrorMessage])
+          setSessionPanelMessage('未检测到 OpenAI Codex 登录')
+          setStreamingContent('')
+          setIsLoading(false)
+          setIsThinking(false)
+          streamHandleRef.current = null
+          saveChatHistory([...newMessages, authErrorMessage], conversationId, {
+            provider: chatProvider,
+            model: chatModel,
+            agentRuntimeSessionId,
+            agentSessionFile,
+          })
+          return
+        }
+      }
       if (chatProvider === 'opencode-go') {
         opencodeApiKey = String(getOpenCodeGoApiKey() || '').trim()
         opencodeGoBaseUrl = String(getOpenCodeGoBaseUrl() || '').trim()
@@ -1627,6 +1654,7 @@ function ChatInterface({
             model: requestModel,
             message: requestMessage,
             copilotToken: copilotAccessToken,
+            openaiCodexCredentials: openaiCodexCredentials || undefined,
             opencodeApiKey,
             opencodeGoBaseUrl,
             runtimeSessionId: nextRuntimeSessionId || undefined,
@@ -1998,7 +2026,7 @@ function ChatInterface({
     if (streamHandleRef.current) {
       streamHandleRef.current.abort()
       streamHandleRef.current = null
-      if (chatProvider === 'github-copilot' && agentRuntimeSessionId) {
+      if (agentRuntimeSessionId) {
         void abortLocalCliSession(agentRuntimeSessionId).catch((error) => {
           console.error('中断 CLI 会话失败:', error)
         })

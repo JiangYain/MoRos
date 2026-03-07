@@ -28,6 +28,7 @@ const resolveOptionLabel = (label) => {
 }
 
 const MODEL_LOGO_MAP = {
+  'gpt-5.4': '/assets/model-icons/openai.png',
   'gpt-5.3-codex': '/assets/model-icons/openai.png',
   'gemini-3.1-pro-preview': '/assets/model-icons/gemini.png',
   'claude-sonnet-4.6': '/assets/model-icons/claude.png',

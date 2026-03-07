@@ -1,4 +1,4 @@
-export type ChatProvider = "github-copilot" | "opencode-go";
+export type ChatProvider = "github-copilot" | "openai-codex" | "opencode-go";
 
 export type ChatModelOption = {
 	id: string;
@@ -10,6 +10,7 @@ const LS_MODEL_KEY = "moros-active-chat-model";
 
 export const CHAT_PROVIDER_OPTIONS: Array<{ id: ChatProvider; label: string }> = [
 	{ id: "github-copilot", label: "GitHub Copilot" },
+	{ id: "openai-codex", label: "OpenAI Codex" },
 	{ id: "opencode-go", label: "OpenCode Go" },
 ];
 
@@ -20,6 +21,11 @@ const COPILOT_CHAT_MODEL_OPTIONS: ChatModelOption[] = [
 	{ id: "gpt-4o", label: "GPT-4o" },
 ];
 
+const OPENAI_CODEX_MODEL_OPTIONS: ChatModelOption[] = [
+	{ id: "gpt-5.4", label: "GPT-5.4" },
+	{ id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+];
+
 const OPENCODE_GO_MODEL_OPTIONS: ChatModelOption[] = [
 	{ id: "glm-5", label: "GLM-5" },
 	{ id: "kimi-k2.5", label: "Kimi K2.5" },
@@ -28,6 +34,7 @@ const OPENCODE_GO_MODEL_OPTIONS: ChatModelOption[] = [
 
 export const CHAT_MODELS_BY_PROVIDER: Record<ChatProvider, ChatModelOption[]> = {
 	"github-copilot": COPILOT_CHAT_MODEL_OPTIONS,
+	"openai-codex": OPENAI_CODEX_MODEL_OPTIONS,
 	"opencode-go": OPENCODE_GO_MODEL_OPTIONS,
 };
 
@@ -50,6 +57,7 @@ const normalizeModelKey = (value: string): string => {
 };
 
 const MODEL_ALIAS_CANDIDATES: Record<string, string[]> = {
+	"gpt-5.4": ["gpt54", "gpt5"],
 	"gpt-5.3-codex": ["gpt53codex", "gpt53", "gpt5codex", "gpt5"],
 	"gemini-3.1-pro-preview": ["gemini31propreview", "gemini31pro", "gemini3.1pro", "geminipro", "gemini31"],
 	"claude-sonnet-4.6": ["claudesonnet46", "claudesonnet4", "claudesonnet"],
@@ -72,6 +80,7 @@ export const normalizeChatProvider = (value: unknown): ChatProvider => {
 	const normalized = String(value || "")
 		.trim()
 		.toLowerCase();
+	if (normalized === "openai-codex") return "openai-codex";
 	return normalized === "opencode-go" ? "opencode-go" : "github-copilot";
 };
 
@@ -129,6 +138,9 @@ export const getProvidersForModel = (model: unknown): ChatProvider[] => {
 export const resolveProviderForModel = (model: unknown, fallbackProvider?: unknown): ChatProvider => {
 	const normalizedFallback = fallbackProvider === undefined ? undefined : normalizeChatProvider(fallbackProvider);
 	const candidates = getProvidersForModel(model);
+	if (normalizedFallback && candidates.includes(normalizedFallback)) {
+		return normalizedFallback;
+	}
 	return candidates[0] || normalizedFallback || DEFAULT_CHAT_PROVIDER;
 };
 

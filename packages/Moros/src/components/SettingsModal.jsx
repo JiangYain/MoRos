@@ -22,6 +22,13 @@ import {
   setOpenCodeGoBaseUrl,
   testOpenCodeGoConnection,
 } from '../utils/opencodeGo'
+import {
+  clearOpenAICodexCredentials,
+  getOpenAICodexCredentials,
+  getValidOpenAICodexCredentials,
+  loginOpenAICodex,
+  testOpenAICodexConnection,
+} from '../utils/openaiCodex'
 import LanguageSelector from './LanguageSelector'
 
 const AccountSettings = ({ avatar, onAvatarChange, username, onUsernameChange }) => {
@@ -297,6 +304,9 @@ const IntegrationsSettings = () => {
   const [opencodeGoApiVisible, setOpenCodeGoApiVisible] = useState(false)
   const [opencodeGoStatus, setOpenCodeGoStatus] = useState('')
   const [opencodeGoBusy, setOpenCodeGoBusy] = useState(false)
+  const [openAICodexBusy, setOpenAICodexBusy] = useState(false)
+  const [openAICodexStatus, setOpenAICodexStatus] = useState('')
+  const [openAICodexCredentials, setOpenAICodexCredentials] = useState(() => getOpenAICodexCredentials())
 
   const refreshCopilotCredentials = async () => {
     const next = await getValidGitHubCopilotCredentials()
@@ -304,8 +314,15 @@ const IntegrationsSettings = () => {
     return next
   }
 
+  const refreshOpenAICodexCredentials = async () => {
+    const next = await getValidOpenAICodexCredentials()
+    setOpenAICodexCredentials(next)
+    return next
+  }
+
   useEffect(() => {
     refreshCopilotCredentials()
+    refreshOpenAICodexCredentials()
   }, [])
 
   const handleLoginCopilot = async () => {
@@ -367,6 +384,61 @@ const IntegrationsSettings = () => {
       setCopilotStatus('复制失败，请手动复制设备码')
     }
   }
+
+  const handleLoginOpenAICodex = async () => {
+    if (openAICodexBusy) return
+    setOpenAICodexBusy(true)
+    setOpenAICodexStatus('正在初始化 OAuth...')
+    try {
+      const credentials = await loginOpenAICodex({
+        onAuth: ({ url }) => {
+          try {
+            window.open(url, '_blank', 'noopener,noreferrer')
+          } catch {}
+        },
+        onProgress: (message) => setOpenAICodexStatus(message),
+      })
+      setOpenAICodexCredentials(credentials)
+      setOpenAICodexStatus('OpenAI Codex 已连接')
+    } catch (error) {
+      setOpenAICodexStatus(`连接失败：${error?.message || '未知错误'}`)
+    } finally {
+      setOpenAICodexBusy(false)
+    }
+  }
+
+  const handleLogoutOpenAICodex = () => {
+    clearOpenAICodexCredentials()
+    setOpenAICodexCredentials(null)
+    setOpenAICodexStatus('已退出 OpenAI Codex')
+  }
+
+  const handleTestOpenAICodex = async () => {
+    if (openAICodexBusy) return
+    setOpenAICodexBusy(true)
+    setOpenAICodexStatus('正在测试连接...')
+    try {
+      const result = await testOpenAICodexConnection()
+      if (!result.ok) {
+        setOpenAICodexStatus(`连接失败：${result.error || 'Unknown Error'}`)
+        return
+      }
+      const next = await getValidOpenAICodexCredentials()
+      setOpenAICodexCredentials(next)
+      setOpenAICodexStatus('连接成功')
+    } catch (error) {
+      setOpenAICodexStatus(`连接失败：${error?.message || 'Unknown Error'}`)
+    } finally {
+      setOpenAICodexBusy(false)
+    }
+  }
+
+  const openAICodexAccountIdPreview = (() => {
+    const accountId = String(openAICodexCredentials?.accountId || '').trim()
+    if (!accountId) return ''
+    if (accountId.length <= 16) return accountId
+    return `${accountId.slice(0, 8)}...${accountId.slice(-6)}`
+  })()
 
   return (
     <div className="settings-view">
@@ -557,6 +629,48 @@ const IntegrationsSettings = () => {
           {copilotStatus && (
             <p className="field-hint" style={{ marginTop: '10px' }}>
               {copilotStatus}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="settings-card">
+        <h2 className="settings-card-title">OpenAI Codex OAuth</h2>
+        <div className="field-item">
+          <label className="field-label">Account</label>
+          <p className="field-hint">
+            {openAICodexCredentials
+              ? `当前状态：已登录${openAICodexAccountIdPreview ? ` (${openAICodexAccountIdPreview})` : ''}`
+              : '当前状态：未登录'}
+          </p>
+          <p className="field-hint">
+            登录流程会使用 PKCE 打开 OpenAI 授权页，并通过本地回调地址
+            {' '}
+            <code>http://localhost:1455/auth/callback</code>
+            {' '}
+            完成授权。
+          </p>
+        </div>
+        <div className="field-item">
+          <div className="inline-actions">
+            {!openAICodexCredentials ? (
+              <button className="settings-btn" onClick={handleLoginOpenAICodex} disabled={openAICodexBusy}>
+                {openAICodexBusy ? '授权中...' : 'Login with OpenAI Codex'}
+              </button>
+            ) : (
+              <>
+                <button className="settings-btn" onClick={handleTestOpenAICodex} disabled={openAICodexBusy}>
+                  测试连接
+                </button>
+                <button className="settings-btn ghost" onClick={handleLogoutOpenAICodex} disabled={openAICodexBusy}>
+                  Logout
+                </button>
+              </>
+            )}
+          </div>
+          {openAICodexStatus && (
+            <p className="field-hint" style={{ marginTop: '10px' }}>
+              {openAICodexStatus}
             </p>
           )}
         </div>

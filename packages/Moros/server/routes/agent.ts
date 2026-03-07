@@ -3,19 +3,46 @@ import path from 'path'
 import { rpcAgentSessionManager, type RpcImageInput } from '../utils/rpcAgentManager.js'
 
 export const agentRouter = express.Router()
-type AgentProvider = 'github-copilot' | 'opencode-go'
+type AgentProvider = 'github-copilot' | 'openai-codex' | 'opencode-go'
 const DEFAULT_MODEL_BY_PROVIDER: Record<AgentProvider, string> = {
   'github-copilot': 'gpt-4o',
+  'openai-codex': 'gpt-5.4',
   'opencode-go': 'glm-5',
 }
 
 const normalizeProvider = (value: any): AgentProvider => {
   const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'openai-codex') return 'openai-codex'
   return normalized === 'opencode-go' ? 'opencode-go' : 'github-copilot'
 }
 
 const getDefaultModelForProvider = (provider: AgentProvider): string => {
   return DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER['github-copilot']
+}
+
+type OpenAICodexCredentials = {
+  access: string
+  refresh: string
+  expires: number
+  accountId: string
+  updatedAt?: number
+}
+
+const normalizeOpenAICodexCredentials = (value: any): OpenAICodexCredentials | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const access = String(value?.access || '').trim()
+  const refresh = String(value?.refresh || '').trim()
+  const accountId = String(value?.accountId || '').trim()
+  const expires = Number(value?.expires)
+  const updatedAt = Number(value?.updatedAt || Date.now())
+  if (!access || !refresh || !accountId || !Number.isFinite(expires)) return undefined
+  return {
+    access,
+    refresh,
+    accountId,
+    expires,
+    updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+  }
 }
 
 const setSseHeaders = (res: any) => {
@@ -95,6 +122,7 @@ agentRouter.post('/chat/stream', async (req, res) => {
   const runtimeSessionId = String(body.runtimeSessionId || '').trim() || undefined
   const resumeSessionFile = String(body.resumeSessionFile || '').trim() || undefined
   const copilotToken = String(body.copilotToken || '').trim()
+  const openaiCodexCredentials = normalizeOpenAICodexCredentials(body.openaiCodexCredentials)
   const opencodeApiKey = String(body.opencodeApiKey || '').trim()
   const opencodeGoBaseUrl = String(body.opencodeGoBaseUrl || '').trim()
   const images = normalizeImages(body.images)
@@ -110,6 +138,10 @@ agentRouter.post('/chat/stream', async (req, res) => {
   if (provider === 'github-copilot' && !copilotToken) {
     console.log(`${reqTag} rejected: no copilot token`)
     return res.status(401).json({ success: false, error: 'Missing GitHub Copilot token' })
+  }
+  if (provider === 'openai-codex' && !openaiCodexCredentials) {
+    console.log(`${reqTag} rejected: no openai codex oauth credentials`)
+    return res.status(401).json({ success: false, error: 'Missing OpenAI Codex OAuth credentials' })
   }
   if (provider === 'opencode-go' && !opencodeApiKey) {
     console.log(`${reqTag} rejected: no opencode api key`)
@@ -150,6 +182,7 @@ agentRouter.post('/chat/stream', async (req, res) => {
       provider,
       model,
       copilotToken,
+      openaiCodexCredentials,
       opencodeApiKey,
       opencodeGoBaseUrl,
       skillPaths,

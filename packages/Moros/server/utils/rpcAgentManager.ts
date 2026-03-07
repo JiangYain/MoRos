@@ -24,14 +24,16 @@ const PROMPT_INACTIVITY_TIMEOUT_MS = parsePositiveIntEnv(
   'MOROS_PROMPT_INACTIVITY_TIMEOUT_MS',
   3 * 60 * 1000,
 )
-type RpcAgentProvider = 'github-copilot' | 'opencode-go'
+type RpcAgentProvider = 'github-copilot' | 'openai-codex' | 'opencode-go'
 const DEFAULT_PROVIDER: RpcAgentProvider = 'github-copilot'
 const DEFAULT_MODEL_BY_PROVIDER: Record<RpcAgentProvider, string> = {
   'github-copilot': 'gpt-4o',
+  'openai-codex': 'gpt-5.4',
   'opencode-go': 'glm-5',
 }
 const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
 const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
+const OPENAI_CODEX_ALLOWED_MODELS = new Set(['gpt-5.4', 'gpt-5.3-codex'])
 
 type JsonRecord = Record<string, any>
 
@@ -52,6 +54,14 @@ export type RpcImageInput = {
   type: 'image'
   data: string
   mimeType: string
+}
+
+export type OpenAICodexCredentials = {
+  access: string
+  refresh: string
+  expires: number
+  accountId: string
+  updatedAt?: number
 }
 
 type RpcPromptOptions = {
@@ -129,6 +139,7 @@ const normalizeWorkingDirectory = (value?: string): string => {
 
 const normalizeProvider = (value?: string): RpcAgentProvider => {
   const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'openai-codex') return 'openai-codex'
   return normalized === 'opencode-go' ? 'opencode-go' : 'github-copilot'
 }
 
@@ -136,8 +147,41 @@ const getDefaultModelForProvider = (provider: RpcAgentProvider): string => {
   return DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
 }
 
+const normalizeModelForProvider = (provider: RpcAgentProvider, model?: string): string => {
+  const fallbackModel = getDefaultModelForProvider(provider)
+  const normalized = String(model || '').trim()
+  if (!normalized) return fallbackModel
+  if (provider === 'openai-codex' && !OPENAI_CODEX_ALLOWED_MODELS.has(normalized)) {
+    return fallbackModel
+  }
+  return normalized
+}
+
 const buildTokenFingerprint = (token: string): string => {
   return crypto.createHash('sha256').update(token).digest('hex').slice(0, 24)
+}
+
+const normalizeOpenAICodexCredentials = (value?: OpenAICodexCredentials): OpenAICodexCredentials | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const access = String(value.access || '').trim()
+  const refresh = String(value.refresh || '').trim()
+  const accountId = String(value.accountId || '').trim()
+  const expires = Number(value.expires)
+  const updatedAt = Number(value.updatedAt || Date.now())
+  if (!access || !refresh || !accountId || !Number.isFinite(expires)) return undefined
+  return {
+    access,
+    refresh,
+    accountId,
+    expires,
+    updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+  }
+}
+
+const buildOpenAICodexAuthSecret = (credentials?: OpenAICodexCredentials): string => {
+  const normalized = normalizeOpenAICodexCredentials(credentials)
+  if (!normalized) return ''
+  return `${normalized.refresh}:${normalized.accountId}:${normalized.expires}`
 }
 
 const resolveCopilotBaseUrlFromToken = (token: string): string | undefined => {
@@ -178,6 +222,7 @@ const ensureRuntimeAgentConfig = (
   copilotBaseUrl?: string,
   skillPaths: string[] = [],
   opencodeGoBaseUrl?: string,
+  openAICodexCredentials?: OpenAICodexCredentials,
 ): void => {
   fs.mkdirSync(agentDir, { recursive: true })
   const modelsPath = path.join(agentDir, 'models.json')
@@ -234,6 +279,26 @@ const ensureRuntimeAgentConfig = (
   } else if (safeExists(modelsPath)) {
     try {
       fs.unlinkSync(modelsPath)
+    } catch {}
+  }
+
+  const authPath = path.join(agentDir, 'auth.json')
+  const normalizedOpenAICodexCredentials = normalizeOpenAICodexCredentials(openAICodexCredentials)
+  if (normalizedOpenAICodexCredentials) {
+    const authPayload = {
+      'openai-codex': {
+        type: 'oauth',
+        access: normalizedOpenAICodexCredentials.access,
+        refresh: normalizedOpenAICodexCredentials.refresh,
+        expires: normalizedOpenAICodexCredentials.expires,
+        accountId: normalizedOpenAICodexCredentials.accountId,
+        updatedAt: normalizedOpenAICodexCredentials.updatedAt || Date.now(),
+      },
+    }
+    fs.writeFileSync(authPath, JSON.stringify(authPayload, null, 2), 'utf-8')
+  } else if (safeExists(authPath)) {
+    try {
+      fs.unlinkSync(authPath)
     } catch {}
   }
 
@@ -368,6 +433,7 @@ class RpcAgentSession {
   private readonly skillPathsSignature: string
   private readonly workingDirectory: string
   private readonly opencodeGoBaseUrl?: string
+  private readonly openAICodexCredentials?: OpenAICodexCredentials
 
   private process?: ChildProcessWithoutNullStreams
   private stdoutReader?: readline.Interface
@@ -387,6 +453,7 @@ class RpcAgentSession {
     provider?: string
     model: string
     copilotToken?: string
+    openaiCodexCredentials?: OpenAICodexCredentials
     opencodeApiKey?: string
     opencodeGoBaseUrl?: string
     resumeSessionFile?: string
@@ -395,10 +462,12 @@ class RpcAgentSession {
   }) {
     this.runtimeSessionId = options.runtimeSessionId
     this.currentProvider = normalizeProvider(options.provider)
-    const fallbackModel = getDefaultModelForProvider(this.currentProvider)
-    this.currentModel = String(options.model || fallbackModel).trim() || fallbackModel
-    const authSecret =
-      this.currentProvider === 'github-copilot' ? options.copilotToken : options.opencodeApiKey
+    this.currentModel = normalizeModelForProvider(this.currentProvider, options.model)
+    const authSecret = this.currentProvider === 'github-copilot'
+      ? String(options.copilotToken || '')
+      : this.currentProvider === 'openai-codex'
+        ? buildOpenAICodexAuthSecret(options.openaiCodexCredentials)
+        : String(options.opencodeApiKey || '')
     this.tokenFingerprint = buildTokenFingerprint(String(authSecret || ''))
     this.resumeSessionFile = normalizeSessionFile(options.resumeSessionFile)
     this.skillPaths = normalizeSkillPaths(options.skillPaths)
@@ -407,6 +476,10 @@ class RpcAgentSession {
     this.opencodeGoBaseUrl =
       this.currentProvider === 'opencode-go'
         ? normalizeOpencodeGoBaseUrl(options.opencodeGoBaseUrl) || DEFAULT_OPENCODE_GO_BASE_URL
+        : undefined
+    this.openAICodexCredentials =
+      this.currentProvider === 'openai-codex'
+        ? normalizeOpenAICodexCredentials(options.openaiCodexCredentials)
         : undefined
     this.sessionDir = path.join(process.cwd(), 'markov-data', 'agent-sessions')
     this.runtimeAgentDir = path.join(
@@ -418,9 +491,16 @@ class RpcAgentSession {
     this.launcher = resolveCliLauncher()
   }
 
-  isTokenCompatible(copilotToken?: string, opencodeApiKey?: string): boolean {
+  isTokenCompatible(
+    copilotToken?: string,
+    opencodeApiKey?: string,
+    openaiCodexCredentials?: OpenAICodexCredentials,
+  ): boolean {
     if (this.currentProvider === 'github-copilot') {
       return buildTokenFingerprint(String(copilotToken || '')) === this.tokenFingerprint
+    }
+    if (this.currentProvider === 'openai-codex') {
+      return buildTokenFingerprint(buildOpenAICodexAuthSecret(openaiCodexCredentials)) === this.tokenFingerprint
     }
     if (this.currentProvider === 'opencode-go') {
       return buildTokenFingerprint(String(opencodeApiKey || '')) === this.tokenFingerprint
@@ -472,7 +552,11 @@ class RpcAgentSession {
     this.lastUsedAt = Date.now()
   }
 
-  async start(copilotToken?: string, opencodeApiKey?: string): Promise<void> {
+  async start(
+    copilotToken?: string,
+    opencodeApiKey?: string,
+    openaiCodexCredentials?: OpenAICodexCredentials,
+  ): Promise<void> {
     if (this.started) return
     if (this.disposed) {
       throw new Error('RPC session already disposed')
@@ -481,9 +565,22 @@ class RpcAgentSession {
     fs.mkdirSync(this.sessionDir, { recursive: true })
     const token = String(copilotToken || '')
     const openCodeKey = String(opencodeApiKey || '')
+    const normalizedOpenAICodexCredentials =
+      this.currentProvider === 'openai-codex'
+        ? normalizeOpenAICodexCredentials(openaiCodexCredentials || this.openAICodexCredentials)
+        : undefined
+    if (this.currentProvider === 'openai-codex' && !normalizedOpenAICodexCredentials) {
+      throw new Error('Missing OpenAI Codex OAuth credentials')
+    }
     const dynamicCopilotBaseUrl =
       this.currentProvider === 'github-copilot' ? resolveCopilotBaseUrlFromToken(token) : undefined
-    ensureRuntimeAgentConfig(this.runtimeAgentDir, dynamicCopilotBaseUrl, this.skillPaths, this.opencodeGoBaseUrl)
+    ensureRuntimeAgentConfig(
+      this.runtimeAgentDir,
+      dynamicCopilotBaseUrl,
+      this.skillPaths,
+      this.opencodeGoBaseUrl,
+      normalizedOpenAICodexCredentials,
+    )
 
     const launchArgs = [
       ...this.launcher.args,
@@ -520,8 +617,11 @@ class RpcAgentSession {
     })
 
     const sid = this.runtimeSessionId.slice(0, 8)
+    const codexAccountPreview = normalizedOpenAICodexCredentials?.accountId
+      ? `${normalizedOpenAICodexCredentials.accountId.slice(0, 8)}...`
+      : 'none'
     console.log(
-      `[RpcAgent:${sid}] spawn: ${this.launcher.command} ${launchArgs.join(' ')} (cwd=${this.workingDirectory}, source=${this.launcher.source}, agentDir=${this.runtimeAgentDir}, provider=${this.currentProvider}, copilotBase=${dynamicCopilotBaseUrl || 'default'}, opencodeBase=${this.opencodeGoBaseUrl || 'default'})`,
+      `[RpcAgent:${sid}] spawn: ${this.launcher.command} ${launchArgs.join(' ')} (cwd=${this.workingDirectory}, source=${this.launcher.source}, agentDir=${this.runtimeAgentDir}, provider=${this.currentProvider}, copilotBase=${dynamicCopilotBaseUrl || 'default'}, opencodeBase=${this.opencodeGoBaseUrl || 'default'}, codexAccount=${codexAccountPreview})`,
     )
 
     this.process.on('error', (error) => {
@@ -705,8 +805,7 @@ class RpcAgentSession {
 
   async ensureModel(model: string, provider?: string): Promise<void> {
     const normalizedProvider = normalizeProvider(provider || this.currentProvider)
-    const fallbackModel = getDefaultModelForProvider(normalizedProvider)
-    const normalizedModel = String(model || '').trim() || fallbackModel
+    const normalizedModel = normalizeModelForProvider(normalizedProvider, model)
     if (normalizedProvider === this.currentProvider && normalizedModel === this.currentModel) {
       if (!this.isAlive()) {
         throw new Error('Agent session process is not alive')
@@ -1017,13 +1116,14 @@ export class RpcAgentSessionManager {
     provider?: string
     model?: string
     copilotToken?: string
+    openaiCodexCredentials?: OpenAICodexCredentials
     opencodeApiKey?: string
     opencodeGoBaseUrl?: string
     skillPaths?: string[]
     workingDirectory?: string
   }): Promise<{ runtimeSessionId: string; session: RpcAgentSession; created: boolean }> {
     const requestedProvider = normalizeProvider(options.provider)
-    const startupModel = getDefaultModelForProvider(requestedProvider)
+    const startupModel = normalizeModelForProvider(requestedProvider, options.model)
     const normalizedResumeFile = normalizeSessionFile(options.resumeSessionFile)
     const requestedRuntimeId = String(options.runtimeSessionId || '').trim()
 
@@ -1034,7 +1134,9 @@ export class RpcAgentSessionManager {
           console.log(`[SessionMgr] Provider changed for session ${requestedRuntimeId}, disposing`)
           await existing.dispose()
           this.sessions.delete(requestedRuntimeId)
-        } else if (!existing.isTokenCompatible(options.copilotToken, options.opencodeApiKey)) {
+        } else if (
+          !existing.isTokenCompatible(options.copilotToken, options.opencodeApiKey, options.openaiCodexCredentials)
+        ) {
           console.log(`[SessionMgr] Token mismatch for session ${requestedRuntimeId}, disposing`)
           await existing.dispose()
           this.sessions.delete(requestedRuntimeId)
@@ -1065,7 +1167,7 @@ export class RpcAgentSessionManager {
         if (
           session.matchesSessionFile(normalizedResumeFile) &&
           session.isProviderCompatible(requestedProvider) &&
-          session.isTokenCompatible(options.copilotToken, options.opencodeApiKey) &&
+          session.isTokenCompatible(options.copilotToken, options.opencodeApiKey, options.openaiCodexCredentials) &&
           session.isOpencodeGoBaseUrlCompatible(options.opencodeGoBaseUrl) &&
           session.isSkillPathsCompatible(options.skillPaths) &&
           session.isWorkingDirectoryCompatible(options.workingDirectory)
@@ -1088,13 +1190,14 @@ export class RpcAgentSessionManager {
       provider: requestedProvider,
       model: startupModel,
       copilotToken: options.copilotToken,
+      openaiCodexCredentials: options.openaiCodexCredentials,
       opencodeApiKey: options.opencodeApiKey,
       opencodeGoBaseUrl: options.opencodeGoBaseUrl,
       resumeSessionFile: normalizedResumeFile,
       skillPaths: options.skillPaths,
       workingDirectory: options.workingDirectory,
     })
-    await session.start(options.copilotToken, options.opencodeApiKey)
+    await session.start(options.copilotToken, options.opencodeApiKey, options.openaiCodexCredentials)
     this.sessions.set(runtimeSessionId, session)
     return { runtimeSessionId, session, created: true }
   }

@@ -87,12 +87,25 @@ function parseAuthorizationInput(input: string): { code?: string; state?: string
 	return { code: value };
 }
 
+function decodeBase64Url(value: string): string {
+	const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+	const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+	const encoded = `${normalized}${padding}`;
+	if (typeof atob === "function") {
+		return atob(encoded);
+	}
+	if (typeof Buffer !== "undefined") {
+		return Buffer.from(encoded, "base64").toString("utf-8");
+	}
+	throw new Error("No base64 decoder available");
+}
+
 function decodeJwt(token: string): JwtPayload | null {
 	try {
 		const parts = token.split(".");
 		if (parts.length !== 3) return null;
 		const payload = parts[1] ?? "";
-		const decoded = atob(payload);
+		const decoded = decodeBase64Url(payload);
 		return JSON.parse(decoded) as JwtPayload;
 	} catch {
 		return null;
@@ -246,7 +259,7 @@ function startLocalOAuthServer(state: string): Promise<OAuthServerInfo> {
 
 	return new Promise((resolve) => {
 		server
-			.listen(1455, "127.0.0.1", () => {
+			.listen(1455, "localhost", () => {
 				resolve({
 					close: () => server.close(),
 					cancelWait: () => {
@@ -265,7 +278,7 @@ function startLocalOAuthServer(state: string): Promise<OAuthServerInfo> {
 			})
 			.on("error", (err: NodeJS.ErrnoException) => {
 				console.error(
-					"[openai-codex] Failed to bind http://127.0.0.1:1455 (",
+					"[openai-codex] Failed to bind http://localhost:1455 (",
 					err.code,
 					") Falling back to manual paste.",
 				);

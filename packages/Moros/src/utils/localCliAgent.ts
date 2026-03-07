@@ -6,6 +6,14 @@ export type LocalCliImageInput = {
 	mimeType: string;
 };
 
+export type LocalCliOpenAICodexCredentials = {
+	access: string;
+	refresh: string;
+	expires: number;
+	accountId: string;
+	updatedAt?: number;
+};
+
 export type LocalCliStreamEvent =
 	| {
 			event: "session_meta";
@@ -51,6 +59,7 @@ export interface LocalCliChatOptions {
 	model: string;
 	message: string;
 	copilotToken?: string;
+	openaiCodexCredentials?: LocalCliOpenAICodexCredentials;
 	opencodeApiKey?: string;
 	opencodeGoBaseUrl?: string;
 	runtimeSessionId?: string;
