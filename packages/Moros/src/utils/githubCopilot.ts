@@ -316,8 +316,9 @@ const fetchCopilotModelsByToken = async (
 };
 
 const MODEL_ALIAS_CANDIDATES: Record<string, string[]> = {
+	"gpt-5.3-codex": ["gpt-5.3-codex", "gpt-5.3", "gpt-5"],
+	"gemini-3.1-pro-preview": ["gemini-3.1-pro-preview", "gemini-3.1-pro", "gemini-3-pro", "gemini-pro"],
 	"claude-sonnet-4.6": ["claude-sonnet-4.6", "claude-sonnet-4", "claude-sonnet"],
-	"gpt-5.3-codex": ["gpt-5.3-codex", "gpt-5-codex", "gpt-5.2-codex", "gpt-5"],
 	"gpt-4o": ["gpt-4o", "gpt-4.1", "gpt-4.1-mini"],
 };
 

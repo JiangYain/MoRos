@@ -28,9 +28,13 @@ const resolveOptionLabel = (label) => {
 }
 
 const MODEL_LOGO_MAP = {
-  'claude-sonnet-4.6': '/assets/model-icons/claude.png',
   'gpt-5.3-codex': '/assets/model-icons/openai.png',
+  'gemini-3.1-pro-preview': '/assets/model-icons/gemini.png',
+  'claude-sonnet-4.6': '/assets/model-icons/claude.png',
   'gpt-4o': '/assets/model-icons/openai.png',
+  'glm-5': '/assets/model-icons/glm5.png',
+  'kimi-k2.5': '/assets/model-icons/kimi.svg',
+  'minimax-m2.5': '/assets/model-icons/minimax.svg',
 }
 
 const resolveModelLogo = (optionId) => {

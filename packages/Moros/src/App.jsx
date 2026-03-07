@@ -12,6 +12,11 @@ import StyleSidebar from './components/StyleSidebar'
 import SettingsModal from './components/SettingsModal'
 // 移除复杂的主题管理，使用统一主题
 
+const isMarkdownPath = (filePath) => {
+  const normalized = String(filePath || '').toLowerCase()
+  return normalized.endsWith('.md') || normalized.endsWith('.markdown')
+}
+
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
@@ -55,8 +60,9 @@ function App() {
   })
   const isCurrentFileWhiteboard = currentFile?.path && isWhiteboardFile(currentFile.path)
   const isCurrentFileChat = currentFile?.path && currentFile.path.toLowerCase().endsWith('.moros')
+  const isCurrentFileMarkdown = currentFile?.path ? isMarkdownPath(currentFile.path) : false
   const isSpecialFile = isCurrentFileWhiteboard || isCurrentFileChat
-  const shouldShowRightPanel = !isSpecialFile && Boolean(currentFile) && viewMode === 'split'
+  const shouldShowRightPanel = !isSpecialFile && Boolean(currentFile) && isCurrentFileMarkdown && viewMode === 'split'
 
   useEffect(() => {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -568,7 +574,7 @@ function App() {
 
       {/* 分屏光标连线覆盖层（固定定位，覆盖全局） */}
       <SplitCursorOverlay
-        visible={overlayState.visible}
+        visible={overlayState.visible && shouldShowRightPanel}
         editorRect={overlayState.editorRect}
         previewRect={overlayState.previewRect}
         yEditor={overlayState.yEditor}

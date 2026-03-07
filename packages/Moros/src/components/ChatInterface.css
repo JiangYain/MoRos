@@ -61,7 +61,7 @@
 
 .chat-top-actions-inner {
   width: 100%;
-  max-width: 800px;
+  max-width: none;
   display: flex;
   justify-content: flex-end;
 }

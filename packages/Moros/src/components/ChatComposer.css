@@ -97,12 +97,12 @@
 }
 
 .model-logo {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  object-fit: cover;
+  object-fit: contain;
   opacity: 0.75;
-  border-radius: 50%;
+  border-radius: 3px;
 }
 
 .chat-composer-add-menu-item.selected .model-logo {

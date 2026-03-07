@@ -12,6 +12,7 @@ export type LocalCliStreamEvent =
 			runtimeSessionId: string;
 			sessionId?: string;
 			sessionFile?: string;
+			currentProvider?: string;
 			currentModel?: string;
 			created?: boolean;
 	  }
@@ -46,9 +47,12 @@ export type LocalCliStreamEvent =
 	  };
 
 export interface LocalCliChatOptions {
+	provider?: string;
 	model: string;
 	message: string;
-	copilotToken: string;
+	copilotToken?: string;
+	opencodeApiKey?: string;
+	opencodeGoBaseUrl?: string;
 	runtimeSessionId?: string;
 	resumeSessionFile?: string;
 	images?: LocalCliImageInput[];
@@ -236,6 +240,7 @@ export const chatWithLocalCliStreaming = (
 							runtimeSessionId: String(payload?.runtimeSessionId || ""),
 							sessionId: payload?.sessionId ? String(payload.sessionId) : undefined,
 							sessionFile: payload?.sessionFile ? String(payload.sessionFile) : undefined,
+							currentProvider: payload?.currentProvider ? String(payload.currentProvider) : undefined,
 							currentModel: payload?.currentModel ? String(payload.currentModel) : undefined,
 							created: Boolean(payload?.created),
 						});

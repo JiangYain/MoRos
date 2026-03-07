@@ -46,6 +46,11 @@ const isGitHubTarget = (url: URL): boolean => {
   return host.includes('github.com') || host.includes('githubcopilot.com')
 }
 
+const isOpenCodeTarget = (url: URL): boolean => {
+  const host = url.hostname.toLowerCase()
+  return host.includes('opencode.ai')
+}
+
 const getErrorCode = (error: unknown): string | undefined => {
   if (!error || typeof error !== 'object') return undefined
   const maybeCode = (error as { code?: unknown }).code
@@ -139,15 +144,17 @@ proxyRouter.all('/', async (req, res) => {
 
   let requestBody: BodyInit | undefined
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) {
-    if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
+    if (typeof req.body === 'string') {
       requestBody = req.body
+    } else if (Buffer.isBuffer(req.body)) {
+      requestBody = new Uint8Array(req.body)
     } else if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
       requestBody = JSON.stringify(req.body)
     }
   }
 
   try {
-    const maxAttempts = isGitHubTarget(targetUrl) ? 3 : 1
+    const maxAttempts = isGitHubTarget(targetUrl) || isOpenCodeTarget(targetUrl) ? 3 : 1
     let upstream: Response | null = null
     let lastError: unknown = null
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

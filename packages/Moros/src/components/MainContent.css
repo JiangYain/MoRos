@@ -225,6 +225,22 @@
   margin: 0 !important;
 }
 
+.content-wrapper.plain-editor-wrapper,
+.content-wrapper.plain-editor-wrapper > * {
+  max-width: none !important;
+  width: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.content-wrapper.plain-editor-wrapper {
+  overflow: hidden;
+}
+
+.content-wrapper.plain-editor-wrapper .editor-container {
+  height: 100%;
+}
+
 .split-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -427,7 +443,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 14px;
   margin-top: 4vh;
 }
 
@@ -435,15 +451,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
-  margin-bottom: 2px;
+  margin-top: 0;
+  margin-bottom: 4px;
   transform: scale(0.94);
   transform-origin: center;
   pointer-events: none;
 }
 
 .chat-landing-title {
-  margin: 0;
+  margin: 0 0 4px;
   text-align: center;
   color: var(--text-primary);
   font-family: "Cormorant Garamond", "Times New Roman", serif;

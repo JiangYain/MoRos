@@ -85,62 +85,17 @@
   margin: 0;
 }
 
-/* 折叠状态下的文件选中样式 - 圆形阴影和呼吸脉冲 */
+/* 折叠状态下的文件选中样式 - 轻量黑色圆环 */
 .sidebar.collapsed .file-item.active {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.2);
-  box-shadow: 
-    0 0 0 2px rgba(var(--accent-color-rgb, 26, 26, 26), 0.4),
-    0 4px 12px rgba(var(--accent-color-rgb, 26, 26, 26), 0.25),
-    0 2px 6px rgba(var(--accent-color-rgb, 26, 26, 26), 0.15);
-  animation: breathingPulse 2s ease-in-out infinite;
-}
-
-/* 呼吸脉冲动画 */
-@keyframes breathingPulse {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 
-      0 0 0 2px rgba(var(--accent-color-rgb, 26, 26, 26), 0.4),
-      0 4px 12px rgba(var(--accent-color-rgb, 26, 26, 26), 0.25),
-      0 2px 6px rgba(var(--accent-color-rgb, 26, 26, 26), 0.15);
-  }
-  50% {
-    transform: scale(1.05);
-    box-shadow: 
-      0 0 0 3px rgba(var(--accent-color-rgb, 26, 26, 26), 0.5),
-      0 6px 16px rgba(var(--accent-color-rgb, 26, 26, 26), 0.35),
-      0 3px 8px rgba(var(--accent-color-rgb, 26, 26, 26), 0.25);
-  }
+  background: rgba(0, 0, 0, 0.03);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.24);
+  transform: none;
 }
 
 /* 深色主题下的折叠选中样式 */
 [data-theme="dark"] .sidebar.collapsed .file-item.active {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.25);
-  box-shadow: 
-    0 0 0 2px rgba(var(--accent-color-rgb, 26, 26, 26), 0.5),
-    0 4px 12px rgba(var(--accent-color-rgb, 26, 26, 26), 0.3),
-    0 2px 6px rgba(var(--accent-color-rgb, 26, 26, 26), 0.2);
-}
-
-@keyframes breathingPulseDark {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 
-      0 0 0 2px rgba(var(--accent-color-rgb, 26, 26, 26), 0.5),
-      0 4px 12px rgba(var(--accent-color-rgb, 26, 26, 26), 0.3),
-      0 2px 6px rgba(var(--accent-color-rgb, 26, 26, 26), 0.2);
-  }
-  50% {
-    transform: scale(1.05);
-    box-shadow: 
-      0 0 0 3px rgba(var(--accent-color-rgb, 26, 26, 26), 0.6),
-      0 6px 16px rgba(var(--accent-color-rgb, 26, 26, 26), 0.4),
-      0 3px 8px rgba(var(--accent-color-rgb, 26, 26, 26), 0.3);
-  }
-}
-
-[data-theme="dark"] .sidebar.collapsed .file-item.active {
-  animation: breathingPulseDark 2s ease-in-out infinite;
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36);
 }
 
 /* 折叠状态下的悬浮效果也保持圆形 */
@@ -163,13 +118,15 @@
 
 /* 确保选中状态的优先级更高，不被悬浮效果覆盖 */
 .sidebar.collapsed .file-item.active:hover {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.2) !important;
-  animation: breathingPulse 2s ease-in-out infinite !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.24) !important;
+  transform: none !important;
 }
 
 [data-theme="dark"] .sidebar.collapsed .file-item.active:hover {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.25) !important;
-  animation: breathingPulseDark 2s ease-in-out infinite !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36) !important;
+  transform: none !important;
 }
 
 .sidebar-header {
@@ -593,7 +550,7 @@
   padding: 6px 12px;
   cursor: pointer;
   transition: background 0.18s ease, transform 150ms ease, box-shadow 150ms ease;
-  border-radius: 10px; /* 收敛圆角 */
+  border-radius: 8px; /* 收敛圆角 */
   margin: 1px 10px; /* 恢复原始边距 */
   position: relative;
   min-height: 30px;
@@ -635,7 +592,7 @@
   right: 6px;
   bottom: 0;
   background: linear-gradient(0deg, rgba(var(--accent-color-rgb, 26, 26, 26), 0.06), rgba(var(--accent-color-rgb, 26, 26, 26), 0.06)), var(--bg-tertiary);
-  border-radius: 10px; /* 与主项一致 */
+  border-radius: 8px; /* 与主项一致 */
   z-index: -1;
 }
 
@@ -665,7 +622,7 @@
   right: 6px;
   bottom: 0;
   background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.16);
-  border-radius: 10px; /* 与主项一致 */
+  border-radius: 8px; /* 与主项一致 */
   box-shadow: 0 2px 10px rgba(var(--accent-color-rgb, 26, 26, 26), 0.12) inset;
   z-index: -1;
 }

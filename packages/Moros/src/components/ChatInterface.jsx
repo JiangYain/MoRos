@@ -7,13 +7,15 @@ import {
   resolveGitHubCopilotModel,
 } from '../utils/githubCopilot'
 import { chatWithLocalCliStreaming, abortLocalCliSession, closeLocalCliSession } from '../utils/localCliAgent'
+import { getOpenCodeGoApiKey, getOpenCodeGoBaseUrl } from '../utils/opencodeGo'
 import {
-  CHAT_MODEL_OPTIONS,
   CHAT_PROVIDER_OPTIONS,
   DEFAULT_CHAT_MODEL,
   DEFAULT_CHAT_PROVIDER,
+  getAllChatModelOptions,
   normalizeChatModel,
   normalizeChatProvider,
+  resolveProviderForModel,
   setActiveChatModel,
   setActiveChatProvider,
 } from '../utils/chatProvider'
@@ -884,8 +886,9 @@ function ChatInterface({
         
         if (content) {
           const data = JSON.parse(content)
-          setChatProvider(normalizeChatProvider(data?.provider))
-          setChatModel(normalizeChatModel(data?.model))
+          const providerFromFile = normalizeChatProvider(data?.provider)
+          setChatProvider(providerFromFile)
+          setChatModel(normalizeChatModel(data?.model, providerFromFile))
           const normalizedMessages = (data.messages || []).map((msg) => {
             if (!msg || typeof msg !== 'object') return msg
             const normalizedContent =
@@ -968,7 +971,7 @@ function ChatInterface({
     try {
       const { filesApi } = await import('../utils/api')
       const provider = normalizeChatProvider(overrides.provider ?? chatProvider)
-      const model = normalizeChatModel(overrides.model ?? chatModel)
+      const model = normalizeChatModel(overrides.model ?? chatModel, provider)
       const runtimeSessionId = String((overrides.agentRuntimeSessionId ?? agentRuntimeSessionId) || '').trim()
       const sessionFile = String((overrides.agentSessionFile ?? agentSessionFile) || '').trim()
       const data = {
@@ -989,9 +992,11 @@ function ChatInterface({
   }, [currentFile, chatProvider, chatModel, agentRuntimeSessionId, agentSessionFile])
 
   const persistChatMeta = useCallback((provider, model) => {
+    const normalizedProvider = normalizeChatProvider(provider)
+    const normalizedModel = normalizeChatModel(model, normalizedProvider)
     saveChatHistory(messages, conversationId, {
-      provider: normalizeChatProvider(provider),
-      model: normalizeChatModel(model),
+      provider: normalizedProvider,
+      model: normalizedModel,
     })
   }, [messages, conversationId, saveChatHistory])
 
@@ -1006,19 +1011,30 @@ function ChatInterface({
 
   const handleChatProviderChange = useCallback((provider) => {
     const nextProvider = normalizeChatProvider(provider)
+    const nextModel = normalizeChatModel(chatModel, nextProvider)
     setChatProvider(nextProvider)
+    setChatModel(nextModel)
     setActiveChatProvider(nextProvider)
+    setActiveChatModel(nextModel, nextProvider)
     // provider 切换后清理待发送附件，避免跨 provider 残留格式不兼容
     setUploadedFiles([])
     setUploadingFiles([])
-    persistChatMeta(nextProvider, chatModel)
+    persistChatMeta(nextProvider, nextModel)
   }, [chatModel, persistChatMeta])
 
   const handleChatModelChange = useCallback((model) => {
-    const nextModel = normalizeChatModel(model)
+    const nextProvider = resolveProviderForModel(model, chatProvider)
+    const nextModel = normalizeChatModel(model, nextProvider)
+    if (nextProvider !== chatProvider) {
+      setChatProvider(nextProvider)
+      setActiveChatProvider(nextProvider)
+      // 自动切 provider 时，清理待发送附件，避免跨 provider 兼容问题
+      setUploadedFiles([])
+      setUploadingFiles([])
+    }
     setChatModel(nextModel)
-    setActiveChatModel(nextModel)
-    persistChatMeta(chatProvider, nextModel)
+    setActiveChatModel(nextModel, nextProvider)
+    persistChatMeta(nextProvider, nextModel)
   }, [chatProvider, persistChatMeta])
 
   useEffect(() => {
@@ -1040,9 +1056,9 @@ function ChatInterface({
         if (!availableModels.length) return
         const resolved = await resolveGitHubCopilotModel(chatModel, credentials, availableModels)
         if (!disposed && resolved.model && resolved.model !== chatModel) {
-          const nextModel = normalizeChatModel(resolved.model)
+          const nextModel = normalizeChatModel(resolved.model, 'github-copilot')
           setChatModel(nextModel)
-          setActiveChatModel(nextModel)
+          setActiveChatModel(nextModel, 'github-copilot')
         }
       } catch {
         if (!disposed) setCopilotAvailableModels([])
@@ -1132,7 +1148,6 @@ function ChatInterface({
   }, [handleOpenUploadPicker, handleChatProviderChange, handleChatModelChange])
 
   const composerAddMenuOptions = useMemo(() => {
-    const availableSet = new Set(copilotAvailableModels)
     return [
       {
         id: 'action:upload',
@@ -1145,17 +1160,15 @@ function ChatInterface({
         selected: chatProvider === providerOption.id,
       })),
       { id: 'separator:model', type: 'separator' },
-      ...CHAT_MODEL_OPTIONS.map((modelOption) => ({
+      ...getAllChatModelOptions().map((modelOption) => {
+        return {
         id: `model:${modelOption.id}`,
         label: modelOption.label,
         selected: chatModel === modelOption.id,
-        disabled:
-          chatProvider === 'github-copilot' &&
-          copilotAvailableModels.length > 0 &&
-          !availableSet.has(modelOption.id),
-      })),
+        }
+      }),
     ]
-  }, [chatProvider, chatModel, copilotAvailableModels])
+  }, [chatProvider, chatModel])
 
   useEffect(() => {
     try {
@@ -1528,49 +1541,81 @@ function ChatInterface({
       return finalSegments
     }
 
-    if (chatProvider === 'github-copilot') {
-      const credentials = await getValidGitHubCopilotCredentials()
-      if (!credentials) {
-        const authErrorMessage = {
-          role: 'assistant',
-          content: '请先在 Settings -> Integrations 中完成 GitHub Copilot OAuth 登录。',
-          error: true,
-          timestamp: new Date().toISOString()
-        }
-        setMessages([...newMessages, authErrorMessage])
-        setSessionPanelMessage('未检测到 GitHub Copilot 登录')
-        setStreamingContent('')
-        setIsLoading(false)
-        setIsThinking(false)
-        streamHandleRef.current = null
-        saveChatHistory([...newMessages, authErrorMessage], conversationId, {
-          provider: chatProvider,
-          model: chatModel,
-          agentRuntimeSessionId,
-          agentSessionFile,
-        })
-        return
-      }
-
-      let requestModel = chatModel
-      try {
-        const resolvedModel = await resolveGitHubCopilotModel(chatModel, credentials, copilotAvailableModels)
-        if (resolvedModel.availableModels.length > 0) {
-          setCopilotAvailableModels(resolvedModel.availableModels)
-        }
-        if (resolvedModel.model) {
-          requestModel = resolvedModel.model
-        }
-        if (resolvedModel.model && resolvedModel.model !== chatModel) {
-          const nextModel = normalizeChatModel(resolvedModel.model)
-          setChatModel(nextModel)
-          setActiveChatModel(nextModel)
-          saveChatHistory(newMessages, conversationId, {
+    const isLocalCliProvider = chatProvider === 'github-copilot' || chatProvider === 'opencode-go'
+    if (isLocalCliProvider) {
+      let requestModel = normalizeChatModel(chatModel, chatProvider)
+      let copilotAccessToken = ''
+      let opencodeApiKey = ''
+      let opencodeGoBaseUrl = ''
+      if (chatProvider === 'github-copilot') {
+        const credentials = await getValidGitHubCopilotCredentials()
+        if (!credentials) {
+          const authErrorMessage = {
+            role: 'assistant',
+            content: '请先在 Settings -> Integrations 中完成 GitHub Copilot OAuth 登录。',
+            error: true,
+            timestamp: new Date().toISOString()
+          }
+          setMessages([...newMessages, authErrorMessage])
+          setSessionPanelMessage('未检测到 GitHub Copilot 登录')
+          setStreamingContent('')
+          setIsLoading(false)
+          setIsThinking(false)
+          streamHandleRef.current = null
+          saveChatHistory([...newMessages, authErrorMessage], conversationId, {
             provider: chatProvider,
-            model: nextModel,
+            model: chatModel,
+            agentRuntimeSessionId,
+            agentSessionFile,
           })
+          return
         }
-      } catch {}
+
+        copilotAccessToken = credentials.access
+        try {
+          const resolvedModel = await resolveGitHubCopilotModel(chatModel, credentials, copilotAvailableModels)
+          if (resolvedModel.availableModels.length > 0) {
+            setCopilotAvailableModels(resolvedModel.availableModels)
+          }
+          if (resolvedModel.model) {
+            requestModel = resolvedModel.model
+          }
+          if (resolvedModel.model && resolvedModel.model !== chatModel) {
+            const nextModel = normalizeChatModel(resolvedModel.model, 'github-copilot')
+            setChatModel(nextModel)
+            setActiveChatModel(nextModel, 'github-copilot')
+            saveChatHistory(newMessages, conversationId, {
+              provider: chatProvider,
+              model: nextModel,
+            })
+          }
+        } catch {}
+      }
+      if (chatProvider === 'opencode-go') {
+        opencodeApiKey = String(getOpenCodeGoApiKey() || '').trim()
+        opencodeGoBaseUrl = String(getOpenCodeGoBaseUrl() || '').trim()
+        if (!opencodeApiKey) {
+          const authErrorMessage = {
+            role: 'assistant',
+            content: '请先在 Settings -> Integrations 中配置 OpenCode Go API Key（OPENCODE_API_KEY）。',
+            error: true,
+            timestamp: new Date().toISOString()
+          }
+          setMessages([...newMessages, authErrorMessage])
+          setSessionPanelMessage('未检测到 OpenCode Go API Key')
+          setStreamingContent('')
+          setIsLoading(false)
+          setIsThinking(false)
+          streamHandleRef.current = null
+          saveChatHistory([...newMessages, authErrorMessage], conversationId, {
+            provider: chatProvider,
+            model: chatModel,
+            agentRuntimeSessionId,
+            agentSessionFile,
+          })
+          return
+        }
+      }
 
       let nextRuntimeSessionId = agentRuntimeSessionId
       let nextSessionFile = agentSessionFile
@@ -1578,9 +1623,12 @@ function ChatInterface({
       try {
         const handle = chatWithLocalCliStreaming(
           {
+            provider: chatProvider,
             model: requestModel,
             message: requestMessage,
-            copilotToken: credentials.access,
+            copilotToken: copilotAccessToken,
+            opencodeApiKey,
+            opencodeGoBaseUrl,
             runtimeSessionId: nextRuntimeSessionId || undefined,
             resumeSessionFile: nextSessionFile || undefined,
             skillPaths: normalizedSkillPaths.length > 0 ? normalizedSkillPaths : undefined,
@@ -1601,10 +1649,17 @@ function ChatInterface({
               } else if (event.runtimeSessionId) {
                 setSessionPanelMessage('已复用现有 CLI 会话')
               }
+              const providerFromEvent = event.currentProvider
+                ? normalizeChatProvider(event.currentProvider)
+                : chatProvider
+              if (providerFromEvent !== chatProvider) {
+                setChatProvider(providerFromEvent)
+                setActiveChatProvider(providerFromEvent)
+              }
               if (event.currentModel && event.currentModel !== chatModel) {
-                const nextModel = normalizeChatModel(event.currentModel)
+                const nextModel = normalizeChatModel(event.currentModel, providerFromEvent)
                 setChatModel(nextModel)
-                setActiveChatModel(nextModel)
+                setActiveChatModel(nextModel, providerFromEvent)
               }
               return
             }

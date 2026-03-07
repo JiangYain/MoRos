@@ -3,7 +3,20 @@ import path from 'path'
 import { rpcAgentSessionManager, type RpcImageInput } from '../utils/rpcAgentManager.js'
 
 export const agentRouter = express.Router()
-const SAFE_MODEL_FALLBACK = 'gpt-4o'
+type AgentProvider = 'github-copilot' | 'opencode-go'
+const DEFAULT_MODEL_BY_PROVIDER: Record<AgentProvider, string> = {
+  'github-copilot': 'gpt-4o',
+  'opencode-go': 'glm-5',
+}
+
+const normalizeProvider = (value: any): AgentProvider => {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'opencode-go' ? 'opencode-go' : 'github-copilot'
+}
+
+const getDefaultModelForProvider = (provider: AgentProvider): string => {
+  return DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER['github-copilot']
+}
 
 const setSseHeaders = (res: any) => {
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
@@ -77,23 +90,30 @@ const resolveWorkingDirectory = (chatFilePathValue: any): string => {
 agentRouter.post('/chat/stream', async (req, res) => {
   const body = req.body || {}
   const message = String(body.message || '').trim()
-  const model = String(body.model || 'gpt-4o').trim()
+  const provider = normalizeProvider(body.provider)
+  const model = String(body.model || '').trim() || getDefaultModelForProvider(provider)
   const runtimeSessionId = String(body.runtimeSessionId || '').trim() || undefined
   const resumeSessionFile = String(body.resumeSessionFile || '').trim() || undefined
   const copilotToken = String(body.copilotToken || '').trim()
+  const opencodeApiKey = String(body.opencodeApiKey || '').trim()
+  const opencodeGoBaseUrl = String(body.opencodeGoBaseUrl || '').trim()
   const images = normalizeImages(body.images)
   const skillPaths = normalizeSkillPaths(body.skillPaths)
   const workingDirectory = resolveWorkingDirectory(body.chatFilePath)
 
   const reqTag = `[Agent:${Date.now().toString(36)}]`
-  console.log(`${reqTag} POST /chat/stream model=${model} msg="${message.slice(0, 60)}" sessionId=${runtimeSessionId || '(new)'} skills=${skillPaths.length} cwd=${workingDirectory}`)
+  console.log(`${reqTag} POST /chat/stream provider=${provider} model=${model} msg="${message.slice(0, 60)}" sessionId=${runtimeSessionId || '(new)'} skills=${skillPaths.length} cwd=${workingDirectory}`)
 
   if (!message && images.length === 0) {
     return res.status(400).json({ success: false, error: 'message or images is required' })
   }
-  if (!copilotToken) {
+  if (provider === 'github-copilot' && !copilotToken) {
     console.log(`${reqTag} rejected: no copilot token`)
     return res.status(401).json({ success: false, error: 'Missing GitHub Copilot token' })
+  }
+  if (provider === 'opencode-go' && !opencodeApiKey) {
+    console.log(`${reqTag} rejected: no opencode api key`)
+    return res.status(401).json({ success: false, error: 'Missing OpenCode Go API key' })
   }
 
   setSseHeaders(res)
@@ -127,8 +147,11 @@ agentRouter.post('/chat/stream', async (req, res) => {
     const { runtimeSessionId: resolvedRuntimeSessionId, session, created } = await rpcAgentSessionManager.getOrCreateSession({
       runtimeSessionId,
       resumeSessionFile,
+      provider,
       model,
       copilotToken,
+      opencodeApiKey,
+      opencodeGoBaseUrl,
       skillPaths,
       workingDirectory,
     })
@@ -136,15 +159,16 @@ agentRouter.post('/chat/stream', async (req, res) => {
 
     let resolvedModel = model
     let modelFallbackFrom: string | undefined
+    const safeModelFallback = getDefaultModelForProvider(provider)
     try {
-      await session.ensureModel(model)
+      await session.ensureModel(model, provider)
     } catch (error: any) {
       const errorMessage = String(error?.message || '')
       console.log(`${reqTag} ensureModel failed: ${errorMessage}`)
-      if (resolvedModel !== SAFE_MODEL_FALLBACK && /model not found/i.test(errorMessage)) {
+      if (resolvedModel !== safeModelFallback && /model not found/i.test(errorMessage)) {
         modelFallbackFrom = resolvedModel
-        resolvedModel = SAFE_MODEL_FALLBACK
-        await session.ensureModel(resolvedModel)
+        resolvedModel = safeModelFallback
+        await session.ensureModel(resolvedModel, provider)
       } else {
         throw error
       }
@@ -156,7 +180,9 @@ agentRouter.post('/chat/stream', async (req, res) => {
       runtimeSessionId: resolvedRuntimeSessionId,
       sessionId: sessionMeta.sessionId,
       sessionFile: sessionMeta.sessionFile,
+      currentProvider: sessionMeta.currentProvider,
       currentModel: sessionMeta.currentModel,
+      requestedProvider: provider,
       requestedModel: model,
       resolvedModel,
       modelFallbackFrom,

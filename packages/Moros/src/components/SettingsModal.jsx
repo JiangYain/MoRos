@@ -15,6 +15,13 @@ import {
   setGitHubCopilotProxyUrl,
   testGitHubCopilotConnection,
 } from '../utils/githubCopilot'
+import {
+  getOpenCodeGoApiKey,
+  getOpenCodeGoBaseUrl,
+  setOpenCodeGoApiKey,
+  setOpenCodeGoBaseUrl,
+  testOpenCodeGoConnection,
+} from '../utils/opencodeGo'
 import LanguageSelector from './LanguageSelector'
 
 const AccountSettings = ({ avatar, onAvatarChange, username, onUsernameChange }) => {
@@ -285,6 +292,11 @@ const IntegrationsSettings = () => {
   const [authStep, setAuthStep] = useState({ url: '', code: '' })
   const [copilotProxyEnabled, setCopilotProxyEnabledState] = useState(() => getGitHubCopilotProxyEnabled())
   const [copilotProxyUrl, setCopilotProxyUrlState] = useState(() => getGitHubCopilotProxyUrl())
+  const [opencodeGoBaseUrl, setOpenCodeGoBase] = useState(() => getOpenCodeGoBaseUrl())
+  const [opencodeGoApiKey, setOpenCodeGoKey] = useState(() => getOpenCodeGoApiKey())
+  const [opencodeGoApiVisible, setOpenCodeGoApiVisible] = useState(false)
+  const [opencodeGoStatus, setOpenCodeGoStatus] = useState('')
+  const [opencodeGoBusy, setOpenCodeGoBusy] = useState(false)
 
   const refreshCopilotCredentials = async () => {
     const next = await getValidGitHubCopilotCredentials()
@@ -546,6 +558,66 @@ const IntegrationsSettings = () => {
             <p className="field-hint" style={{ marginTop: '10px' }}>
               {copilotStatus}
             </p>
+          )}
+        </div>
+      </div>
+
+      <div className="settings-card">
+        <h2 className="settings-card-title">OpenCode Go</h2>
+        <div className="field-item">
+          <label className="field-label">Base URL</label>
+          <input
+            className="field-input"
+            placeholder="https://opencode.ai/zen/go/v1"
+            value={opencodeGoBaseUrl}
+            onChange={(e) => setOpenCodeGoBase(e.target.value)}
+            onBlur={() => setOpenCodeGoBaseUrl(opencodeGoBaseUrl.trim())}
+          />
+          <p className="field-hint">默认即可，除非你有自托管或代理端点。</p>
+        </div>
+
+        <div className="field-item">
+          <label className="field-label">OPENCODE_API_KEY</label>
+          <div className="inline-actions">
+            <input
+              className="field-input"
+              type={opencodeGoApiVisible ? 'text' : 'password'}
+              placeholder="ocg_..."
+              value={opencodeGoApiKey}
+              onChange={(e) => setOpenCodeGoKey(e.target.value)}
+              onBlur={() => setOpenCodeGoApiKey(opencodeGoApiKey.trim())}
+            />
+            <button className="settings-btn ghost" onClick={() => setOpenCodeGoApiVisible((v) => !v)}>
+              {opencodeGoApiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
+            </button>
+          </div>
+          <p className="field-hint">用于 provider=`opencode-go`（GLM-5 / Kimi K2.5 / MiniMax M2.5）。</p>
+        </div>
+
+        <div className="field-item">
+          <button
+            className="settings-btn"
+            disabled={opencodeGoBusy}
+            onClick={async () => {
+              setOpenCodeGoBusy(true)
+              try {
+                setOpenCodeGoBaseUrl(opencodeGoBaseUrl.trim())
+                setOpenCodeGoApiKey(opencodeGoApiKey.trim())
+                const result = await testOpenCodeGoConnection(opencodeGoBaseUrl.trim(), opencodeGoApiKey.trim())
+                setOpenCodeGoStatus(result.ok ? 'success' : `error:${result.error || 'Unknown Error'}`)
+              } finally {
+                setOpenCodeGoBusy(false)
+              }
+            }}
+          >
+            {opencodeGoBusy ? '测试中...' : '测试连接'}
+          </button>
+          {opencodeGoStatus && (
+            <span className={`connection-status ${opencodeGoStatus.startsWith('success') ? 'success' : 'error'}`}>
+              {opencodeGoStatus.startsWith('success')
+                  ? '连接成功'
+                  : `连接失败：${(opencodeGoStatus.split(':')[1] || '').trim()}`}
+            </span>
           )}
         </div>
       </div>

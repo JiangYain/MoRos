@@ -24,7 +24,14 @@ const PROMPT_INACTIVITY_TIMEOUT_MS = parsePositiveIntEnv(
   'MOROS_PROMPT_INACTIVITY_TIMEOUT_MS',
   3 * 60 * 1000,
 )
-const DEFAULT_MODEL = 'gpt-4o'
+type RpcAgentProvider = 'github-copilot' | 'opencode-go'
+const DEFAULT_PROVIDER: RpcAgentProvider = 'github-copilot'
+const DEFAULT_MODEL_BY_PROVIDER: Record<RpcAgentProvider, string> = {
+  'github-copilot': 'gpt-4o',
+  'opencode-go': 'glm-5',
+}
+const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
+const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 
 type JsonRecord = Record<string, any>
 
@@ -73,6 +80,7 @@ type RpcAgentSessionMeta = {
   runtimeSessionId: string
   sessionId?: string
   sessionFile?: string
+  currentProvider: RpcAgentProvider
   currentModel: string
   lastUsedAt: number
 }
@@ -119,6 +127,15 @@ const normalizeWorkingDirectory = (value?: string): string => {
   return path.resolve(raw)
 }
 
+const normalizeProvider = (value?: string): RpcAgentProvider => {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'opencode-go' ? 'opencode-go' : 'github-copilot'
+}
+
+const getDefaultModelForProvider = (provider: RpcAgentProvider): string => {
+  return DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
+}
+
 const buildTokenFingerprint = (token: string): string => {
   return crypto.createHash('sha256').update(token).digest('hex').slice(0, 24)
 }
@@ -133,23 +150,91 @@ const resolveCopilotBaseUrlFromToken = (token: string): string | undefined => {
   return `https://${apiHost}`
 }
 
+const normalizeOpencodeGoBaseUrl = (value?: string): string | undefined => {
+  const normalized = String(value || '').trim().replace(/\/+$/, '')
+  return normalized || undefined
+}
+
+const resolveOpencodeGoRuntimeUrls = (
+  baseUrl?: string,
+): { openaiBaseUrl: string; anthropicBaseUrl: string } | undefined => {
+  const normalized = normalizeOpencodeGoBaseUrl(baseUrl)
+  if (!normalized) return undefined
+  if (normalized.endsWith('/v1')) {
+    const anthropicBaseUrl = normalized.slice(0, -3) || normalized
+    return {
+      openaiBaseUrl: normalized,
+      anthropicBaseUrl,
+    }
+  }
+  return {
+    openaiBaseUrl: `${normalized}/v1`,
+    anthropicBaseUrl: normalized,
+  }
+}
+
 const ensureRuntimeAgentConfig = (
   agentDir: string,
   copilotBaseUrl?: string,
   skillPaths: string[] = [],
+  opencodeGoBaseUrl?: string,
 ): void => {
   fs.mkdirSync(agentDir, { recursive: true })
+  const modelsPath = path.join(agentDir, 'models.json')
+  const providers: Record<string, any> = {}
 
   if (copilotBaseUrl) {
-    const modelsPath = path.join(agentDir, 'models.json')
-    const modelsPayload = {
-      providers: {
-        'github-copilot': {
-          baseUrl: copilotBaseUrl,
-        },
-      },
+    providers['github-copilot'] = {
+      baseUrl: copilotBaseUrl,
     }
-    fs.writeFileSync(modelsPath, JSON.stringify(modelsPayload, null, 2), 'utf-8')
+  }
+
+  const opencodeRuntimeUrls = resolveOpencodeGoRuntimeUrls(opencodeGoBaseUrl)
+  if (opencodeRuntimeUrls) {
+    providers['opencode-go'] = {
+      baseUrl: opencodeRuntimeUrls.anthropicBaseUrl,
+      apiKey: 'OPENCODE_API_KEY',
+      models: [
+        {
+          id: 'glm-5',
+          name: 'GLM-5',
+          api: 'openai-completions',
+          baseUrl: opencodeRuntimeUrls.openaiBaseUrl,
+          reasoning: true,
+          input: ['text'],
+          contextWindow: 204800,
+          maxTokens: 131072,
+        },
+        {
+          id: 'kimi-k2.5',
+          name: 'Kimi K2.5',
+          api: 'openai-completions',
+          baseUrl: opencodeRuntimeUrls.openaiBaseUrl,
+          reasoning: true,
+          input: ['text', 'image'],
+          contextWindow: 262144,
+          maxTokens: 65536,
+        },
+        {
+          id: 'minimax-m2.5',
+          name: 'MiniMax M2.5',
+          api: 'anthropic-messages',
+          baseUrl: opencodeRuntimeUrls.anthropicBaseUrl,
+          reasoning: true,
+          input: ['text'],
+          contextWindow: 204800,
+          maxTokens: 131072,
+        },
+      ],
+    }
+  }
+
+  if (Object.keys(providers).length > 0) {
+    fs.writeFileSync(modelsPath, JSON.stringify({ providers }, null, 2), 'utf-8')
+  } else if (safeExists(modelsPath)) {
+    try {
+      fs.unlinkSync(modelsPath)
+    } catch {}
   }
 
   const settingsPath = path.join(agentDir, 'settings.json')
@@ -282,6 +367,7 @@ class RpcAgentSession {
   private readonly skillPaths: string[]
   private readonly skillPathsSignature: string
   private readonly workingDirectory: string
+  private readonly opencodeGoBaseUrl?: string
 
   private process?: ChildProcessWithoutNullStreams
   private stdoutReader?: readline.Interface
@@ -290,6 +376,7 @@ class RpcAgentSession {
   private started = false
   private disposed = false
   private prompting = false
+  private currentProvider: RpcAgentProvider
   private currentModel: string
   private sessionId?: string
   private sessionFile?: string
@@ -297,26 +384,52 @@ class RpcAgentSession {
 
   constructor(options: {
     runtimeSessionId: string
+    provider?: string
     model: string
-    copilotToken: string
+    copilotToken?: string
+    opencodeApiKey?: string
+    opencodeGoBaseUrl?: string
     resumeSessionFile?: string
     skillPaths?: string[]
     workingDirectory?: string
   }) {
     this.runtimeSessionId = options.runtimeSessionId
-    this.currentModel = String(options.model || DEFAULT_MODEL)
-    this.tokenFingerprint = buildTokenFingerprint(options.copilotToken)
+    this.currentProvider = normalizeProvider(options.provider)
+    const fallbackModel = getDefaultModelForProvider(this.currentProvider)
+    this.currentModel = String(options.model || fallbackModel).trim() || fallbackModel
+    const authSecret =
+      this.currentProvider === 'github-copilot' ? options.copilotToken : options.opencodeApiKey
+    this.tokenFingerprint = buildTokenFingerprint(String(authSecret || ''))
     this.resumeSessionFile = normalizeSessionFile(options.resumeSessionFile)
     this.skillPaths = normalizeSkillPaths(options.skillPaths)
     this.skillPathsSignature = JSON.stringify(this.skillPaths)
     this.workingDirectory = normalizeWorkingDirectory(options.workingDirectory)
+    this.opencodeGoBaseUrl =
+      this.currentProvider === 'opencode-go'
+        ? normalizeOpencodeGoBaseUrl(options.opencodeGoBaseUrl) || DEFAULT_OPENCODE_GO_BASE_URL
+        : undefined
     this.sessionDir = path.join(process.cwd(), 'markov-data', 'agent-sessions')
-    this.runtimeAgentDir = path.join(process.cwd(), 'markov-data', 'pi-agent-runtime', this.tokenFingerprint)
+    this.runtimeAgentDir = path.join(
+      process.cwd(),
+      'markov-data',
+      'pi-agent-runtime',
+      `${this.currentProvider}-${this.tokenFingerprint}`,
+    )
     this.launcher = resolveCliLauncher()
   }
 
-  isTokenCompatible(token: string): boolean {
-    return buildTokenFingerprint(token) === this.tokenFingerprint
+  isTokenCompatible(copilotToken?: string, opencodeApiKey?: string): boolean {
+    if (this.currentProvider === 'github-copilot') {
+      return buildTokenFingerprint(String(copilotToken || '')) === this.tokenFingerprint
+    }
+    if (this.currentProvider === 'opencode-go') {
+      return buildTokenFingerprint(String(opencodeApiKey || '')) === this.tokenFingerprint
+    }
+    return true
+  }
+
+  isProviderCompatible(provider?: string): boolean {
+    return normalizeProvider(provider) === this.currentProvider
   }
 
   isSkillPathsCompatible(skillPaths?: string[]): boolean {
@@ -325,6 +438,12 @@ class RpcAgentSession {
 
   isWorkingDirectoryCompatible(workingDirectory?: string): boolean {
     return normalizeWorkingDirectory(workingDirectory) === this.workingDirectory
+  }
+
+  isOpencodeGoBaseUrlCompatible(baseUrl?: string): boolean {
+    if (this.currentProvider !== 'opencode-go') return true
+    const incoming = normalizeOpencodeGoBaseUrl(baseUrl) || DEFAULT_OPENCODE_GO_BASE_URL
+    return incoming === this.opencodeGoBaseUrl
   }
 
   matchesSessionFile(filePath?: string): boolean {
@@ -338,6 +457,7 @@ class RpcAgentSession {
       runtimeSessionId: this.runtimeSessionId,
       sessionId: this.sessionId,
       sessionFile: this.sessionFile,
+      currentProvider: this.currentProvider,
       currentModel: this.currentModel,
       lastUsedAt: this.lastUsedAt,
     }
@@ -352,22 +472,25 @@ class RpcAgentSession {
     this.lastUsedAt = Date.now()
   }
 
-  async start(copilotToken: string): Promise<void> {
+  async start(copilotToken?: string, opencodeApiKey?: string): Promise<void> {
     if (this.started) return
     if (this.disposed) {
       throw new Error('RPC session already disposed')
     }
 
     fs.mkdirSync(this.sessionDir, { recursive: true })
-    const dynamicCopilotBaseUrl = resolveCopilotBaseUrlFromToken(copilotToken)
-    ensureRuntimeAgentConfig(this.runtimeAgentDir, dynamicCopilotBaseUrl, this.skillPaths)
+    const token = String(copilotToken || '')
+    const openCodeKey = String(opencodeApiKey || '')
+    const dynamicCopilotBaseUrl =
+      this.currentProvider === 'github-copilot' ? resolveCopilotBaseUrlFromToken(token) : undefined
+    ensureRuntimeAgentConfig(this.runtimeAgentDir, dynamicCopilotBaseUrl, this.skillPaths, this.opencodeGoBaseUrl)
 
     const launchArgs = [
       ...this.launcher.args,
       '--mode',
       'rpc',
       '--provider',
-      'github-copilot',
+      this.currentProvider,
       '--model',
       this.currentModel,
       '--session-dir',
@@ -377,22 +500,28 @@ class RpcAgentSession {
       launchArgs.push('--session', this.resumeSessionFile)
     }
 
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PI_CODING_AGENT_DIR: this.runtimeAgentDir,
+    }
+    if (this.currentProvider === 'github-copilot') {
+      childEnv.COPILOT_GITHUB_TOKEN = token
+      childEnv.GH_TOKEN = token
+      childEnv.GITHUB_TOKEN = token
+    } else if (this.currentProvider === 'opencode-go') {
+      childEnv.OPENCODE_API_KEY = openCodeKey
+    }
+
     this.process = spawn(this.launcher.command, launchArgs, {
       cwd: this.workingDirectory,
-      env: {
-        ...process.env,
-        COPILOT_GITHUB_TOKEN: copilotToken,
-        GH_TOKEN: copilotToken,
-        GITHUB_TOKEN: copilotToken,
-        PI_CODING_AGENT_DIR: this.runtimeAgentDir,
-      },
+      env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
 
     const sid = this.runtimeSessionId.slice(0, 8)
     console.log(
-      `[RpcAgent:${sid}] spawn: ${this.launcher.command} ${launchArgs.join(' ')} (cwd=${this.workingDirectory}, source=${this.launcher.source}, agentDir=${this.runtimeAgentDir}, copilotBase=${dynamicCopilotBaseUrl || 'default'})`,
+      `[RpcAgent:${sid}] spawn: ${this.launcher.command} ${launchArgs.join(' ')} (cwd=${this.workingDirectory}, source=${this.launcher.source}, agentDir=${this.runtimeAgentDir}, provider=${this.currentProvider}, copilotBase=${dynamicCopilotBaseUrl || 'default'}, opencodeBase=${this.opencodeGoBaseUrl || 'default'})`,
     )
 
     this.process.on('error', (error) => {
@@ -574,17 +703,20 @@ class RpcAgentSession {
     })
   }
 
-  async ensureModel(model: string): Promise<void> {
-    const normalized = String(model || '').trim() || DEFAULT_MODEL
-    if (normalized === this.currentModel) {
+  async ensureModel(model: string, provider?: string): Promise<void> {
+    const normalizedProvider = normalizeProvider(provider || this.currentProvider)
+    const fallbackModel = getDefaultModelForProvider(normalizedProvider)
+    const normalizedModel = String(model || '').trim() || fallbackModel
+    if (normalizedProvider === this.currentProvider && normalizedModel === this.currentModel) {
       if (!this.isAlive()) {
         throw new Error('Agent session process is not alive')
       }
       return
     }
 
-    await this.sendCommand({ type: 'set_model', provider: 'github-copilot', modelId: normalized })
-    this.currentModel = normalized
+    await this.sendCommand({ type: 'set_model', provider: normalizedProvider, modelId: normalizedModel })
+    this.currentProvider = normalizedProvider
+    this.currentModel = normalizedModel
     this.touch()
   }
 
@@ -882,21 +1014,33 @@ export class RpcAgentSessionManager {
   async getOrCreateSession(options: {
     runtimeSessionId?: string
     resumeSessionFile?: string
+    provider?: string
     model?: string
-    copilotToken: string
+    copilotToken?: string
+    opencodeApiKey?: string
+    opencodeGoBaseUrl?: string
     skillPaths?: string[]
     workingDirectory?: string
   }): Promise<{ runtimeSessionId: string; session: RpcAgentSession; created: boolean }> {
-    const startupModel = DEFAULT_MODEL
+    const requestedProvider = normalizeProvider(options.provider)
+    const startupModel = getDefaultModelForProvider(requestedProvider)
     const normalizedResumeFile = normalizeSessionFile(options.resumeSessionFile)
     const requestedRuntimeId = String(options.runtimeSessionId || '').trim()
 
     if (requestedRuntimeId) {
       const existing = this.sessions.get(requestedRuntimeId)
       if (existing) {
-        if (!existing.isTokenCompatible(options.copilotToken)) {
+        if (!existing.isProviderCompatible(requestedProvider)) {
+          console.log(`[SessionMgr] Provider changed for session ${requestedRuntimeId}, disposing`)
+          await existing.dispose()
+          this.sessions.delete(requestedRuntimeId)
+        } else if (!existing.isTokenCompatible(options.copilotToken, options.opencodeApiKey)) {
           console.log(`[SessionMgr] Token mismatch for session ${requestedRuntimeId}, disposing`)
           await existing.dispose()
+          this.sessions.delete(requestedRuntimeId)
+        } else if (!existing.isOpencodeGoBaseUrlCompatible(options.opencodeGoBaseUrl)) {
+          console.log(`[SessionMgr] OpenCode Go base URL changed for session ${requestedRuntimeId}, disposing`)
+          await existing.dispose().catch(() => {})
           this.sessions.delete(requestedRuntimeId)
         } else if (!existing.isSkillPathsCompatible(options.skillPaths)) {
           console.log(`[SessionMgr] Skill paths changed for session ${requestedRuntimeId}, disposing`)
@@ -920,7 +1064,9 @@ export class RpcAgentSessionManager {
       for (const [runtimeSessionId, session] of this.sessions.entries()) {
         if (
           session.matchesSessionFile(normalizedResumeFile) &&
-          session.isTokenCompatible(options.copilotToken) &&
+          session.isProviderCompatible(requestedProvider) &&
+          session.isTokenCompatible(options.copilotToken, options.opencodeApiKey) &&
+          session.isOpencodeGoBaseUrlCompatible(options.opencodeGoBaseUrl) &&
           session.isSkillPathsCompatible(options.skillPaths) &&
           session.isWorkingDirectoryCompatible(options.workingDirectory)
         ) {
@@ -936,16 +1082,19 @@ export class RpcAgentSessionManager {
     }
 
     const runtimeSessionId = requestedRuntimeId || crypto.randomUUID()
-    console.log(`[SessionMgr] Creating new session ${runtimeSessionId} with model=${startupModel}`)
+    console.log(`[SessionMgr] Creating new session ${runtimeSessionId} with provider=${requestedProvider} model=${startupModel}`)
     const session = new RpcAgentSession({
       runtimeSessionId,
+      provider: requestedProvider,
       model: startupModel,
       copilotToken: options.copilotToken,
+      opencodeApiKey: options.opencodeApiKey,
+      opencodeGoBaseUrl: options.opencodeGoBaseUrl,
       resumeSessionFile: normalizedResumeFile,
       skillPaths: options.skillPaths,
       workingDirectory: options.workingDirectory,
     })
-    await session.start(options.copilotToken)
+    await session.start(options.copilotToken, options.opencodeApiKey)
     this.sessions.set(runtimeSessionId, session)
     return { runtimeSessionId, session, created: true }
   }

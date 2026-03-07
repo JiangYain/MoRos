@@ -19,10 +19,13 @@ import { useTableOfContents } from './utils/useTableOfContents'
 import { useMarkdownActions } from './utils/useMarkdownActions'
 import { escapeHtml, findCurrentLineRange, isImageFile, getParentDirName, calculateStats } from './utils/editorHelpers'
 import {
-  CHAT_MODEL_OPTIONS,
   CHAT_PROVIDER_OPTIONS,
+  getAllChatModelOptions,
   getActiveChatModel,
   getActiveChatProvider,
+  normalizeChatModel,
+  normalizeChatProvider,
+  resolveProviderForModel,
   setActiveChatModel,
   setActiveChatProvider,
 } from '../utils/chatProvider'
@@ -38,6 +41,16 @@ const isMarkdownFile = (filePath) => {
   return value.endsWith('.md') || value.endsWith('.markdown')
 }
 
+const isPlainEditorOnlyFile = (filePath) => {
+  const value = String(filePath || '').trim()
+  if (!value) return false
+  if (isMarkdownFile(value)) return false
+  if (isImageFile(value)) return false
+  if (isWhiteboardFile(value)) return false
+  if (isChatFile(value)) return false
+  return true
+}
+
 const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
 
 const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
@@ -50,16 +63,6 @@ const normalizeDroppedPath = (value) => {
   }
   return text
 }
-
-const LANDING_PROMPTS = [
-  'What did you break this time?',
-  'State your issue. I’ll tolerate it',
-  'What are we pretending to understand today?',
-  'What’s the dumb idea today?',
-  'What’s the crisis, genius?',
-  'So what the fuck u wanna?',
-  'Convince me this isn’t fucking stupid.'
-]
 
 const MOROS_ASCII_ART = [
   '███╗   ███╗ ██████╗ ██████╗  ██████╗ ███████╗',
@@ -118,10 +121,6 @@ function MainContent({
   const [landingAttachments, setLandingAttachments] = useState([])
   const [landingProvider, setLandingProviderState] = useState(() => getActiveChatProvider())
   const [landingModel, setLandingModelState] = useState(() => getActiveChatModel())
-  const [landingPrompt] = useState(() => {
-    const index = Math.floor(Math.random() * LANDING_PROMPTS.length)
-    return LANDING_PROMPTS[index]
-  })
   const highlightRef = useRef(null)
   const layerRef = useRef(null)
   // AI 流式插入（自定义 Hook）
@@ -850,13 +849,23 @@ function MainContent({
   }
 
   const handleLandingProviderChange = (provider) => {
-    setLandingProviderState(provider)
-    setActiveChatProvider(provider)
+    const nextProvider = normalizeChatProvider(provider)
+    const nextModel = normalizeChatModel(landingModel, nextProvider)
+    setLandingProviderState(nextProvider)
+    setLandingModelState(nextModel)
+    setActiveChatProvider(nextProvider)
+    setActiveChatModel(nextModel, nextProvider)
   }
 
   const handleLandingModelChange = (model) => {
-    setLandingModelState(model)
-    setActiveChatModel(model)
+    const nextProvider = resolveProviderForModel(model, landingProvider)
+    const nextModel = normalizeChatModel(model, nextProvider)
+    if (nextProvider !== landingProvider) {
+      setLandingProviderState(nextProvider)
+      setActiveChatProvider(nextProvider)
+    }
+    setLandingModelState(nextModel)
+    setActiveChatModel(nextModel, nextProvider)
   }
 
   const resolveLandingAbsolutePath = useCallback(async (fileLike) => {
@@ -991,7 +1000,7 @@ function MainContent({
         selected: landingProvider === providerOption.id,
       })),
       { id: 'separator:model', type: 'separator' },
-      ...CHAT_MODEL_OPTIONS.map((modelOption) => ({
+      ...getAllChatModelOptions().map((modelOption) => ({
         id: `model:${modelOption.id}`,
         label: modelOption.label,
         selected: landingModel === modelOption.id,
@@ -1066,7 +1075,6 @@ function MainContent({
       <main className="main-content">
         <div className="content-wrapper chat-landing-wrapper">
           <div className="chat-landing-screen">
-            <h1 className="chat-landing-title">{landingPrompt}</h1>
             <div className="chat-landing-ascii" aria-hidden="true">
               <div className="chat-empty-ascii-wrapper">
                 <pre className="chat-empty-ascii" role="img" aria-label="MoRos">{MOROS_ASCII_ART}</pre>
@@ -1170,6 +1178,35 @@ function MainContent({
             onArtifactsVisibilityChange={onChatArtifactsVisibilityChange}
             artifactsCloseRequestSeq={artifactsCloseRequestSeq}
           />
+        </div>
+      </main>
+    )
+  }
+
+  if (isPlainEditorOnlyFile(currentFile.path)) {
+    return (
+      <main className="main-content">
+        <div className="content-wrapper plain-editor-wrapper" ref={contentRef}>
+          <div className="editor-container plain-editor-mode">
+            <EditorOverlay
+              layerRef={layerRef}
+              highlightRef={highlightRef}
+              renderHtml={renderHighlighted}
+              aiStatus={aiStatus}
+              aiPos={aiPos}
+            />
+            <MarkdownEditor
+              textareaRef={textareaRef}
+              value={content}
+              onChange={handleEditorChange}
+              placeholder="Start writing..."
+              onKeyDown={handleEditorKeyDown}
+              onClick={handleEditorClick}
+              onDrop={handleEditorDrop}
+              onDragOver={handleEditorDragOver}
+              onScroll={handleEditorScroll}
+            />
+          </div>
         </div>
       </main>
     )

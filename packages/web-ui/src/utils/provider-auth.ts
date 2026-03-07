@@ -1,5 +1,5 @@
 import type { Api, Model, OAuthCredentials } from "@mariozechner/pi-ai";
-import { getOAuthProvider } from "@mariozechner/pi-ai";
+import { getOAuthProvider } from "@mariozechner/pi-ai/oauth";
 import { getAppStorage } from "../storage/app-storage.js";
 
 async function getValidOAuthCredentials(
