@@ -1,23 +1,32 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { ArrowUp, StopCircle } from 'lucide-react'
+import { CHAT_MODELS_BY_PROVIDER } from '../utils/chatProvider'
 import './ChatComposer.css'
 
 const MIN_HEIGHT = 64
 const MAX_HEIGHT = 320
 
-const resolveMenuSectionType = (optionId) => {
-  const id = String(optionId || '')
-  if (id.startsWith('action:')) return 'action'
-  if (id.startsWith('provider:')) return 'provider'
-  if (id.startsWith('model:')) return 'model'
-  return 'general'
+const PROVIDER_ICON_MAP = {
+  'github-copilot': '/assets/provider-icons/github.png',
+  'openai-codex': '/assets/provider-icons/codex.png',
+  'opencode-go': '/assets/provider-icons/opencode.png',
 }
 
-const resolveMenuSectionTitle = (sectionType) => {
-  if (sectionType === 'action') return 'Action'
-  if (sectionType === 'provider') return 'Provider'
-  if (sectionType === 'model') return 'Model'
-  return 'Options'
+const MODEL_ICON_MAP = {
+  'gpt-5.3-codex': '/assets/model-icons/openai.png',
+  'gemini-3.1-pro-preview': '/assets/model-icons/gemini.png',
+  'claude-sonnet-4.6': '/assets/model-icons/claude.png',
+  'gpt-4o': '/assets/model-icons/openai.png',
+  'gpt-5.4': '/assets/model-icons/codex.png',
+  'glm-5': '/assets/model-icons/glm5.png',
+  'kimi-k2.5': '/assets/model-icons/kimi.svg',
+  'minimax-m2.5': '/assets/model-icons/minimax.svg',
+}
+
+const parseOptionEntityId = (optionId, prefix) => {
+  const value = String(optionId || '')
+  if (!value.startsWith(prefix)) return ''
+  return value.slice(prefix.length).trim()
 }
 
 const resolveOptionLabel = (label) => {
@@ -27,22 +36,44 @@ const resolveOptionLabel = (label) => {
     .trim()
 }
 
-const MODEL_LOGO_MAP = {
-  'gpt-5.4': '/assets/model-icons/openai.png',
-  'gpt-5.3-codex': '/assets/model-icons/openai.png',
-  'gemini-3.1-pro-preview': '/assets/model-icons/gemini.png',
-  'claude-sonnet-4.6': '/assets/model-icons/claude.png',
-  'gpt-4o': '/assets/model-icons/openai.png',
-  'glm-5': '/assets/model-icons/glm5.png',
-  'kimi-k2.5': '/assets/model-icons/kimi.svg',
-  'minimax-m2.5': '/assets/model-icons/minimax.svg',
+function ProviderIcon({ providerId, label }) {
+  const [iconFailed, setIconFailed] = useState(false)
+  const iconUrl = PROVIDER_ICON_MAP[providerId]
+  const fallback = String(label || providerId || '?').trim().charAt(0).toUpperCase()
+
+  if (!iconUrl || iconFailed) {
+    return <span className="chat-composer-provider-icon-fallback" aria-hidden>{fallback || '?'}</span>
+  }
+
+  return (
+    <img
+      src={iconUrl}
+      alt=""
+      className="chat-composer-provider-icon-image"
+      onError={() => setIconFailed(true)}
+      loading="lazy"
+    />
+  )
 }
 
-const resolveModelLogo = (optionId) => {
-  const id = String(optionId || '').replace(/^model:/, '')
-  const logoUrl = MODEL_LOGO_MAP[id]
-  if (!logoUrl) return null
-  return <img src={logoUrl} alt="" className="model-logo" />
+function ModelIcon({ modelId, label }) {
+  const [iconFailed, setIconFailed] = useState(false)
+  const iconUrl = MODEL_ICON_MAP[modelId]
+  const fallback = String(label || modelId || '?').trim().charAt(0).toUpperCase()
+
+  if (!iconUrl || iconFailed) {
+    return <span className="chat-composer-provider-icon-fallback" aria-hidden>{fallback || '?'}</span>
+  }
+
+  return (
+    <img
+      src={iconUrl}
+      alt=""
+      className="chat-composer-provider-icon-image"
+      onError={() => setIconFailed(true)}
+      loading="lazy"
+    />
+  )
 }
 
 function ChatComposer({
@@ -78,34 +109,88 @@ function ChatComposer({
   const sendDisabled = !isLoading && !canSendNow
   const [composerHeight, setComposerHeight] = useState(MIN_HEIGHT)
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
+  const [expandedProviderId, setExpandedProviderId] = useState('')
   const isDraggingRef = useRef(false)
   const startYRef = useRef(0)
   const startHeightRef = useRef(MIN_HEIGHT)
   const addMenuRef = useRef(null)
-  const hasAddMenu = Array.isArray(addMenuOptions) && addMenuOptions.length > 0
-  const addMenuSections = React.useMemo(() => {
-    if (!hasAddMenu) return []
-    const sections = []
-    let current = []
+  const providerOptions = React.useMemo(() => {
+    if (!Array.isArray(addMenuOptions)) return []
+    return addMenuOptions
+      .filter((option) => option && option.id && String(option.id).startsWith('provider:'))
+      .map((option) => {
+        const providerId = parseOptionEntityId(option.id, 'provider:')
+        return {
+          ...option,
+          providerId,
+          label: resolveOptionLabel(option.label),
+          rawOption: option,
+        }
+      })
+      .filter((option) => option.providerId)
+  }, [addMenuOptions])
+
+  const visibleProviderOptions = React.useMemo(() => {
+    if (providerOptions.length === 0) return []
+    return providerOptions
+  }, [providerOptions])
+
+  const modelOptionLookup = React.useMemo(() => {
+    const modelMap = new Map()
+    if (!Array.isArray(addMenuOptions)) return modelMap
     for (const option of addMenuOptions) {
-      if (option?.type === 'separator') {
-        if (current.length > 0) sections.push(current)
-        current = []
-        continue
-      }
-      if (!option || !option.id) continue
-      current.push(option)
+      const modelId = parseOptionEntityId(option?.id, 'model:')
+      if (!modelId) continue
+      modelMap.set(modelId, {
+        ...option,
+        modelId,
+        label: resolveOptionLabel(option.label),
+      })
     }
-    if (current.length > 0) sections.push(current)
-    return sections.map((items, index) => {
-      const sectionType = resolveMenuSectionType(items[0]?.id)
-      return {
-        id: `${sectionType}-${index}`,
-        title: resolveMenuSectionTitle(sectionType),
-        items,
-      }
-    })
-  }, [hasAddMenu, addMenuOptions])
+    return modelMap
+  }, [addMenuOptions])
+
+  const selectedProviderId = React.useMemo(() => {
+    const selectedOption = providerOptions.find((option) => option.selected)
+    return selectedOption?.providerId || ''
+  }, [providerOptions])
+
+  const selectedModelId = React.useMemo(() => {
+    for (const option of modelOptionLookup.values()) {
+      if (option.selected) return option.modelId
+    }
+    return ''
+  }, [modelOptionLookup])
+
+  const providerModelsById = React.useMemo(() => {
+    const mapped = {}
+    for (const providerOption of providerOptions) {
+      const staticModels = CHAT_MODELS_BY_PROVIDER[providerOption.providerId] || []
+      mapped[providerOption.providerId] = staticModels.map((model) => {
+        const fromOptions = modelOptionLookup.get(model.id)
+        return {
+          id: `model:${model.id}`,
+          modelId: model.id,
+          label: fromOptions?.label || model.label,
+          selected: fromOptions ? Boolean(fromOptions.selected) : selectedModelId === model.id,
+          disabled: Boolean(fromOptions?.disabled),
+        }
+      })
+    }
+    return mapped
+  }, [providerOptions, modelOptionLookup, selectedModelId])
+
+  const hasAddMenu = visibleProviderOptions.length > 0
+
+  const expandedProviderOption = React.useMemo(() => {
+    if (!expandedProviderId) return null
+    return providerOptions.find((option) => option.providerId === expandedProviderId) || null
+  }, [expandedProviderId, providerOptions])
+
+  const expandedProviderModels = React.useMemo(() => {
+    if (!expandedProviderId) return []
+    return providerModelsById[expandedProviderId] || []
+  }, [expandedProviderId, providerModelsById])
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault()
@@ -155,6 +240,12 @@ function ChatComposer({
     }
   }, [isAddMenuOpen])
 
+  useEffect(() => {
+    if (isAddMenuOpen) {
+      setExpandedProviderId(selectedProviderId || '')
+    }
+  }, [isAddMenuOpen, selectedProviderId])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     if (isLoading) {
@@ -176,10 +267,32 @@ function ChatComposer({
     onAttach?.()
   }
 
-  const handleAddMenuSelect = (option) => {
+  const handleAddMenuSelect = (option, shouldCloseMenu = true) => {
     if (!option || option.type === 'separator' || option.disabled) return
     onAddMenuSelect?.(option.id, option)
-    setIsAddMenuOpen(false)
+    if (shouldCloseMenu) {
+      setIsAddMenuOpen(false)
+    }
+  }
+
+  const handleProviderSelect = (providerOption) => {
+    if (!providerOption) return
+    if (!providerOption.disabled) {
+      handleAddMenuSelect(providerOption.rawOption, false)
+    }
+    setExpandedProviderId(providerOption.providerId === expandedProviderId ? '' : providerOption.providerId)
+  }
+
+  const handleModelSelect = (providerOption, modelOption) => {
+    if (!providerOption || !modelOption || modelOption.disabled) return
+    handleAddMenuSelect(providerOption.rawOption, false)
+    handleAddMenuSelect(
+      {
+        id: modelOption.id,
+        label: modelOption.label,
+      },
+      true,
+    )
   }
 
   const wrapperClassName = [
@@ -196,24 +309,59 @@ function ChatComposer({
     <div className="chat-composer-wrapper" ref={addMenuRef}>
       {hasAddMenu && isAddMenuOpen && (
         <div className="chat-composer-add-menu">
-          {addMenuSections.map((section) => (
-            <div key={section.id} className="chat-composer-add-menu-section">
-              <div className="chat-composer-add-menu-section-title">{section.title}</div>
-              {section.items.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={`chat-composer-add-menu-item ${option.selected ? 'selected' : ''}`}
-                  onClick={() => handleAddMenuSelect(option)}
-                  disabled={option.disabled}
-                >
-                  {resolveModelLogo(option.id)}
-                  <span className="chat-composer-add-menu-item-label">{resolveOptionLabel(option.label)}</span>
-                  {option.selected && <span className="chat-composer-add-menu-item-check" aria-hidden />}
-                </button>
-              ))}
+          <div className="chat-composer-provider-strip" role="list" aria-label="Providers">
+            {providerOptions.map((providerOption) => (
+              <button
+                key={providerOption.id}
+                type="button"
+                role="listitem"
+                className={[
+                  'chat-composer-provider-chip',
+                  providerOption.providerId === selectedProviderId ? 'selected' : '',
+                  providerOption.providerId === expandedProviderId ? 'expanded' : '',
+                  providerOption.disabled ? 'unavailable' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => handleProviderSelect(providerOption)}
+                title={providerOption.label}
+                aria-label={providerOption.label}
+              >
+                <ProviderIcon providerId={providerOption.providerId} label={providerOption.label} />
+              </button>
+            ))}
+          </div>
+
+          {expandedProviderOption ? (
+            <div className="chat-composer-provider-models">
+              <div className="chat-composer-provider-models-header">
+                <span className="chat-composer-provider-models-title">{expandedProviderOption.label}</span>
+                <span className="chat-composer-provider-models-caption">Models</span>
+              </div>
+              <div className="chat-composer-provider-models-list">
+                {expandedProviderModels.length > 0 ? (
+                  expandedProviderModels.map((modelOption) => (
+                    <button
+                      key={modelOption.id}
+                      type="button"
+                      className={`chat-composer-model-item ${modelOption.selected ? 'selected' : ''}`}
+                      onClick={() => handleModelSelect(expandedProviderOption, modelOption)}
+                      disabled={modelOption.disabled}
+                    >
+                      <span className="chat-composer-model-item-icon">
+                        <ModelIcon modelId={modelOption.modelId} label={modelOption.label} />
+                      </span>
+                      <span className="chat-composer-model-item-label">{modelOption.label}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="chat-composer-provider-models-empty">暂无可用模型</div>
+                )}
+              </div>
             </div>
-          ))}
+          ) : (
+            <div className="chat-composer-provider-select-hint">选择 Provider 以展开 Models</div>
+          )}
         </div>
       )}
       <div

@@ -30,6 +30,9 @@ import {
   setActiveChatProvider,
 } from '../utils/chatProvider'
 import { markChatFileOpened } from '../utils/chatFiles'
+import { getGitHubCopilotCredentials } from '../utils/githubCopilot'
+import { getOpenAICodexCredentials } from '../utils/openaiCodex'
+import { getOpenCodeGoApiKey } from '../utils/opencodeGo'
 
 // 检查是否为对话文件
 const isChatFile = (filePath) => {
@@ -992,9 +995,34 @@ function MainContent({
     }
   }
 
+  const enabledLandingProviderIds = (() => {
+    const enabled = new Set()
+    if (getGitHubCopilotCredentials()?.access) {
+      enabled.add('github-copilot')
+    }
+    if (getOpenAICodexCredentials()?.access) {
+      enabled.add('openai-codex')
+    }
+    if (String(getOpenCodeGoApiKey() || '').trim()) {
+      enabled.add('opencode-go')
+    }
+    if (enabled.size === 0) {
+      return CHAT_PROVIDER_OPTIONS.map((option) => option.id)
+    }
+    if (landingProvider) {
+      enabled.add(landingProvider)
+    }
+    return CHAT_PROVIDER_OPTIONS
+      .map((option) => option.id)
+      .filter((providerId) => enabled.has(providerId))
+  })()
+
   const landingAddMenuOptions = useMemo(() => {
+    const visibleProviders = CHAT_PROVIDER_OPTIONS.filter((providerOption) =>
+      enabledLandingProviderIds.includes(providerOption.id),
+    )
     return [
-      ...CHAT_PROVIDER_OPTIONS.map((providerOption) => ({
+      ...visibleProviders.map((providerOption) => ({
         id: `provider:${providerOption.id}`,
         label: providerOption.label,
         selected: landingProvider === providerOption.id,
@@ -1006,7 +1034,7 @@ function MainContent({
         selected: landingModel === modelOption.id,
       })),
     ]
-  }, [landingProvider, landingModel])
+  }, [landingProvider, landingModel, enabledLandingProviderIds])
 
   const buildMorosChatFileName = () => {
     const now = new Date()

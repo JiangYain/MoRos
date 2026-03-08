@@ -90,10 +90,10 @@ export const buildMarkdownComponents = () => {
               type="button"
               className={`copy-code-btn ${copyState === 'copied' ? 'copied' : ''} ${copyState === 'error' ? 'copy-error' : ''}`}
               onClick={handleCopy}
-              title={copyState === 'copied' ? '已复制' : (copyState === 'error' ? '复制失败' : '复制代码')}
-              aria-label={copyState === 'copied' ? '已复制' : (copyState === 'error' ? '复制失败' : '复制代码')}
+              title={copyState === 'copied' ? 'Copied' : (copyState === 'error' ? 'Copy failed' : 'Copy')}
+              aria-label={copyState === 'copied' ? 'Copied' : (copyState === 'error' ? 'Copy failed' : 'Copy')}
             >
-              {copyState === 'copied' ? '已复制' : (copyState === 'error' ? '复制失败' : '复制代码')}
+              {copyState === 'copied' ? 'Copied' : (copyState === 'error' ? 'Copy failed' : 'Copy')}
             </button>
           </div>
           <pre className="code-block" {...props}>{renderedCode || children}</pre>

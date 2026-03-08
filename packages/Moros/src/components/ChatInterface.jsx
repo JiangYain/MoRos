@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { X, Copy, Check } from 'lucide-react'
 import { chatWithDifyStreaming, getDifyApiKey } from '../utils/dify'
 import {
+  getGitHubCopilotCredentials,
   getGitHubCopilotAvailableModels,
   getValidGitHubCopilotCredentials,
   resolveGitHubCopilotModel,
 } from '../utils/githubCopilot'
 import { chatWithLocalCliStreaming, abortLocalCliSession, closeLocalCliSession } from '../utils/localCliAgent'
-import { getValidOpenAICodexCredentials } from '../utils/openaiCodex'
+import { getOpenAICodexCredentials, getValidOpenAICodexCredentials } from '../utils/openaiCodex'
 import { getOpenCodeGoApiKey, getOpenCodeGoBaseUrl } from '../utils/opencodeGo'
 import {
   CHAT_PROVIDER_OPTIONS,
@@ -541,10 +542,6 @@ function ChatInterface({
   }, [])
 
   const handleComposerAddMenuSelect = useCallback((optionId) => {
-    if (optionId === 'action:upload') {
-      handleOpenUploadPicker()
-      return
-    }
     if (optionId.startsWith('provider:')) {
       handleChatProviderChange(optionId.replace('provider:', ''))
       return
@@ -552,16 +549,36 @@ function ChatInterface({
     if (optionId.startsWith('model:')) {
       handleChatModelChange(optionId.replace('model:', ''))
     }
-  }, [handleOpenUploadPicker, handleChatProviderChange, handleChatModelChange])
+  }, [handleChatProviderChange, handleChatModelChange])
+
+  const enabledComposerProviderIds = (() => {
+    const enabled = new Set()
+    if (getGitHubCopilotCredentials()?.access) {
+      enabled.add('github-copilot')
+    }
+    if (getOpenAICodexCredentials()?.access) {
+      enabled.add('openai-codex')
+    }
+    if (String(getOpenCodeGoApiKey() || '').trim()) {
+      enabled.add('opencode-go')
+    }
+    if (enabled.size === 0) {
+      return CHAT_PROVIDER_OPTIONS.map((option) => option.id)
+    }
+    if (chatProvider) {
+      enabled.add(chatProvider)
+    }
+    return CHAT_PROVIDER_OPTIONS
+      .map((option) => option.id)
+      .filter((providerId) => enabled.has(providerId))
+  })()
 
   const composerAddMenuOptions = useMemo(() => {
+    const visibleProviders = CHAT_PROVIDER_OPTIONS.filter((providerOption) =>
+      enabledComposerProviderIds.includes(providerOption.id),
+    )
     return [
-      {
-        id: 'action:upload',
-        label: 'Attach file path',
-      },
-      { id: 'separator:provider', type: 'separator' },
-      ...CHAT_PROVIDER_OPTIONS.map((providerOption) => ({
+      ...visibleProviders.map((providerOption) => ({
         id: `provider:${providerOption.id}`,
         label: providerOption.label,
         selected: chatProvider === providerOption.id,
@@ -575,7 +592,7 @@ function ChatInterface({
         }
       }),
     ]
-  }, [chatProvider, chatModel])
+  }, [chatProvider, chatModel, enabledComposerProviderIds])
 
   useEffect(() => {
     try {

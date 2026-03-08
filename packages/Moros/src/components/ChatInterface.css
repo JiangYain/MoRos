@@ -98,6 +98,7 @@
 .chat-empty-ascii-wrapper {
   position: relative;
   display: inline-block;
+  isolation: isolate;
 }
 
 .chat-empty-ascii {
@@ -108,10 +109,10 @@
   line-height: 1.28;
   white-space: pre;
   color: var(--text-primary);
-  opacity: 0.14;
+  opacity: 0.15;
   user-select: none;
   letter-spacing: 0.02em;
-  animation: morosBreath 6s ease-in-out infinite;
+  animation: morosBreath 10s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .chat-empty-ascii-glow {
@@ -129,20 +130,19 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    transparent 30%,
-    #D94632 45%,
-    #D94632 55%,
+    transparent 34%,
+    #d94632 48%,
+    #d94632 56%,
     transparent 70%,
     transparent 100%
   );
-  background-size: 300% 100%;
+  background-size: 240% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 14px rgba(217, 70, 50, 0.16));
   opacity: 0;
-  animation:
-    morosSweep 8s cubic-bezier(0.4, 0, 0.2, 1) infinite,
-    morosGlowPulse 8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: morosSweepSlow 11.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 @keyframes morosBreath {
@@ -150,18 +150,26 @@
   50% { opacity: 0.20; }
 }
 
-@keyframes morosSweep {
-  0% { background-position: 100% 0; }
-  40% { background-position: -100% 0; }
-  100% { background-position: -100% 0; }
-}
-
-@keyframes morosGlowPulse {
-  0% { opacity: 0; }
-  5% { opacity: 0.55; }
-  35% { opacity: 0.55; }
-  42% { opacity: 0; }
-  100% { opacity: 0; }
+@keyframes morosSweepSlow {
+  0% {
+    opacity: 0;
+    background-position: 120% 0;
+  }
+  12% {
+    opacity: 0.42;
+  }
+  52% {
+    opacity: 0.46;
+    background-position: -20% 0;
+  }
+  70% {
+    opacity: 0;
+    background-position: -120% 0;
+  }
+  100% {
+    opacity: 0;
+    background-position: -120% 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -739,16 +747,16 @@
   gap: 8px;
   padding: 6px 8px;
   background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 18px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 4px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
   position: relative;
 }
 
 .chat-input-wrapper:focus-within {
-  border-color: rgba(var(--accent-color-rgb, 26, 26, 26), 0.6);
-  box-shadow: 0 4px 16px rgba(var(--accent-color-rgb, 26, 26, 26), 0.12);
+  border-color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   background: var(--bg-primary);
 }
 

@@ -1,6 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import './SettingsModal.css'
-import { User, Settings as SettingsIcon, Plug, X, Upload, Sun, Moon, Monitor } from 'lucide-react'
+import {
+  CircleUserRound,
+  SlidersHorizontal,
+  PlugZap,
+  X,
+} from 'lucide-react'
 import { useI18n } from '../utils/i18n'
 import { getDifyApiKey, getDifyBaseUrl, setDifyApiKey, setDifyBaseUrl, testDifyConnection } from '../utils/dify'
 import { getMorosBaseUrl, getMorosApiKey, setMorosBaseUrl, setMorosApiKey, testMorosConnection } from '../utils/markovImage'
@@ -61,7 +66,7 @@ const AccountSettings = ({ avatar, onAvatarChange, username, onUsernameChange })
       <div className="settings-card">
         <div className="account-header">
           <div className="account-avatar" onClick={handlePick} title={t('settings.upload')}>
-            {avatar ? <img src={avatar} alt="Avatar" /> : <User size={28} />}
+            {avatar ? <img src={avatar} alt="Avatar" /> : <CircleUserRound size={28} />}
             <span className="avatar-edit-hint">Edit</span>
           </div>
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
@@ -126,29 +131,37 @@ const GeneralSettings = ({
 
   const [systemPromptDraft, setSystemPromptDraft] = useState(() => String(globalSystemPrompt || ''))
   const [systemPromptSaving, setSystemPromptSaving] = useState(false)
-  const [systemPromptStatus, setSystemPromptStatus] = useState({ type: '', message: '' })
+  const [systemPromptSaved, setSystemPromptSaved] = useState(false)
+  const saveTimerRef = useRef(null)
 
   useEffect(() => {
     setSystemPromptDraft(String(globalSystemPrompt || ''))
-    setSystemPromptStatus({ type: '', message: '' })
   }, [globalSystemPrompt])
 
-  const handleSaveSystemPrompt = async () => {
-    if (!onSaveGlobalSystemPrompt || systemPromptSaving) return
+  const autoSaveSystemPrompt = useCallback(async (value) => {
+    if (!onSaveGlobalSystemPrompt) return
     try {
       setSystemPromptSaving(true)
-      setSystemPromptStatus({ type: '', message: '' })
-      await onSaveGlobalSystemPrompt(systemPromptDraft)
-      setSystemPromptStatus({ type: 'success', message: '已保存到当前项目' })
-    } catch (error) {
-      setSystemPromptStatus({
-        type: 'error',
-        message: `保存失败：${error?.message || '未知错误'}`,
-      })
-    } finally {
+      setSystemPromptSaved(false)
+      await onSaveGlobalSystemPrompt(value)
+      setSystemPromptSaving(false)
+      setSystemPromptSaved(true)
+      setTimeout(() => setSystemPromptSaved(false), 2400)
+    } catch {
       setSystemPromptSaving(false)
     }
+  }, [onSaveGlobalSystemPrompt])
+
+  const handleSystemPromptChange = (e) => {
+    const val = e.target.value
+    setSystemPromptDraft(val)
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => autoSaveSystemPrompt(val), 800)
   }
+
+  useEffect(() => {
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [])
 
   return (
     <div className="settings-view">
@@ -205,29 +218,33 @@ const GeneralSettings = ({
       </div>
 
       <div className="settings-card">
-        <div className="field-item">
-          <label className="field-label">Global System Prompt</label>
+        <div className="field-item" style={{ position: 'relative' }}>
+          <div className="settings-inline-row" style={{ marginBottom: 8 }}>
+            <label className="field-label" style={{ margin: 0 }}>Global System Prompt</label>
+            <span className="system-prompt-status">
+              {systemPromptSaving && (
+                <svg className="system-prompt-spinner" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="5.5" stroke="var(--border-color)" strokeWidth="1" />
+                  <path d="M7 1.5a5.5 5.5 0 0 1 5.5 5.5" stroke="var(--text-primary)" strokeWidth="1" strokeLinecap="round" />
+                </svg>
+              )}
+              {systemPromptSaved && (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M3.5 7.5l2.5 2.5 4.5-5" stroke="#d94632" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+          </div>
           <textarea
             className="field-input settings-textarea"
             value={systemPromptDraft}
-            onChange={(e) => setSystemPromptDraft(e.target.value)}
+            onChange={handleSystemPromptChange}
             placeholder="为当前项目定义全局系统提示词（会应用到所有 Chat 请求）"
             rows={8}
           />
-          <div className="settings-inline-row">
-            <p className="field-hint">该配置会写入项目配置文件，重启后仍生效。</p>
+          <div className="settings-inline-row" style={{ justifyContent: 'flex-end' }}>
             <span className="field-hint">{systemPromptDraft.length}/20000</span>
           </div>
-        </div>
-        <div className="field-item">
-          <button className="settings-btn" onClick={handleSaveSystemPrompt} disabled={systemPromptSaving}>
-            {systemPromptSaving ? '保存中...' : '保存到当前项目'}
-          </button>
-          {systemPromptStatus.message && (
-            <span className={`connection-status ${systemPromptStatus.type === 'error' ? 'error' : 'success'}`}>
-              {systemPromptStatus.message}
-            </span>
-          )}
         </div>
       </div>
 
@@ -440,299 +457,360 @@ const IntegrationsSettings = () => {
     return `${accountId.slice(0, 8)}...${accountId.slice(-6)}`
   })()
 
+  const isDifyConfigured = Boolean(String(difyBaseUrl || '').trim() && String(difyApiKey || '').trim())
+  const isMorosConfigured = Boolean(String(morosBaseUrl || '').trim() && String(morosApiKey || '').trim())
+  const isCopilotConfigured = Boolean(copilotCredentials?.access)
+  const isOpenAICodexConfigured = Boolean(openAICodexCredentials?.access)
+  const isOpenCodeConfigured = Boolean(String(opencodeGoApiKey || '').trim())
+
   return (
-    <div className="settings-view">
+    <div className="settings-view integrations-view">
       <h1 className="settings-view-title">{t('settings.integrations') || 'Integrations'}</h1>
       <p className="settings-view-subtitle">External API connections</p>
 
-      <div className="settings-card">
-        <h2 className="settings-card-title">{t('settings.dify.title')}</h2>
-        <div className="field-item">
-          <label className="field-label">{t('settings.dify.base_url')}</label>
-          <input
-            className="field-input"
-            placeholder={t('settings.placeholders.base_url')}
-            value={difyBaseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            onBlur={() => setDifyBaseUrl(difyBaseUrl.trim())}
-          />
-        </div>
-        <div className="field-item">
-          <label className="field-label">{t('settings.dify.api_key')}</label>
-          <div className="inline-actions">
-            <input
-              className="field-input"
-              type={apiVisible ? 'text' : 'password'}
-              placeholder="sk-..."
-              value={difyApiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              onBlur={() => setDifyApiKey(difyApiKey.trim())}
-            />
-            <button className="settings-btn ghost" onClick={() => setApiVisible((v) => !v)}>
-              {apiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
-            </button>
-          </div>
-          <p className="field-hint">{t('settings.dify.stored_hint')}</p>
-        </div>
-        <div className="field-item">
-          <button
-            className="settings-btn"
-            onClick={async () => {
-              setDifyBaseUrl(difyBaseUrl.trim())
-              setDifyApiKey(difyApiKey.trim())
-              const r = await testDifyConnection(difyBaseUrl.trim(), difyApiKey.trim())
-              setConnStatus(r.ok ? 'success' : `error:${r.error || 'Unknown Error'}`)
-            }}
-          >
-            {t('settings.dify.test_connection')}
-          </button>
-          {connStatus && (
-            <span className={`connection-status ${connStatus.startsWith('success') ? 'success' : 'error'}`}>
-              {connStatus.startsWith('success')
-                ? t('settings.dify.connection_success')
-                : t('settings.dify.connection_failed', { msg: (connStatus.split(':')[1] || '').trim() })}
+      <div className="integrations-grid">
+        <div className="settings-card integration-card">
+          <div className="integration-card-head">
+            <div className="integration-card-heading">
+              <span className="integration-card-icon" aria-hidden>
+                <img src="/assets/provider-icons/dify.png" alt="" style={{ width: 14, height: 14, objectFit: 'contain' }} />
+              </span>
+              <h2 className="settings-card-title">{t('settings.dify.title')}</h2>
+            </div>
+            <span className={`integration-card-status ${isDifyConfigured ? 'ready' : 'pending'}`}>
+              {isDifyConfigured ? '已配置' : '待配置'}
             </span>
-          )}
-        </div>
-      </div>
-
-      <div className="settings-card">
-        <h2 className="settings-card-title">MoRos Image</h2>
-        <div className="field-item">
-          <label className="field-label">Base URL</label>
-          <input
-            className="field-input"
-            placeholder="https://api.tu-zi.com/v1"
-            value={morosBaseUrl}
-            onChange={(e) => setMorosBase(e.target.value)}
-            onBlur={() => setMorosBaseUrl(morosBaseUrl.trim())}
-          />
-        </div>
-        <div className="field-item">
-          <label className="field-label">API Key</label>
-          <div className="inline-actions">
-            <input
-              className="field-input"
-              type={morosApiVisible ? 'text' : 'password'}
-              placeholder="sk-..."
-              value={morosApiKey}
-              onChange={(e) => setMorosKey(e.target.value)}
-              onBlur={() => setMorosApiKey(morosApiKey.trim())}
-            />
-            <button className="settings-btn ghost" onClick={() => setMorosApiVisible((v) => !v)}>
-              {morosApiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
-            </button>
           </div>
-        </div>
-        <div className="field-item">
-          <button
-            className="settings-btn"
-            onClick={async () => {
-              setMorosBaseUrl(morosBaseUrl.trim())
-              setMorosApiKey(morosApiKey.trim())
-              const r = await testMorosConnection(morosBaseUrl.trim(), morosApiKey.trim())
-              setMorosConnStatus(r.ok ? 'success' : `error:${r.error || 'Unknown Error'}`)
-            }}
-          >
-            测试连接
-          </button>
-          {morosConnStatus && (
-            <span className={`connection-status ${morosConnStatus.startsWith('success') ? 'success' : 'error'}`}>
-              {morosConnStatus.startsWith('success') ? '连接成功' : `连接失败：${(morosConnStatus.split(':')[1] || '').trim()}`}
-            </span>
-          )}
-        </div>
-      </div>
 
-      <div className="settings-card">
-        <h2 className="settings-card-title">GitHub Copilot OAuth</h2>
-        <div className="field-item">
-          <label className="field-label">CORS Proxy</label>
-          <div className="inline-actions">
-            <label className="proxy-toggle">
-              <input
-                type="checkbox"
-                checked={copilotProxyEnabled}
-                onChange={(e) => {
-                  const enabled = e.target.checked
-                  setCopilotProxyEnabledState(enabled)
-                  setGitHubCopilotProxyEnabled(enabled)
-                }}
-              />
-              <span>Enable</span>
-            </label>
-            <input
-              className="field-input"
-              value={copilotProxyUrl}
-              placeholder="http://localhost:53211/api/proxy"
-              onChange={(e) => {
-                const next = e.target.value
-                setCopilotProxyUrlState(next)
-                setGitHubCopilotProxyUrl(next)
-              }}
-              disabled={!copilotProxyEnabled}
-            />
-          </div>
-          <p className="field-hint">建议保持开启，避免浏览器环境下 GitHub OAuth/Copilot API 的 CORS 限制。</p>
-        </div>
-
-        <div className="field-item">
-          <label className="field-label">Enterprise Domain (optional)</label>
-          <input
-            className="field-input"
-            placeholder="github.com / company.ghe.com"
-            value={enterpriseDomain}
-            onChange={(e) => setEnterpriseDomain(e.target.value)}
-          />
-          <p className="field-hint">
-            {copilotCredentials
-              ? `当前状态：已登录${copilotCredentials.enterpriseDomain ? ` (${copilotCredentials.enterpriseDomain})` : ''}`
-              : '当前状态：未登录'}
-          </p>
-        </div>
-
-        {authStep.code && (
           <div className="field-item">
-            <label className="field-label">Device Code</label>
+            <label className="field-label">{t('settings.dify.base_url')}</label>
+            <input
+              className="field-input"
+              placeholder={t('settings.placeholders.base_url')}
+              value={difyBaseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              onBlur={() => setDifyBaseUrl(difyBaseUrl.trim())}
+            />
+          </div>
+          <div className="field-item">
+            <label className="field-label">{t('settings.dify.api_key')}</label>
             <div className="inline-actions">
-              <input className="field-input readonly" readOnly value={authStep.code} />
-              <button className="settings-btn ghost" onClick={handleCopyDeviceCode}>
-                复制
+              <input
+                className="field-input"
+                type={apiVisible ? 'text' : 'password'}
+                placeholder="sk-..."
+                value={difyApiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                onBlur={() => setDifyApiKey(difyApiKey.trim())}
+              />
+              <button className="settings-btn ghost" onClick={() => setApiVisible((v) => !v)}>
+                {apiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
               </button>
             </div>
-            {authStep.url && (
-              <p className="field-hint">
-                授权页：
-                <a href={authStep.url} target="_blank" rel="noreferrer">{authStep.url}</a>
+            <p className="field-hint">{t('settings.dify.stored_hint')}</p>
+          </div>
+          <div className="field-item">
+            <button
+              className="settings-btn"
+              onClick={async () => {
+                setDifyBaseUrl(difyBaseUrl.trim())
+                setDifyApiKey(difyApiKey.trim())
+                const r = await testDifyConnection(difyBaseUrl.trim(), difyApiKey.trim())
+                setConnStatus(r.ok ? 'success' : `error:${r.error || 'Unknown Error'}`)
+              }}
+            >
+              {t('settings.dify.test_connection')}
+            </button>
+            {connStatus && (
+              <span className={`connection-status ${connStatus.startsWith('success') ? 'success' : 'error'}`}>
+                {connStatus.startsWith('success')
+                  ? t('settings.dify.connection_success')
+                  : t('settings.dify.connection_failed', { msg: (connStatus.split(':')[1] || '').trim() })}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="settings-card integration-card">
+          <div className="integration-card-head">
+            <div className="integration-card-heading">
+              <span className="integration-card-icon" aria-hidden>
+                <img src="/favicon.svg" alt="" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+              </span>
+              <h2 className="settings-card-title">MoRos Image</h2>
+            </div>
+            <span className={`integration-card-status ${isMorosConfigured ? 'ready' : 'pending'}`}>
+              {isMorosConfigured ? '已配置' : '待配置'}
+            </span>
+          </div>
+          <div className="field-item">
+            <label className="field-label">Base URL</label>
+            <input
+              className="field-input"
+              placeholder="https://api.tu-zi.com/v1"
+              value={morosBaseUrl}
+              onChange={(e) => setMorosBase(e.target.value)}
+              onBlur={() => setMorosBaseUrl(morosBaseUrl.trim())}
+            />
+          </div>
+          <div className="field-item">
+            <label className="field-label">API Key</label>
+            <div className="inline-actions">
+              <input
+                className="field-input"
+                type={morosApiVisible ? 'text' : 'password'}
+                placeholder="sk-..."
+                value={morosApiKey}
+                onChange={(e) => setMorosKey(e.target.value)}
+                onBlur={() => setMorosApiKey(morosApiKey.trim())}
+              />
+              <button className="settings-btn ghost" onClick={() => setMorosApiVisible((v) => !v)}>
+                {morosApiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
+              </button>
+            </div>
+          </div>
+          <div className="field-item">
+            <button
+              className="settings-btn"
+              onClick={async () => {
+                setMorosBaseUrl(morosBaseUrl.trim())
+                setMorosApiKey(morosApiKey.trim())
+                const r = await testMorosConnection(morosBaseUrl.trim(), morosApiKey.trim())
+                setMorosConnStatus(r.ok ? 'success' : `error:${r.error || 'Unknown Error'}`)
+              }}
+            >
+              测试连接
+            </button>
+            {morosConnStatus && (
+              <span className={`connection-status ${morosConnStatus.startsWith('success') ? 'success' : 'error'}`}>
+                {morosConnStatus.startsWith('success') ? '连接成功' : `连接失败：${(morosConnStatus.split(':')[1] || '').trim()}`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="settings-card integration-card integration-card-wide">
+          <div className="integration-card-head">
+            <div className="integration-card-heading">
+              <span className="integration-card-icon" aria-hidden>
+                <img src="/assets/provider-icons/github.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+              </span>
+              <h2 className="settings-card-title">GitHub Copilot OAuth</h2>
+            </div>
+            <span className={`integration-card-status ${isCopilotConfigured ? 'ready' : 'pending'}`}>
+              {isCopilotConfigured ? '已连接' : '未登录'}
+            </span>
+          </div>
+
+          <div className="field-item">
+            <label className="field-label">CORS Proxy</label>
+            <div className="inline-actions">
+              <label className="proxy-toggle">
+                <input
+                  type="checkbox"
+                  checked={copilotProxyEnabled}
+                  onChange={(e) => {
+                    const enabled = e.target.checked
+                    setCopilotProxyEnabledState(enabled)
+                    setGitHubCopilotProxyEnabled(enabled)
+                  }}
+                />
+                <span>Enable</span>
+              </label>
+              <input
+                className="field-input"
+                value={copilotProxyUrl}
+                placeholder="http://localhost:53211/api/proxy"
+                onChange={(e) => {
+                  const next = e.target.value
+                  setCopilotProxyUrlState(next)
+                  setGitHubCopilotProxyUrl(next)
+                }}
+                disabled={!copilotProxyEnabled}
+              />
+            </div>
+            <p className="field-hint">建议保持开启，避免浏览器环境下 GitHub OAuth/Copilot API 的 CORS 限制。</p>
+          </div>
+
+          <div className="field-item">
+            <label className="field-label">Enterprise Domain (optional)</label>
+            <input
+              className="field-input"
+              placeholder="github.com / company.ghe.com"
+              value={enterpriseDomain}
+              onChange={(e) => setEnterpriseDomain(e.target.value)}
+            />
+            <p className="field-hint">
+              {copilotCredentials
+                ? `当前状态：已登录${copilotCredentials.enterpriseDomain ? ` (${copilotCredentials.enterpriseDomain})` : ''}`
+                : '当前状态：未登录'}
+            </p>
+          </div>
+
+          {authStep.code && (
+            <div className="field-item">
+              <label className="field-label">Device Code</label>
+              <div className="inline-actions">
+                <input className="field-input readonly" readOnly value={authStep.code} />
+                <button className="settings-btn ghost" onClick={handleCopyDeviceCode}>
+                  复制
+                </button>
+              </div>
+              {authStep.url && (
+                <p className="field-hint">
+                  授权页：
+                  <a href={authStep.url} target="_blank" rel="noreferrer">{authStep.url}</a>
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="field-item">
+            <div className="inline-actions">
+              {!copilotCredentials ? (
+                <button className="settings-btn" onClick={handleLoginCopilot} disabled={copilotBusy}>
+                  {copilotBusy ? '授权中...' : 'Login with GitHub'}
+                </button>
+              ) : (
+                <>
+                  <button className="settings-btn" onClick={handleTestCopilot} disabled={copilotBusy}>
+                    测试连接
+                  </button>
+                  <button className="settings-btn ghost" onClick={handleLogoutCopilot} disabled={copilotBusy}>
+                    Logout
+                  </button>
+                </>
+              )}
+            </div>
+            {copilotStatus && (
+              <p className="field-hint" style={{ marginTop: '10px' }}>
+                {copilotStatus}
               </p>
             )}
           </div>
-        )}
+        </div>
 
-        <div className="field-item">
-          <div className="inline-actions">
-            {!copilotCredentials ? (
-              <button className="settings-btn" onClick={handleLoginCopilot} disabled={copilotBusy}>
-                {copilotBusy ? '授权中...' : 'Login with GitHub'}
-              </button>
-            ) : (
-              <>
-                <button className="settings-btn" onClick={handleTestCopilot} disabled={copilotBusy}>
-                  测试连接
+        <div className="settings-card integration-card integration-card-wide">
+          <div className="integration-card-head">
+            <div className="integration-card-heading">
+              <span className="integration-card-icon" aria-hidden>
+                <img src="/assets/provider-icons/codex.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+              </span>
+              <h2 className="settings-card-title">OpenAI Codex OAuth</h2>
+            </div>
+            <span className={`integration-card-status ${isOpenAICodexConfigured ? 'ready' : 'pending'}`}>
+              {isOpenAICodexConfigured ? '已连接' : '未登录'}
+            </span>
+          </div>
+
+          <div className="field-item">
+            <label className="field-label">Account</label>
+            <p className="field-hint">
+              {openAICodexCredentials
+                ? `当前状态：已登录${openAICodexAccountIdPreview ? ` (${openAICodexAccountIdPreview})` : ''}`
+                : '当前状态：未登录'}
+            </p>
+            <p className="field-hint">
+              登录流程会使用 PKCE 打开 OpenAI 授权页，并通过本地回调地址
+              {' '}
+              <code>http://localhost:1455/auth/callback</code>
+              {' '}
+              完成授权。
+            </p>
+          </div>
+          <div className="field-item">
+            <div className="inline-actions">
+              {!openAICodexCredentials ? (
+                <button className="settings-btn" onClick={handleLoginOpenAICodex} disabled={openAICodexBusy}>
+                  {openAICodexBusy ? '授权中...' : 'Login with OpenAI Codex'}
                 </button>
-                <button className="settings-btn ghost" onClick={handleLogoutCopilot} disabled={copilotBusy}>
-                  Logout
-                </button>
-              </>
+              ) : (
+                <>
+                  <button className="settings-btn" onClick={handleTestOpenAICodex} disabled={openAICodexBusy}>
+                    测试连接
+                  </button>
+                  <button className="settings-btn ghost" onClick={handleLogoutOpenAICodex} disabled={openAICodexBusy}>
+                    Logout
+                  </button>
+                </>
+              )}
+            </div>
+            {openAICodexStatus && (
+              <p className="field-hint" style={{ marginTop: '10px' }}>
+                {openAICodexStatus}
+              </p>
             )}
           </div>
-          {copilotStatus && (
-            <p className="field-hint" style={{ marginTop: '10px' }}>
-              {copilotStatus}
-            </p>
-          )}
         </div>
-      </div>
 
-      <div className="settings-card">
-        <h2 className="settings-card-title">OpenAI Codex OAuth</h2>
-        <div className="field-item">
-          <label className="field-label">Account</label>
-          <p className="field-hint">
-            {openAICodexCredentials
-              ? `当前状态：已登录${openAICodexAccountIdPreview ? ` (${openAICodexAccountIdPreview})` : ''}`
-              : '当前状态：未登录'}
-          </p>
-          <p className="field-hint">
-            登录流程会使用 PKCE 打开 OpenAI 授权页，并通过本地回调地址
-            {' '}
-            <code>http://localhost:1455/auth/callback</code>
-            {' '}
-            完成授权。
-          </p>
-        </div>
-        <div className="field-item">
-          <div className="inline-actions">
-            {!openAICodexCredentials ? (
-              <button className="settings-btn" onClick={handleLoginOpenAICodex} disabled={openAICodexBusy}>
-                {openAICodexBusy ? '授权中...' : 'Login with OpenAI Codex'}
-              </button>
-            ) : (
-              <>
-                <button className="settings-btn" onClick={handleTestOpenAICodex} disabled={openAICodexBusy}>
-                  测试连接
-                </button>
-                <button className="settings-btn ghost" onClick={handleLogoutOpenAICodex} disabled={openAICodexBusy}>
-                  Logout
-                </button>
-              </>
-            )}
+        <div className="settings-card integration-card integration-card-wide">
+          <div className="integration-card-head">
+            <div className="integration-card-heading">
+              <span className="integration-card-icon" aria-hidden>
+                <img src="/assets/provider-icons/opencode.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+              </span>
+              <h2 className="settings-card-title">OpenCode Go</h2>
+            </div>
+            <span className={`integration-card-status ${isOpenCodeConfigured ? 'ready' : 'pending'}`}>
+              {isOpenCodeConfigured ? '已配置' : '待配置'}
+            </span>
           </div>
-          {openAICodexStatus && (
-            <p className="field-hint" style={{ marginTop: '10px' }}>
-              {openAICodexStatus}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="settings-card">
-        <h2 className="settings-card-title">OpenCode Go</h2>
-        <div className="field-item">
-          <label className="field-label">Base URL</label>
-          <input
-            className="field-input"
-            placeholder="https://opencode.ai/zen/go/v1"
-            value={opencodeGoBaseUrl}
-            onChange={(e) => setOpenCodeGoBase(e.target.value)}
-            onBlur={() => setOpenCodeGoBaseUrl(opencodeGoBaseUrl.trim())}
-          />
-          <p className="field-hint">默认即可，除非你有自托管或代理端点。</p>
-        </div>
-
-        <div className="field-item">
-          <label className="field-label">OPENCODE_API_KEY</label>
-          <div className="inline-actions">
+          <div className="field-item">
+            <label className="field-label">Base URL</label>
             <input
               className="field-input"
-              type={opencodeGoApiVisible ? 'text' : 'password'}
-              placeholder="ocg_..."
-              value={opencodeGoApiKey}
-              onChange={(e) => setOpenCodeGoKey(e.target.value)}
-              onBlur={() => setOpenCodeGoApiKey(opencodeGoApiKey.trim())}
+              placeholder="https://opencode.ai/zen/go/v1"
+              value={opencodeGoBaseUrl}
+              onChange={(e) => setOpenCodeGoBase(e.target.value)}
+              onBlur={() => setOpenCodeGoBaseUrl(opencodeGoBaseUrl.trim())}
             />
-            <button className="settings-btn ghost" onClick={() => setOpenCodeGoApiVisible((v) => !v)}>
-              {opencodeGoApiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
-            </button>
+            <p className="field-hint">默认即可，除非你有自托管或代理端点。</p>
           </div>
-          <p className="field-hint">用于 provider=`opencode-go`（GLM-5 / Kimi K2.5 / MiniMax M2.5）。</p>
-        </div>
 
-        <div className="field-item">
-          <button
-            className="settings-btn"
-            disabled={opencodeGoBusy}
-            onClick={async () => {
-              setOpenCodeGoBusy(true)
-              try {
-                setOpenCodeGoBaseUrl(opencodeGoBaseUrl.trim())
-                setOpenCodeGoApiKey(opencodeGoApiKey.trim())
-                const result = await testOpenCodeGoConnection(opencodeGoBaseUrl.trim(), opencodeGoApiKey.trim())
-                setOpenCodeGoStatus(result.ok ? 'success' : `error:${result.error || 'Unknown Error'}`)
-              } finally {
-                setOpenCodeGoBusy(false)
-              }
-            }}
-          >
-            {opencodeGoBusy ? '测试中...' : '测试连接'}
-          </button>
-          {opencodeGoStatus && (
-            <span className={`connection-status ${opencodeGoStatus.startsWith('success') ? 'success' : 'error'}`}>
-              {opencodeGoStatus.startsWith('success')
-                  ? '连接成功'
-                  : `连接失败：${(opencodeGoStatus.split(':')[1] || '').trim()}`}
-            </span>
-          )}
+          <div className="field-item">
+            <label className="field-label">OPENCODE_API_KEY</label>
+            <div className="inline-actions">
+              <input
+                className="field-input"
+                type={opencodeGoApiVisible ? 'text' : 'password'}
+                placeholder="ocg_..."
+                value={opencodeGoApiKey}
+                onChange={(e) => setOpenCodeGoKey(e.target.value)}
+                onBlur={() => setOpenCodeGoApiKey(opencodeGoApiKey.trim())}
+              />
+              <button className="settings-btn ghost" onClick={() => setOpenCodeGoApiVisible((v) => !v)}>
+                {opencodeGoApiVisible ? t('settings.dify.hide') : t('settings.dify.show')}
+              </button>
+            </div>
+            <p className="field-hint">用于 provider=`opencode-go`（GLM-5 / Kimi K2.5 / MiniMax M2.5）。</p>
+          </div>
+
+          <div className="field-item">
+            <button
+              className="settings-btn"
+              disabled={opencodeGoBusy}
+              onClick={async () => {
+                setOpenCodeGoBusy(true)
+                try {
+                  setOpenCodeGoBaseUrl(opencodeGoBaseUrl.trim())
+                  setOpenCodeGoApiKey(opencodeGoApiKey.trim())
+                  const result = await testOpenCodeGoConnection(opencodeGoBaseUrl.trim(), opencodeGoApiKey.trim())
+                  setOpenCodeGoStatus(result.ok ? 'success' : `error:${result.error || 'Unknown Error'}`)
+                } finally {
+                  setOpenCodeGoBusy(false)
+                }
+              }}
+            >
+              {opencodeGoBusy ? '测试中...' : '测试连接'}
+            </button>
+            {opencodeGoStatus && (
+              <span className={`connection-status ${opencodeGoStatus.startsWith('success') ? 'success' : 'error'}`}>
+                {opencodeGoStatus.startsWith('success')
+                    ? '连接成功'
+                    : `连接失败：${(opencodeGoStatus.split(':')[1] || '').trim()}`}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -828,22 +906,22 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
             className={`settings-nav-item ${activeCategory === 'account' ? 'active' : ''}`}
             onClick={() => setActiveCategory('account')}
           >
-            <User size={15} />
-            <span>{t('settings.profile') || 'Account'}</span>
+            <span className="settings-nav-item-icon" aria-hidden><CircleUserRound size={15} /></span>
+            <span className="settings-nav-item-label">{t('settings.profile') || 'Account'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveCategory('settings')}
           >
-            <SettingsIcon size={15} />
-            <span>{t('settings.app_settings') || 'Settings'}</span>
+            <span className="settings-nav-item-icon" aria-hidden><SlidersHorizontal size={15} /></span>
+            <span className="settings-nav-item-label">{t('settings.app_settings') || 'Settings'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'integrations' ? 'active' : ''}`}
             onClick={() => setActiveCategory('integrations')}
           >
-            <Plug size={15} />
-            <span>{t('settings.integrations') || 'Integrations'}</span>
+            <span className="settings-nav-item-icon" aria-hidden><PlugZap size={15} /></span>
+            <span className="settings-nav-item-label">{t('settings.integrations') || 'Integrations'}</span>
           </button>
         </aside>
 
