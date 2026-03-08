@@ -1,0 +1,259 @@
+/* ========== AI 头像样式优化 ========== */
+/* AI 头像统一为 Moros 几何图形 */
+.chat-message.assistant .chat-message-avatar {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  margin-top: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.chat-ai-avatar-mark {
+  width: 28px;
+  height: 28px;
+  display: block;
+  color: var(--text-primary);
+  --moros-shape-accent: #d94632;
+  opacity: 0.92;
+}
+
+/* Thinking 状态：保持头像正常显示 */
+.chat-message.thinking {
+  align-items: center;
+}
+
+.chat-message.thinking .chat-message-avatar {
+  width: 30px;
+  height: 30px;
+  margin-top: 0;
+  animation: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* ========== Thinking 动效 ========== */
+.chat-message.thinking {
+  animation: messageSlideIn 0.25s ease-out;
+}
+
+.thinking-text {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  position: relative;
+  display: inline-block;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
+  background: linear-gradient(
+    90deg,
+    var(--text-tertiary, #999999) 0%,
+    var(--text-tertiary, #999999) 30%,
+    var(--text-primary, #1a1a1a) 50%,
+    var(--text-tertiary, #999999) 70%,
+    var(--text-tertiary, #999999) 100%
+  );
+  background-size: 280% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinkingShimmer 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 统一的光效流动动画 */
+@keyframes thinkingShimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+/* ========== 流式响应动画 ========== */
+.chat-message.streaming {
+  animation: none; /* 禁用进入动画 */
+}
+
+.streaming-indicator {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.streaming-typing {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
+}
+
+.streaming-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--text-primary);
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+.streaming-finished-dot {
+  display: flex;
+  justify-content: flex-start;
+  padding-left: 40px;
+  margin-top: -20px;
+  margin-bottom: 12px;
+}
+
+.streaming-dot.fade-out {
+  animation: dotFadeOut 1.2s ease-out forwards;
+}
+
+@keyframes dotFadeOut {
+  0% { opacity: 0.7; transform: scale(1); }
+  40% { opacity: 0.5; transform: scale(1.1); }
+  100% { opacity: 0; transform: scale(0.6); }
+}
+
+/* 错误消息样式 */
+.chat-message.error .chat-message-text {
+  color: #d9534f;
+  opacity: 0.9;
+}
+
+.chat-message.error .chat-error-note {
+  margin-top: 8px;
+}
+
+/* ========== 响应式调整 ========== */
+@media (max-width: 768px) {
+  .chat-shell {
+    flex-direction: column;
+  }
+
+  .chat-shell.artifacts-open .chat-main-column,
+  .chat-shell.artifacts-open .chat-artifacts-panel {
+    max-width: none;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .chat-top-actions {
+    padding: 10px 20px 0;
+  }
+
+  .chat-artifacts-panel {
+    width: 100%;
+    flex: 0 0 auto;
+    max-height: 50%;
+    border-left: none;
+    border-top: 0.5px solid var(--border-subtle);
+  }
+
+  .chat-artifacts-sidebar {
+    width: 180px;
+    flex: 0 0 180px;
+  }
+
+  .chat-messages,
+  .chat-input-container {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .chat-messages {
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+
+  .chat-empty {
+    padding: 32px 16px;
+  }
+
+  .chat-empty-ascii,
+  .chat-empty-ascii-glow {
+    font-size: clamp(6px, 1.4vw, 11px);
+  }
+
+  .chat-message-avatar {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .chat-message {
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .chat-message {
+    max-width: 100%;
+  }
+  
+  .chat-message-content {
+    max-width: none;
+  }
+
+  .chat-session-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .chat-session-status {
+    width: 100%;
+  }
+
+  .chat-session-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .chat-input-wrapper {
+    padding: 6px 8px;
+    border-radius: 999px;
+  }
+
+  .chat-input-action,
+  .chat-send-btn {
+    width: 30px;
+    height: 30px;
+  }
+
+  .markdown-content {
+    font-size: 14px;
+  }
+}
+
+/* Landing → Chat transition */
+.chat-interface.from-landing .chat-input-container {
+  animation: inputSlideDown 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-interface.from-landing .chat-messages {
+  animation: none;
+}
+
+@keyframes inputSlideDown {
+  from {
+    transform: translateY(-12px);
+    opacity: 0.82;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

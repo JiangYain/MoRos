@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { X, Copy, Check } from 'lucide-react'
 import { chatWithDifyStreaming, getDifyApiKey } from '../utils/dify'
 import {
   getGitHubCopilotCredentials,
@@ -7,7 +6,7 @@ import {
   getValidGitHubCopilotCredentials,
   resolveGitHubCopilotModel,
 } from '../utils/githubCopilot'
-import { chatWithLocalCliStreaming, abortLocalCliSession, closeLocalCliSession } from '../utils/localCliAgent'
+import { chatWithLocalCliStreaming, abortLocalCliSession } from '../utils/localCliAgent'
 import { getOpenAICodexCredentials, getValidOpenAICodexCredentials } from '../utils/openaiCodex'
 import { getOpenCodeGoApiKey, getOpenCodeGoBaseUrl } from '../utils/opencodeGo'
 import {
@@ -21,21 +20,12 @@ import {
   setActiveChatModel,
   setActiveChatProvider,
 } from '../utils/chatProvider'
-import { Streamdown } from 'streamdown'
-import { code } from '@streamdown/code'
-import { math } from '@streamdown/math'
-import { cjk } from '@streamdown/cjk'
 import { useI18n } from '../utils/i18n'
 import { filesApi } from '../utils/api'
-import ChatComposer from './ChatComposer'
-import MorosShapeIcon from './MorosShapeIcon'
 import './ChatInterface.css'
 import {
   appendAttachmentPathsToPrompt,
-  ARTIFACT_FILE_EXTENSIONS,
-  collectArtifactPathsFromMessages,
   isAbsolutePath,
-  isArtifactWorkspaceCandidate,
   normalizeAttachmentPath,
   resolveAttachmentName,
   resolveAttachmentPath,
@@ -45,17 +35,18 @@ import {
   cloneAssistantSegments,
   cloneToolEvents,
   extractAssistantErrorFromAgentEnd,
-  extractTrailingErrorNote,
   flattenToolEventsFromSegments,
   mergeToolEvent,
   prependGlobalSystemPrompt,
-  segmentsContainErrorNote,
 } from './chat-interface/assistantSegments'
+import {
+  normalizeBrandText,
+  normalizeMarkdownForRender,
+} from './chat-interface/markdownTransforms'
 import { loadChatDraft, persistChatDraft } from './chat-interface/chatDraftStorage'
-import ArtifactsToggleButton from './chat-interface/ArtifactsToggleButton'
+import { useChatArtifacts } from './chat-interface/useChatArtifacts'
+import ChatMainColumn from './chat-interface/ChatMainColumn'
 import ChatArtifactsPanel from './chat-interface/ChatArtifactsPanel'
-import ChatEmptyTerminalState from './chat-interface/ChatEmptyTerminalState'
-import ToolExecutionTimeline from './chat-interface/ToolExecutionTimeline'
 
 /**
  * ChatInterface 组件
@@ -89,26 +80,10 @@ function ChatInterface({
   const [isDragOver, setIsDragOver] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
   const [justFinished, setJustFinished] = useState(false)
-  const [copiedMessageIndex, setCopiedMessageIndex] = useState(null)
   const justFinishedTimerRef = useRef(null)
-  const copyMessageTimerRef = useRef(null)
   const [autoPrompt, setAutoPrompt] = useState('')
   const [autoPromptFiles, setAutoPromptFiles] = useState([])
   const [fromLanding, setFromLanding] = useState(false)
-  const [artifactsOpen, setArtifactsOpen] = useState(() => {
-    try {
-      return localStorage.getItem('moros-chat-artifacts-open') === '1'
-    } catch {
-      return false
-    }
-  })
-  const [artifactsLoading, setArtifactsLoading] = useState(false)
-  const [artifactsError, setArtifactsError] = useState('')
-  const [artifactEntries, setArtifactEntries] = useState([])
-  const [activeArtifactId, setActiveArtifactId] = useState('')
-  const [artifactsTab, setArtifactsTab] = useState('files')
-  const [artifactSearchTerm, setArtifactSearchTerm] = useState('')
-  const [sessionActionBusy, setSessionActionBusy] = useState(false)
   const [sessionPanelMessage, setSessionPanelMessage] = useState('')
   const timeLocale = lang === 'en' ? 'en-US' : 'zh-CN'
   const normalizedSkillPaths = useMemo(() => {
@@ -118,47 +93,33 @@ function ChatInterface({
       .filter(Boolean)
     return Array.from(new Set(cleaned))
   }, [skillPaths])
+
+  const {
+    artifactsOpen,
+    setArtifactsOpen,
+    artifactsLoading,
+    artifactsError,
+    artifactEntries,
+    activeArtifactId,
+    setActiveArtifactId,
+    artifactsTab,
+    setArtifactsTab,
+    artifactSearchTerm,
+    setArtifactSearchTerm,
+    filteredArtifactEntries,
+    activeArtifact,
+    activeArtifactUrl,
+    activeArtifactIsImage,
+    refreshArtifacts,
+    formatFileSize,
+    handleRevealArtifact,
+  } = useChatArtifacts({
+    messages,
+    onArtifactsVisibilityChange,
+    artifactsCloseRequestSeq,
+  })
   
-  // 将 \[...\]/\(...\) 转为 $$...$$/$...$，并避免代码块被误处理
-  const normalizeMathDelimiters = useCallback((text) => {
-    if (!text) return ''
-    // 分块：简单按代码围栏切分，奇偶位为代码块外部
-    const parts = text.split(/(```[\s\S]*?```)/g)
-    return parts
-      .map((part, idx) => {
-        // 代码块原样返回
-        if (part.startsWith('```')) return part
-        // 块级公式 \[ ... \] -> $$ ... $$
-        let out = part.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => `$$${inner}$$`)
-        // 行内公式 \( ... \) -> $ ... $
-        out = out.replace(/\\\(([^\n]*?)\\\)/g, (_, inner) => `$${inner}$`)
-        return out
-      })
-      .join('')
-  }, [])
-
-  const normalizeCompactTableRows = useCallback((text) => {
-    const source = String(text || '')
-    if (!source) return ''
-    const hasTableSeparator = /\|[\t ]*:?-{3,}:?[\t ]*(\|[\t ]*:?-{3,}:?[\t ]*)+/.test(source)
-    if (!hasTableSeparator) return source
-    return source
-      .replace(/[ \t]+\|(?=\s*:?-{3,}:?\s*\|)/g, '\n|')
-      .replace(/[ \t]+\|(?=\s*\d+\s*\|)/g, '\n|')
-  }, [])
-
-  const normalizeMarkdownForRender = useCallback((text) => {
-    if (!text) return ''
-    const normalizedMath = normalizeMathDelimiters(text)
-    const parts = normalizedMath.split(/(```[\s\S]*?```)/g)
-    return parts
-      .map((part) => (part.startsWith('```') ? part : normalizeCompactTableRows(part)))
-      .join('')
-  }, [normalizeMathDelimiters, normalizeCompactTableRows])
-
-  const normalizeBrandText = useCallback((text) => {
-    return String(text || '').replace(/markov/gi, 'MoRos')
-  }, [])
+  // markdown/brand 文本规范化逻辑已抽离到 chat-interface/markdownTransforms
   
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
@@ -408,15 +369,6 @@ function ChatInterface({
     })
   }, [messages, conversationId, saveChatHistory])
 
-  const persistAgentSessionMeta = useCallback((runtimeSessionIdValue, sessionFileValue) => {
-    saveChatHistory(messages, conversationId, {
-      provider: chatProvider,
-      model: chatModel,
-      agentRuntimeSessionId: runtimeSessionIdValue,
-      agentSessionFile: sessionFileValue,
-    })
-  }, [messages, conversationId, chatProvider, chatModel, saveChatHistory])
-
   const handleChatProviderChange = useCallback((provider) => {
     const nextProvider = normalizeChatProvider(provider)
     const nextModel = normalizeChatModel(chatModel, nextProvider)
@@ -594,132 +546,6 @@ function ChatInterface({
     ]
   }, [chatProvider, chatModel, enabledComposerProviderIds])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('moros-chat-artifacts-open', artifactsOpen ? '1' : '0')
-    } catch {}
-  }, [artifactsOpen])
-
-  useEffect(() => {
-    onArtifactsVisibilityChange?.(Boolean(artifactsOpen))
-  }, [artifactsOpen, onArtifactsVisibilityChange])
-
-  useEffect(() => {
-    if (!artifactsCloseRequestSeq) return
-    setArtifactsOpen(false)
-  }, [artifactsCloseRequestSeq])
-
-  useEffect(() => {
-    return () => {
-      onArtifactsVisibilityChange?.(false)
-    }
-  }, [onArtifactsVisibilityChange])
-
-  const refreshArtifacts = useCallback(async () => {
-    setArtifactsLoading(true)
-    setArtifactsError('')
-    try {
-      const messageArtifactPaths = collectArtifactPathsFromMessages(messages)
-      const tree = await filesApi.getFileTree()
-      const workspaceCandidates = (Array.isArray(tree) ? tree : [])
-        .filter(isArtifactWorkspaceCandidate)
-        .slice(0, 80)
-      const workspaceEntries = await Promise.all(
-        workspaceCandidates.map(async (item) => {
-          const relativePath = String(item?.path || '').replace(/\\/g, '/').trim()
-          if (!relativePath) return null
-          let absolutePath = ''
-          try {
-            absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
-          } catch {}
-          return {
-            id: `workspace:${relativePath}`,
-            name: String(item?.name || '').trim() || relativePath.split('/').pop() || relativePath,
-            path: absolutePath || relativePath,
-            relativePath,
-            source: 'workspace',
-          }
-        }),
-      )
-
-      const mergedMap = new Map()
-      const upsertEntry = (entry) => {
-        if (!entry) return
-        const key = String(entry.path || entry.relativePath || '').trim().toLowerCase()
-        if (!key) return
-        if (!mergedMap.has(key)) {
-          mergedMap.set(key, entry)
-          return
-        }
-        const existing = mergedMap.get(key)
-        const source = existing.source === entry.source ? existing.source : 'workspace+chat'
-        mergedMap.set(key, {
-          ...existing,
-          ...entry,
-          source,
-          relativePath: existing.relativePath || entry.relativePath,
-          path: existing.path || entry.path,
-        })
-      }
-
-      for (const entry of workspaceEntries) {
-        upsertEntry(entry)
-      }
-      for (const pathValue of messageArtifactPaths) {
-        upsertEntry({
-          id: `chat:${pathValue}`,
-          name: resolveAttachmentName({}, pathValue),
-          path: pathValue,
-          relativePath: undefined,
-          source: 'chat',
-        })
-      }
-
-      const nextEntries = [...mergedMap.values()].sort((a, b) => {
-        const aWorkspace = String(a?.source || '').includes('workspace') ? 0 : 1
-        const bWorkspace = String(b?.source || '').includes('workspace') ? 0 : 1
-        if (aWorkspace !== bWorkspace) return aWorkspace - bWorkspace
-        return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
-      })
-
-      setArtifactEntries(nextEntries)
-      setActiveArtifactId((prevId) => {
-        if (nextEntries.some((entry) => entry.id === prevId)) return prevId
-        return nextEntries[0]?.id || ''
-      })
-    } catch (error) {
-      setArtifactsError(String(error?.message || '读取 Artifacts 失败'))
-      setArtifactEntries([])
-      setActiveArtifactId('')
-    } finally {
-      setArtifactsLoading(false)
-    }
-  }, [messages])
-
-  useEffect(() => {
-    if (!artifactsOpen) return
-    void refreshArtifacts()
-  }, [artifactsOpen, refreshArtifacts])
-
-  const activeArtifact = useMemo(() => {
-    return artifactEntries.find((entry) => entry.id === activeArtifactId) || null
-  }, [artifactEntries, activeArtifactId])
-
-  const activeArtifactUrl = useMemo(() => {
-    const relativePath = String(activeArtifact?.relativePath || '').trim()
-    if (relativePath) return filesApi.getRawFileUrl(relativePath)
-
-    const absolutePath = normalizeAttachmentPath(activeArtifact?.path)
-    if (absolutePath && isAbsolutePath(absolutePath)) {
-      const normalizedPath = absolutePath.toLowerCase()
-      if (normalizedPath.endsWith('.html') || normalizedPath.endsWith('.htm')) {
-        return filesApi.getRawAbsoluteHtmlUrl(absolutePath)
-      }
-      return filesApi.getRawAbsoluteFileUrl(absolutePath)
-    }
-    return ''
-  }, [activeArtifact?.relativePath, activeArtifact?.path])
-
   // 流式结束后保留呼吸圆点淡出过渡
   const prevStreamingRef = useRef('')
   useEffect(() => {
@@ -737,7 +563,6 @@ function ChatInterface({
   useEffect(() => {
     return () => {
       if (justFinishedTimerRef.current) clearTimeout(justFinishedTimerRef.current)
-      if (copyMessageTimerRef.current) clearTimeout(copyMessageTimerRef.current)
     }
   }, [])
 
@@ -1510,42 +1335,6 @@ function ChatInterface({
     }
   }
 
-  const handleReconnectCliSession = useCallback(() => {
-    if (isLoading || sessionActionBusy) return
-    setAgentRuntimeSessionId('')
-    setAgentSessionFile('')
-    setSessionPanelMessage('下条消息将创建新的 CLI 会话')
-    persistAgentSessionMeta('', '')
-  }, [isLoading, sessionActionBusy, persistAgentSessionMeta])
-
-  const handleCloseCliSession = useCallback(async () => {
-    if (isLoading || sessionActionBusy) return
-    if (!agentRuntimeSessionId) {
-      setSessionPanelMessage('当前没有可关闭的 CLI 会话')
-      return
-    }
-    setSessionActionBusy(true)
-    try {
-      await closeLocalCliSession(agentRuntimeSessionId)
-      setAgentRuntimeSessionId('')
-      setAgentSessionFile('')
-      setSessionPanelMessage('CLI 会话已关闭')
-      persistAgentSessionMeta('', '')
-    } catch (error) {
-      const message = error?.message || '未知错误'
-      setSessionPanelMessage(`关闭失败: ${message}`)
-    } finally {
-      setSessionActionBusy(false)
-    }
-  }, [isLoading, sessionActionBusy, agentRuntimeSessionId, persistAgentSessionMeta])
-
-  const cliSessionStatusText = useMemo(() => {
-    if (!agentRuntimeSessionId) return '未连接'
-    if (isLoading) return '执行中'
-    return '已连接'
-  }, [agentRuntimeSessionId, isLoading])
-
-
   // 快捷键支持
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -1554,366 +1343,46 @@ function ChatInterface({
     }
   }
 
-  const resolveMessageMarkdownForCopy = useCallback((message) => {
-    if (!message || typeof message !== 'object') return ''
-    const directContent = String(message.content || '')
-    if (directContent && directContent !== '（无文本输出）') {
-      return directContent
-    }
-    const segmentText = cloneAssistantSegments(message.segments)
-      .filter((segment) => segment.type === 'text')
-      .map((segment) => String(segment.content || ''))
-      .join('')
-    return segmentText
-  }, [])
-
-  const handleCopyMessage = useCallback(async (message, messageIndex) => {
-    const markdown = resolveMessageMarkdownForCopy(message)
-    if (!markdown) return
-    try {
-      await navigator.clipboard.writeText(markdown)
-      setCopiedMessageIndex(messageIndex)
-      if (copyMessageTimerRef.current) {
-        clearTimeout(copyMessageTimerRef.current)
-      }
-      copyMessageTimerRef.current = setTimeout(() => {
-        setCopiedMessageIndex(null)
-        copyMessageTimerRef.current = null
-      }, 1200)
-    } catch (error) {
-      console.error('复制消息失败:', error)
-    }
-  }, [resolveMessageMarkdownForCopy])
-
-  const renderAssistantSegments = useCallback((segments, options = {}) => {
-    const { isStreaming = false, showThinking = false } = options
-    const normalizedSegments = cloneAssistantSegments(segments)
-    if (normalizedSegments.length === 0) {
-      return (
-        <ToolExecutionTimeline
-          tools={[]}
-          isStreaming={isStreaming}
-          isThinking={showThinking}
-        />
-      )
-    }
-
-    const lastSegmentIndex = normalizedSegments.length - 1
-    return normalizedSegments.map((segment, index) => {
-      if (segment.type === 'tools') {
-        return (
-          <ToolExecutionTimeline
-            key={`segment-tools-${index}`}
-            tools={segment.tools}
-            isStreaming={isStreaming}
-          />
-        )
-      }
-      if (segment.type === 'text') {
-        const text = normalizeMarkdownForRender(segment.content || '')
-        if (!String(text).trim()) return null
-        const showTypingIndicator = isStreaming && index === lastSegmentIndex
-        return (
-          <React.Fragment key={`segment-text-${index}`}>
-            <div className="chat-message-text">
-              <Streamdown
-                className="prose markdown-content"
-                plugins={{ code, math, cjk }}
-                animated={isStreaming}
-                isAnimating={isStreaming}
-              >
-                {text}
-              </Streamdown>
-            </div>
-            {showTypingIndicator && (
-              <div className="chat-message-time streaming-indicator">
-                <span className="streaming-typing shimmer-text">{t('chat.typing')}</span>
-              </div>
-            )}
-          </React.Fragment>
-        )
-      }
-      return null
-    })
-  }, [normalizeMarkdownForRender, t])
-
-  const activeArtifactExtension = useMemo(() => {
-    const pathValue = String(activeArtifact?.path || activeArtifact?.relativePath || '').toLowerCase()
-    const matchedExt = ARTIFACT_FILE_EXTENSIONS.find((ext) => pathValue.endsWith(ext))
-    return matchedExt || ''
-  }, [activeArtifact?.path, activeArtifact?.relativePath])
-
-  const activeArtifactIsImage = useMemo(() => {
-    return ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(activeArtifactExtension)
-  }, [activeArtifactExtension])
-
-  const filteredArtifactEntries = useMemo(() => {
-    const q = artifactSearchTerm.trim().toLowerCase()
-    if (!q) return artifactEntries
-    return artifactEntries.filter((e) =>
-      String(e.name || '').toLowerCase().includes(q) ||
-      String(e.path || '').toLowerCase().includes(q)
-    )
-  }, [artifactEntries, artifactSearchTerm])
-
-  const formatFileSize = useCallback((size) => {
-    if (size == null || size < 0) return ''
-    if (size < 1024) return `${size} B`
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`
-  }, [])
-
-  const handleCopyArtifactPath = useCallback(async (pathValue) => {
-    const normalized = String(pathValue || '').trim()
-    if (!normalized) return
-    try {
-      await navigator.clipboard.writeText(normalized)
-    } catch (error) {
-      console.error('复制 Artifact 路径失败:', error)
-    }
-  }, [])
-
-  const handleRevealArtifact = useCallback(async (entry) => {
-    const relativePath = String(entry?.relativePath || '').trim()
-    if (!relativePath) return
-    try {
-      await filesApi.revealInFileExplorer(relativePath)
-    } catch (error) {
-      console.error('打开 Artifact 位置失败:', error)
-    }
-  }, [])
-
   return (
     <div className={`chat-interface ${darkMode ? 'dark' : 'light'} ${fromLanding ? 'from-landing' : ''}`}>
       <div className={`chat-shell ${artifactsOpen ? 'artifacts-open' : ''}`}>
-        <div className="chat-main-column">
-          <div className="chat-top-actions">
-            <div className="chat-top-actions-inner">
-              <ArtifactsToggleButton
-                open={artifactsOpen}
-                artifactCount={artifactEntries.length}
-                onToggle={() => setArtifactsOpen((open) => !open)}
-              />
-            </div>
-          </div>
-
-          {/* 消息列表 */}
-          <div className="chat-messages">
-            {messages.length === 0 && streamingSegments.length === 0 && !isThinking ? (
-              <div className="chat-empty">
-                <ChatEmptyTerminalState />
-              </div>
-            ) : (
-              <>
-                {messages.map((msg, index) => {
-                  const messageSegments = msg.role === 'assistant' ? cloneAssistantSegments(msg.segments) : []
-                  const hasMessageSegments = messageSegments.length > 0
-                  const trailingErrorNote = msg.error ? extractTrailingErrorNote(msg.content) : ''
-                  const shouldRenderErrorNoteAfterSegments =
-                    msg.role === 'assistant' &&
-                    hasMessageSegments &&
-                    msg.error &&
-                    Boolean(trailingErrorNote) &&
-                    !segmentsContainErrorNote(messageSegments)
-                  return (
-                    <div key={index} className={`chat-message ${msg.role} ${msg.error ? 'error' : ''}`}>
-                      {msg.role === 'assistant' && (
-                        <div className="chat-message-avatar">
-                          <MorosShapeIcon className="chat-ai-avatar-mark" />
-                        </div>
-                      )}
-                      <div className="chat-message-content">
-                        {msg.role === 'assistant' ? (
-                          hasMessageSegments ? (
-                            <>
-                              {renderAssistantSegments(messageSegments)}
-                              {shouldRenderErrorNoteAfterSegments && (
-                                <div className="chat-message-text chat-error-note">
-                                  <Streamdown
-                                    className="prose markdown-content"
-                                    plugins={{ code, math, cjk }}
-                                  >
-                                    {normalizeMarkdownForRender(trailingErrorNote)}
-                                  </Streamdown>
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              {Array.isArray(msg.tools) && msg.tools.length > 0 && (
-                                <ToolExecutionTimeline tools={msg.tools} />
-                              )}
-                              <div className="chat-message-text">
-                                <Streamdown
-                                  className="prose markdown-content"
-                                  plugins={{ code, math, cjk }}
-                                >
-                                  {normalizeMarkdownForRender(msg.content || '（无文本输出）')}
-                                </Streamdown>
-                              </div>
-                            </>
-                          )
-                        ) : (
-                          <div className="chat-message-text">{msg.content || ''}</div>
-                        )}
-                        {msg.files && msg.files.length > 0 && (
-                          <div className="chat-message-files">
-                            {msg.files.map((file, i) => (
-                              <div key={i} className="chat-uploaded-file" title={file.name}>
-                                <span className="chat-uploaded-file-name">{file.name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="chat-message-meta">
-                          <div className="chat-message-time">
-                            {new Date(msg.timestamp).toLocaleTimeString(timeLocale, {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </div>
-                          {msg.role === 'assistant' && (
-                            <button
-                              type="button"
-                              className={`chat-message-copy-btn ${copiedMessageIndex === index ? 'copied' : ''}`}
-                              onClick={() => handleCopyMessage(msg, index)}
-                              title={copiedMessageIndex === index ? 'Copied' : 'Copy markdown'}
-                              aria-label={copiedMessageIndex === index ? 'Copied' : 'Copy markdown'}
-                            >
-                              {copiedMessageIndex === index ? <Check size={12} /> : <Copy size={12} />}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {msg.role === 'user' && (
-                        <div className="chat-message-avatar">
-                          {avatar ? (
-                            <img src={avatar} alt={username || t('chat.avatar_alt')} />
-                          ) : (
-                            <img src="/favicon.svg" alt={username || t('chat.avatar_alt')} />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-                
-                {/* 统一的 AI 响应气泡：Thinking → Tool → Streaming 全在一个气泡内 */}
-                {(isThinking || streamingSegments.length > 0) && (
-                  <div className={`chat-message assistant ${streamingContent ? 'streaming' : ''} ${isThinking && streamingSegments.length === 0 ? 'thinking' : ''}`}>
-                    <div className="chat-message-avatar">
-                      <MorosShapeIcon className="chat-ai-avatar-mark" />
-                    </div>
-                    <div className="chat-message-content">
-                      {renderAssistantSegments(streamingSegments, {
-                        isStreaming: true,
-                        showThinking: isThinking && streamingSegments.length === 0,
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {justFinished && !streamingContent && !isThinking && (
-                  <div className="streaming-finished-dot">
-                    <span className="streaming-dot fade-out"></span>
-                  </div>
-                )}
-              </>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* 输入区域 */}
-          <div 
-            className="chat-input-container"
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            {/* session panel hidden for minimal UX; session state managed internally */}
-
-            {/* 已上传文件列表 + 上传中文件 */}
-            {(uploadedFiles.length > 0 || uploadingFiles.length > 0) && (
-              <div className="chat-uploaded-files">
-                {/* 正在上传的文件 */}
-                {uploadingFiles.map((file) => (
-                  <div key={file.id} className="chat-uploaded-file uploading">
-                    <div className="upload-progress-ring">
-                      <svg width="20" height="20" viewBox="0 0 20 20">
-                        <circle
-                          cx="10"
-                          cy="10"
-                          r="8"
-                          fill="none"
-                          stroke="var(--border-subtle)"
-                          strokeWidth="2"
-                        />
-                        <circle
-                          cx="10"
-                          cy="10"
-                          r="8"
-                          fill="none"
-                          stroke="var(--accent-color)"
-                          strokeWidth="2"
-                          strokeDasharray={`${2 * Math.PI * 8}`}
-                          strokeDashoffset={`${2 * Math.PI * 8 * (1 - file.progress / 100)}`}
-                          strokeLinecap="round"
-                          transform="rotate(-90 10 10)"
-                          style={{ transition: 'stroke-dashoffset 0.3s ease' }}
-                        />
-                      </svg>
-                    </div>
-                    <span className="chat-uploaded-file-name">{file.name}</span>
-                  </div>
-                ))}
-                
-                {/* 已上传完成的文件 */}
-                {uploadedFiles.map((file, index) => (
-                  <div key={index} className="chat-uploaded-file">
-                    <span className="chat-uploaded-file-name">{file.name}</span>
-                    <button 
-                      className="chat-uploaded-file-remove"
-                      onClick={() => removeUploadedFile(index)}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <input
-              type="file"
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              multiple
-              onChange={handleFileUpload}
-            />
-
-            <ChatComposer
-              value={inputValue}
-              onValueChange={setInputValue}
-              onSubmit={handleSend}
-              onStop={handleStop}
-              onPaste={handleComposerPaste}
-              onAttach={handleOpenUploadPicker}
-              addMenuOptions={composerAddMenuOptions}
-              onAddMenuSelect={handleComposerAddMenuSelect}
-              placeholder={t('chat.ask_anything')}
-              canSubmit={Boolean(inputValue.trim() || uploadedFiles.length > 0)}
-              isLoading={isLoading}
-              multiline
-              rows={1}
-              onKeyDown={handleKeyDown}
-              inputRef={inputRef}
-              dragOver={isDragOver}
-              attachTitle="Add options"
-              submitTitle={t('chat.send_message')}
-              stopTitle={t('chat.stop_generating')}
-            />
-          </div>
-        </div>
+        <ChatMainColumn
+          artifactsOpen={artifactsOpen}
+          onToggleArtifactsOpen={() => setArtifactsOpen((open) => !open)}
+          artifactEntriesCount={artifactEntries.length}
+          messages={messages}
+          streamingSegments={streamingSegments}
+          isThinking={isThinking}
+          streamingContent={streamingContent}
+          justFinished={justFinished}
+          normalizeMarkdownForRender={normalizeMarkdownForRender}
+          t={t}
+          avatar={avatar}
+          username={username}
+          timeLocale={timeLocale}
+          messagesEndRef={messagesEndRef}
+          handleDragEnter={handleDragEnter}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          uploadedFiles={uploadedFiles}
+          uploadingFiles={uploadingFiles}
+          removeUploadedFile={removeUploadedFile}
+          fileInputRef={fileInputRef}
+          handleFileUpload={handleFileUpload}
+          inputValue={inputValue}
+          setInputValue={setInputValue}
+          handleSend={handleSend}
+          handleStop={handleStop}
+          handleComposerPaste={handleComposerPaste}
+          handleOpenUploadPicker={handleOpenUploadPicker}
+          composerAddMenuOptions={composerAddMenuOptions}
+          handleComposerAddMenuSelect={handleComposerAddMenuSelect}
+          isLoading={isLoading}
+          inputRef={inputRef}
+          isDragOver={isDragOver}
+          handleKeyDown={handleKeyDown}
+        />
 
         <ChatArtifactsPanel
           open={artifactsOpen}

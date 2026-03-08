@@ -1,0 +1,203 @@
+/* ========== Tool Execution — Dieter Rams simplicity ========== */
+
+.chat-tool-events {
+  margin: 0 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-family: 'Helvetica Neue', 'Noto Sans SC', 'Noto Sans', Helvetica, Arial, sans-serif;
+}
+
+.chat-tool-events.streaming {
+  margin: 0 0 2px;
+}
+
+/* Shared row layout — running & finished */
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.618;
+}
+
+.tool-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #1a1a1a);
+  flex-shrink: 0;
+}
+
+.tool-row-arg {
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  color: var(--text-tertiary, #999999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+
+/* 交互优化：默认省略，悬停后保持展开（状态由 React 记录） */
+.tool-row.tool-row-expanded {
+  align-items: flex-start;
+}
+
+.tool-row.tool-row-expanded .tool-row-arg {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  overflow-wrap: anywhere;
+}
+
+/* Running: shimmer on both name & arg */
+.shimmer-text {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    var(--text-tertiary, #999999) 0%,
+    var(--text-tertiary, #999999) 30%,
+    var(--text-primary, #1a1a1a) 50%,
+    var(--text-tertiary, #999999) 70%,
+    var(--text-tertiary, #999999) 100%
+  );
+  background-size: 280% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinkingShimmer 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Done rows — legible but quiet */
+.tool-done .tool-row-name {
+  color: var(--text-secondary, #666666);
+  font-weight: 400;
+}
+
+.tool-done .tool-row-arg {
+  color: var(--text-tertiary, #999999);
+}
+
+/* Error state */
+.tool-error .tool-row-name {
+  color: #c0392b;
+}
+
+.tool-error .tool-row-arg {
+  color: rgba(192, 57, 43, 0.5);
+}
+
+/* Finished group — collapsible details */
+.tool-finished-group {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.tool-finished-summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  width: fit-content;
+  padding: 2px 0;
+  line-height: 1.618;
+  font-size: 13px;
+  color: var(--text-quaternary, #bbbbbb);
+  font-weight: 500;
+  user-select: none;
+  transition: color 0.15s ease;
+  letter-spacing: -0.01em;
+}
+
+.tool-finished-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-finished-summary:hover {
+  color: var(--text-tertiary, #999999);
+}
+
+.tool-finished-label {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+
+.tool-finished-chevron {
+  flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.45;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tool-finished-group[open] .tool-finished-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-finished-body {
+  padding: 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: toolBodyReveal 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toolBodyReveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.chat-tool-output-fold summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.chat-tool-output-fold summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-tool-output-fold pre {
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.chat-tool-diff {
+  margin: 0;
+  padding: 8px;
+  max-height: 280px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.chat-tool-diff-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.chat-tool-diff-line.added {
+  background: rgba(39, 174, 96, 0.16);
+  color: #1f8a4d;
+}
+
+.chat-tool-diff-line.removed {
+  background: rgba(217, 83, 79, 0.16);
+  color: #b7423e;
+}
+
+.chat-tool-diff-line.hunk {
+  background: rgba(33, 150, 243, 0.12);
+  color: #2f80ed;
+}
