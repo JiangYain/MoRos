@@ -1,13 +1,15 @@
 <div align="center">
 
-<img src="./moros_flow_smooth.gif" width="700">
-
-</div>
-
-<div align="center">
+<a href="https://github.com/JiangYain/MoRos/releases/latest/download/Demo01.mp4">
+  <img
+    src="./Demo01_preview.gif"
+    width="860"
+    alt="MoRos demo preview (click to open full video)"
+  />
+</a>
 
 <a href="https://github.com/JiangYain/MoRos/releases/latest/download/Demo01.mp4">
-  ▶ Watch full demo video (GitHub Release asset)
+  <strong>▶ Watch full demo video (GitHub Release asset)</strong>
 </a>
 <br />
 <a href="https://github.com/JiangYain/MoRos/releases/latest">
