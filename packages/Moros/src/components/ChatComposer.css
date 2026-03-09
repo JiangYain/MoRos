@@ -72,16 +72,16 @@
 }
 
 .chat-composer-provider-chip.selected {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--bg-secondary, rgba(0, 0, 0, 0.04)) 84%, var(--bg-primary, #ffffff) 16%);
-  box-shadow: none;
+  border-color: color-mix(in srgb, var(--text-primary, #1a1a1a) 16%, transparent);
+  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 88%, var(--bg-primary, #ffffff) 12%);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--text-primary, #1a1a1a) 12%, transparent);
 }
 
 .chat-composer-provider-chip.expanded {
-  background: color-mix(in srgb, var(--bg-secondary, rgba(0, 0, 0, 0.04)) 92%, var(--bg-primary, #ffffff) 8%);
-  border-color: transparent;
+  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 80%, var(--bg-primary, #ffffff) 20%);
+  border-color: color-mix(in srgb, var(--text-primary, #1a1a1a) 12%, transparent);
   color: var(--text-primary);
-  box-shadow: none;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--text-primary, #1a1a1a) 10%, transparent);
 }
 
 .chat-composer-provider-chip:disabled,
@@ -172,10 +172,10 @@
 }
 
 .chat-composer-model-item.selected {
-  background: color-mix(in srgb, var(--bg-secondary, rgba(0, 0, 0, 0.04)) 86%, var(--bg-primary, #ffffff) 14%);
+  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 90%, var(--bg-primary, #ffffff) 10%);
   color: var(--text-primary);
-  font-weight: 500;
-  box-shadow: none;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--text-primary, #1a1a1a) 14%, transparent);
 }
 
 .chat-composer-model-item-icon {

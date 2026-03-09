@@ -9,6 +9,7 @@ import {
   isLocalhostUrl,
   normalizeLocalhostUrl,
   normalizeAttachmentPath,
+  sanitizeArtifactPathCandidate,
   resolveAttachmentPath,
   resolveAttachmentName,
 } from './artifacts'
@@ -94,16 +95,28 @@ export function useChatArtifacts({
           return
         }
 
-        let relativePath = String(entryLike?.relativePath || '').replace(/\\/g, '/').replace(/^\.\//, '').trim()
-        let absolutePath = ''
+        const pathCandidate = sanitizeArtifactPathCandidate(rawPath, { includeRelative: true })
+        const relativeCandidate = sanitizeArtifactPathCandidate(entryLike?.relativePath, { includeRelative: true })
 
-        if (rawPath) {
-          if (isAbsolutePath(rawPath)) {
-            absolutePath = rawPath
-          } else if (!relativePath) {
-            relativePath = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+        let relativePath = ''
+        let absolutePath = ''
+        const applyPathCandidate = (candidate) => {
+          const normalized = normalizeAttachmentPath(candidate)
+          if (!normalized) return
+          if (isAbsolutePath(normalized)) {
+            if (!absolutePath) {
+              absolutePath = normalized
+            }
+            return
+          }
+          const normalizedRelative = normalized.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+          if (!normalizedRelative) return
+          if (!relativePath) {
+            relativePath = normalizedRelative
           }
         }
+        applyPathCandidate(pathCandidate)
+        applyPathCandidate(relativeCandidate)
 
         const pathForExtension = absolutePath || relativePath
         if (!hasArtifactExtension(pathForExtension)) return
@@ -155,12 +168,48 @@ export function useChatArtifacts({
         pushUrlEntry(urlValue)
       }
 
-      setArtifactEntries(nextEntries)
+      const isMarkovDataRootFile = (entry) => {
+        if (entry?.artifactType !== 'file') return false
+        const normalizedPath = String(entry?.relativePath || entry?.path || '')
+          .replace(/\\/g, '/')
+          .replace(/^\.\//, '')
+          .toLowerCase()
+        const markerMatch = normalizedPath.match(/(?:^|\/)markov-data\/(.+)$/)
+        if (!markerMatch) return false
+        const restPath = String(markerMatch[1] || '')
+        return Boolean(restPath) && !restPath.includes('/')
+      }
+
+      const fallbackRootEntryIds = new Set()
+      const fileEntriesByName = new Map()
+      for (const entry of nextEntries) {
+        if (entry?.artifactType !== 'file') continue
+        const nameKey = String(entry?.name || '').trim().toLowerCase()
+        if (!nameKey) continue
+        if (!fileEntriesByName.has(nameKey)) {
+          fileEntriesByName.set(nameKey, [])
+        }
+        fileEntriesByName.get(nameKey).push(entry)
+      }
+      for (const sameNameEntries of fileEntriesByName.values()) {
+        if (!Array.isArray(sameNameEntries) || sameNameEntries.length < 2) continue
+        const hasNestedPath = sameNameEntries.some((entry) => !isMarkovDataRootFile(entry))
+        if (!hasNestedPath) continue
+        for (const entry of sameNameEntries) {
+          if (isMarkovDataRootFile(entry)) {
+            fallbackRootEntryIds.add(entry.id)
+          }
+        }
+      }
+
+      const prunedEntries = nextEntries.filter((entry) => !fallbackRootEntryIds.has(entry?.id))
+
+      setArtifactEntries(prunedEntries)
       setActiveArtifactId((prevId) => {
-        if (nextEntries.some((entry) => entry.id === prevId)) return prevId
-        return nextEntries[0]?.id || ''
+        if (prunedEntries.some((entry) => entry.id === prevId)) return prevId
+        return prunedEntries[0]?.id || ''
       })
-      return nextEntries
+      return prunedEntries
     } catch (error) {
       setArtifactsError(String(error?.message || '读取 Artifacts 失败'))
       setArtifactEntries([])

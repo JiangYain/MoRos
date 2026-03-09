@@ -148,11 +148,11 @@
 }
 
 .language-option.selected {
-  background-color: var(--sidebar-item-active-bg);
+  background-color: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 88%, var(--bg-primary, #ffffff) 12%);
 }
 
 .language-option.selected.focused {
-  background-color: var(--sidebar-item-active-bg);
+  background-color: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 92%, var(--bg-primary, #ffffff) 8%);
 }
 
 .language-option-content {

@@ -113,7 +113,8 @@ function ChatComposer({
   const isDraggingRef = useRef(false)
   const startYRef = useRef(0)
   const startHeightRef = useRef(MIN_HEIGHT)
-  const addMenuRef = useRef(null)
+  const addMenuPanelRef = useRef(null)
+  const addButtonRef = useRef(null)
   const providerOptions = React.useMemo(() => {
     if (!Array.isArray(addMenuOptions)) return []
     return addMenuOptions
@@ -225,8 +226,10 @@ function ChatComposer({
   useEffect(() => {
     if (!isAddMenuOpen) return
     const handleOutsideClick = (event) => {
-      if (!addMenuRef.current) return
-      if (addMenuRef.current.contains(event.target)) return
+      const clickTarget = event?.target
+      if (!clickTarget) return
+      if (addMenuPanelRef.current?.contains(clickTarget)) return
+      if (addButtonRef.current?.contains(clickTarget)) return
       setIsAddMenuOpen(false)
     }
     const handleEsc = (event) => {
@@ -306,9 +309,9 @@ function ChatComposer({
     .join(' ')
 
   return (
-    <div className="chat-composer-wrapper" ref={addMenuRef}>
+    <div className="chat-composer-wrapper">
       {hasAddMenu && isAddMenuOpen && (
-        <div className="chat-composer-add-menu">
+        <div className="chat-composer-add-menu" ref={addMenuPanelRef}>
           <div className="chat-composer-provider-strip" role="list" aria-label="Providers">
             {providerOptions.map((providerOption) => (
               <button
@@ -378,6 +381,7 @@ function ChatComposer({
         style={composerHeight > MIN_HEIGHT ? { minHeight: composerHeight + 'px', alignItems: 'flex-end' } : undefined}
       >
         <button
+          ref={addButtonRef}
           type="button"
           className={`chat-input-action chat-composer-add ${isAddMenuOpen ? 'open' : ''}`}
           onClick={handleAddButtonClick}

@@ -19,6 +19,7 @@ import {
   isAbsolutePath,
   isImageArtifactPath,
   normalizeAttachmentPath,
+  sanitizeArtifactPathCandidate,
   resolveAttachmentName,
 } from './artifacts'
 
@@ -97,11 +98,30 @@ function ChatMessagesPanel({
     const seen = new Set()
     const pushFile = (input) => {
       const rawPath = normalizeAttachmentPath(input?.path || '')
-      const relativePathCandidate = String(input?.relativePath || '').trim()
-      const relativePath = normalizeAttachmentPath(relativePathCandidate || (!isAbsolutePath(rawPath) ? rawPath : ''))
-        .replace(/\\/g, '/')
-        .replace(/^\.\//, '')
-      const absolutePath = isAbsolutePath(rawPath) ? rawPath : ''
+      const pathCandidate = sanitizeArtifactPathCandidate(rawPath, { includeRelative: true })
+      const relativeCandidate = sanitizeArtifactPathCandidate(input?.relativePath, { includeRelative: true })
+      let relativePath = ''
+      let absolutePath = ''
+      const applyCandidate = (candidate) => {
+        const normalized = normalizeAttachmentPath(candidate)
+        if (!normalized) return
+        if (isAbsolutePath(normalized)) {
+          if (!absolutePath) {
+            absolutePath = normalized
+          }
+          return
+        }
+        const normalizedRelative = normalized
+          .replace(/\\/g, '/')
+          .replace(/^\.\//, '')
+          .trim()
+        if (!normalizedRelative) return
+        if (!relativePath) {
+          relativePath = normalizedRelative
+        }
+      }
+      applyCandidate(pathCandidate)
+      applyCandidate(relativeCandidate)
       const resolvedPath = String(absolutePath || relativePath || '').trim()
       const fallbackName = String(input?.name || '').trim()
       if (!resolvedPath && !fallbackName) return
@@ -133,7 +153,42 @@ function ChatMessagesPanel({
         name: resolveAttachmentName({}, pathValue),
       })
     }
-    return merged.slice(0, 8)
+    const isMarkovDataRootFile = (file) => {
+      const normalizedPath = String(file?.relativePath || file?.path || '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+        .toLowerCase()
+      const markerMatch = normalizedPath.match(/(?:^|\/)markov-data\/(.+)$/)
+      if (!markerMatch) return false
+      const restPath = String(markerMatch[1] || '')
+      return Boolean(restPath) && !restPath.includes('/')
+    }
+    const rootFallbackNameSet = new Set()
+    const groupedByName = new Map()
+    for (const file of merged) {
+      const nameKey = String(file?.name || '').trim().toLowerCase()
+      if (!nameKey) continue
+      if (!groupedByName.has(nameKey)) {
+        groupedByName.set(nameKey, [])
+      }
+      groupedByName.get(nameKey).push(file)
+    }
+    for (const sameNameFiles of groupedByName.values()) {
+      if (!Array.isArray(sameNameFiles) || sameNameFiles.length < 2) continue
+      const hasNested = sameNameFiles.some((file) => !isMarkovDataRootFile(file))
+      if (!hasNested) continue
+      for (const file of sameNameFiles) {
+        if (isMarkovDataRootFile(file)) {
+          const key = String(file.path || file.relativePath || file.name || '').toLowerCase()
+          if (key) rootFallbackNameSet.add(key)
+        }
+      }
+    }
+    const pruned = merged.filter((file) => {
+      const key = String(file.path || file.relativePath || file.name || '').toLowerCase()
+      return !rootFallbackNameSet.has(key)
+    })
+    return pruned.slice(0, 8)
   }, [])
 
   const renderAssistantSegments = useCallback((segments, options = {}) => {

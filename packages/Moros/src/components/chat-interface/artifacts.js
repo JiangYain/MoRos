@@ -15,7 +15,7 @@ const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
 const ARTIFACT_EXT_PATTERN = '(?:html?|json|md|markdown|txt|csv|ya?ml|xml|toml|ini|log|js|jsx|ts|tsx|css|scss|py|sh|svg|png|jpe?g|webp|gif)'
 const WINDOWS_ABS_ARTIFACT_PATH_REGEX = new RegExp(`[A-Za-z]:[\\\\/][^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
 const POSIX_ABS_ARTIFACT_PATH_REGEX = new RegExp(`/[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
-const RELATIVE_ARTIFACT_PATH_REGEX = new RegExp(`(?:^|[\\s("'\\\`])((?:\\.{1,2}[\\\\/])?[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN})(?=$|[\\s)"'\\\`,.:;!?])`, 'gi')
+const RELATIVE_ARTIFACT_PATH_REGEX = new RegExp(`(?:^|[\\s("'\\\`])((?:\\.{1,2}[\\\\/])?[^"'\\\`\\n\\r<>|?*:]+\\.${ARTIFACT_EXT_PATTERN})(?=$|[\\s)"'\\\`,.:;!?])`, 'gi')
 const LOCALHOST_URL_REGEX = /(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:\/[^\s"'`<>]*)?/gi
 
 export const resolveAttachmentPath = (fileLike) => {
@@ -79,6 +79,20 @@ const normalizeRelativeArtifactPath = (value) => {
     .trim()
 }
 
+const stripEnclosingQuotes = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")) || (text.startsWith('`') && text.endsWith('`'))) {
+    return text.slice(1, -1).trim()
+  }
+  return text
+}
+
+const looksLikeRelativePath = (value) => {
+  const text = String(value || '')
+  return /[\\/]/.test(text)
+}
+
 const hasArtifactLikeExtension = (pathValue) => {
   const normalized = String(pathValue || '').trim().toLowerCase()
   if (!normalized) return false
@@ -133,9 +147,14 @@ const extractRelativeArtifactPathsFromText = (value) => {
   const matches = []
   let match
   while ((match = RELATIVE_ARTIFACT_PATH_REGEX.exec(text)) !== null) {
-    const candidate = normalizeRelativeArtifactPath(match[1] || '')
+    const rawCandidate = stripEnclosingQuotes(match[1] || '')
+    if (!rawCandidate) continue
+    if (!looksLikeRelativePath(rawCandidate)) continue
+    if (rawCandidate.includes(':')) continue
+    const candidate = normalizeRelativeArtifactPath(rawCandidate)
     if (!candidate) continue
     if (isAbsolutePath(candidate)) continue
+    if (candidate.startsWith('/')) continue
     if (/^[A-Za-z]+:\/\//.test(candidate)) continue
     if (!hasArtifactLikeExtension(candidate)) continue
     matches.push(candidate)
@@ -146,8 +165,38 @@ const extractRelativeArtifactPathsFromText = (value) => {
 export const extractArtifactPathsFromText = (value, options = {}) => {
   const includeRelative = Boolean(options?.includeRelative)
   const absoluteMatches = extractAbsoluteArtifactPathsFromText(value)
-  if (!includeRelative) return absoluteMatches
-  return [...absoluteMatches, ...extractRelativeArtifactPathsFromText(value)]
+  if (!includeRelative) return [...new Set(absoluteMatches)]
+  return [...new Set([...absoluteMatches, ...extractRelativeArtifactPathsFromText(value)])]
+}
+
+export const sanitizeArtifactPathCandidate = (value, options = {}) => {
+  const includeRelative = options?.includeRelative !== false
+  const raw = stripEnclosingQuotes(value)
+  if (!raw) return ''
+
+  const absoluteMatches = extractAbsoluteArtifactPathsFromText(raw)
+  if (absoluteMatches.length > 0) return absoluteMatches[0]
+
+  const normalized = normalizeAttachmentPath(raw)
+  if (isAbsolutePath(normalized) && hasArtifactLikeExtension(normalized)) {
+    return normalized
+  }
+
+  if (!includeRelative) return ''
+
+  const relativeMatches = extractRelativeArtifactPathsFromText(raw)
+  if (relativeMatches.length > 0) return relativeMatches[0]
+
+  if (!looksLikeRelativePath(raw)) return ''
+  if (raw.includes(':')) return ''
+
+  const normalizedRelative = normalizeRelativeArtifactPath(raw)
+  if (!normalizedRelative) return ''
+  if (isAbsolutePath(normalizedRelative)) return ''
+  if (normalizedRelative.startsWith('/')) return ''
+  if (/^[A-Za-z]+:\/\//.test(normalizedRelative)) return ''
+  if (!hasArtifactLikeExtension(normalizedRelative)) return ''
+  return normalizedRelative
 }
 
 export const extractLocalhostUrlsFromText = (value) => {
@@ -163,9 +212,8 @@ const collectArtifactPathsFromTool = (tool, options = {}) => {
   const includeRelative = Boolean(options?.includeRelative)
   const pathSet = new Set()
   const pushPath = (value) => {
-    const normalized = normalizeAttachmentPath(value)
+    const normalized = sanitizeArtifactPathCandidate(value, { includeRelative })
     if (!normalized) return
-    if (!hasArtifactLikeExtension(normalized)) return
     if (!isAbsolutePath(normalized) && !includeRelative) return
     if (/^[A-Za-z]+:\/\//.test(normalized)) return
     pathSet.add(normalized)
@@ -218,9 +266,8 @@ export const collectArtifactPathsFromMessages = (messages, options = {}) => {
   const includeRelative = Boolean(options?.includeRelative)
   const pathSet = new Set()
   const pushPath = (value) => {
-    const normalized = normalizeAttachmentPath(value)
+    const normalized = sanitizeArtifactPathCandidate(value, { includeRelative })
     if (!normalized) return
-    if (!hasArtifactLikeExtension(normalized)) return
     if (isAbsolutePath(normalized)) {
       pathSet.add(normalized)
       return
