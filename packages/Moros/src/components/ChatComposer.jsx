@@ -3,8 +3,10 @@ import { ArrowUp, StopCircle } from 'lucide-react'
 import { CHAT_MODELS_BY_PROVIDER } from '../utils/chatProvider'
 import './ChatComposer.css'
 
-const MIN_HEIGHT = 64
-const MAX_HEIGHT = 320
+const MIN_COMPOSER_HEIGHT = 64
+const MIN_TEXTAREA_HEIGHT = 24
+const MAX_TEXTAREA_HEIGHT = 296
+const COMPOSER_VERTICAL_PADDING = 24
 
 const PROVIDER_ICON_MAP = {
   'github-copilot': '/assets/provider-icons/github.png',
@@ -107,12 +109,10 @@ function ChatComposer({
   const inputValue = String(value || '')
   const canSendNow = !disabled && canSubmit
   const sendDisabled = !isLoading && !canSendNow
-  const [composerHeight, setComposerHeight] = useState(MIN_HEIGHT)
+  const [textareaHeight, setTextareaHeight] = useState(MIN_TEXTAREA_HEIGHT)
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
   const [expandedProviderId, setExpandedProviderId] = useState('')
-  const isDraggingRef = useRef(false)
-  const startYRef = useRef(0)
-  const startHeightRef = useRef(MIN_HEIGHT)
+  const textareaElementRef = useRef(null)
   const addMenuPanelRef = useRef(null)
   const addButtonRef = useRef(null)
   const providerOptions = React.useMemo(() => {
@@ -193,36 +193,6 @@ function ChatComposer({
     return providerModelsById[expandedProviderId] || []
   }, [expandedProviderId, providerModelsById])
 
-  const handleResizeStart = useCallback((e) => {
-    e.preventDefault()
-    isDraggingRef.current = true
-    startYRef.current = e.clientY
-    startHeightRef.current = composerHeight
-    document.body.style.cursor = 'ns-resize'
-    document.body.style.userSelect = 'none'
-  }, [composerHeight])
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!isDraggingRef.current) return
-      const delta = startYRef.current - e.clientY
-      const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startHeightRef.current + delta))
-      setComposerHeight(next)
-    }
-    const handleMouseUp = () => {
-      if (!isDraggingRef.current) return
-      isDraggingRef.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [])
-
   useEffect(() => {
     if (!isAddMenuOpen) return
     const handleOutsideClick = (event) => {
@@ -260,7 +230,43 @@ function ChatComposer({
     }
   }
 
-  const useMultiline = multiline || composerHeight > MIN_HEIGHT
+  const useMultiline = multiline
+
+  const setInputElementRef = useCallback((node) => {
+    textareaElementRef.current = node
+    if (typeof inputRef === 'function') {
+      inputRef(node)
+      return
+    }
+    if (inputRef && typeof inputRef === 'object') {
+      inputRef.current = node
+    }
+  }, [inputRef])
+
+  const resizeTextareaToContent = useCallback(() => {
+    if (!useMultiline) return
+    const textarea = textareaElementRef.current
+    if (!textarea || textarea.tagName !== 'TEXTAREA') return
+    textarea.style.height = '0px'
+    const measuredHeight = Math.min(
+      MAX_TEXTAREA_HEIGHT,
+      Math.max(MIN_TEXTAREA_HEIGHT, textarea.scrollHeight),
+    )
+    textarea.style.height = `${measuredHeight}px`
+    setTextareaHeight((prev) => (Math.abs(prev - measuredHeight) < 1 ? prev : measuredHeight))
+  }, [useMultiline])
+
+  useEffect(() => {
+    if (!useMultiline) return
+    const frameId = window.requestAnimationFrame(() => {
+      resizeTextareaToContent()
+    })
+    return () => window.cancelAnimationFrame(frameId)
+  }, [inputValue, useMultiline, resizeTextareaToContent])
+
+  const handleInputChange = useCallback((nextValue) => {
+    onValueChange?.(nextValue)
+  }, [onValueChange])
 
   const handleAddButtonClick = () => {
     if (hasAddMenu) {
@@ -367,10 +373,6 @@ function ChatComposer({
           )}
         </div>
       )}
-      <div
-        className="chat-composer-resize-handle"
-        onMouseDown={handleResizeStart}
-      />
       <form
         className={wrapperClassName}
         onSubmit={handleSubmit}
@@ -378,7 +380,12 @@ function ChatComposer({
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        style={composerHeight > MIN_HEIGHT ? { minHeight: composerHeight + 'px', alignItems: 'flex-end' } : undefined}
+        style={useMultiline
+          ? {
+              minHeight: `${Math.max(MIN_COMPOSER_HEIGHT, textareaHeight + COMPOSER_VERTICAL_PADDING)}px`,
+              alignItems: 'flex-end',
+            }
+          : undefined}
       >
         <button
           ref={addButtonRef}
@@ -394,26 +401,26 @@ function ChatComposer({
 
         {useMultiline ? (
           <textarea
-            ref={inputRef}
+            ref={setInputElementRef}
             className="chat-composer-input chat-input"
             placeholder={placeholder}
             value={inputValue}
-            onChange={(e) => onValueChange?.(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             disabled={disabled}
             rows={rows}
             autoFocus={autoFocus}
-            style={composerHeight > MIN_HEIGHT ? { height: (composerHeight - 24) + 'px' } : undefined}
+            style={{ height: `${textareaHeight}px` }}
           />
         ) : (
           <input
-            ref={inputRef}
+            ref={setInputElementRef}
             type="text"
             className="chat-composer-input chat-landing-input"
             placeholder={placeholder}
             value={inputValue}
-            onChange={(e) => onValueChange?.(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             disabled={disabled}

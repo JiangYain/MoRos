@@ -120,6 +120,7 @@ function ChatInterface({
     handleRevealArtifact,
   } = useChatArtifacts({
     messages,
+    chatFilePath: currentFile?.path,
     onArtifactsVisibilityChange,
     artifactsCloseRequestSeq,
   })
@@ -274,12 +275,23 @@ function ChatInterface({
   const resolveAssistantArtifactFiles = useCallback(async (segments) => {
     const artifactFiles = []
     const seen = new Set()
+    const normalizedChatFilePath = String(currentFile?.path || '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '')
+      .trim()
+    const chatDir = normalizedChatFilePath.includes('/')
+      ? normalizedChatFilePath.slice(0, normalizedChatFilePath.lastIndexOf('/'))
+      : ''
     const pushArtifact = async (entry) => {
       let absolutePath = isAbsolutePath(entry?.path) ? normalizeAttachmentPath(entry.path) : ''
-      const relativePath = String(entry?.relativePath || '')
+      let relativePath = String(entry?.relativePath || '')
         .trim()
         .replace(/\\/g, '/')
         .replace(/^\.\//, '')
+        .replace(/^\/+/, '')
+      if (!absolutePath && relativePath && !relativePath.includes('/') && chatDir) {
+        relativePath = `${chatDir}/${relativePath}`
+      }
       if (!absolutePath && relativePath) {
         try {
           absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
@@ -299,18 +311,25 @@ function ChatInterface({
     }
 
     const toolEvents = flattenToolEventsFromSegments(segments)
-    const pathsFromTools = collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
+    const pathsFromTools = collectArtifactPathsFromToolEvents(toolEvents, {
+      includeRelative: true,
+      preferRelativeForLeadingSlash: true,
+    })
     for (const pathValue of pathsFromTools) {
       const normalizedPath = normalizeAttachmentPath(pathValue)
+      const normalizedRelative = String(normalizedPath || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '')
+      const withChatDir = (!isAbsolutePath(normalizedPath) && normalizedRelative && !normalizedRelative.includes('/') && chatDir)
+        ? `${chatDir}/${normalizedRelative}`
+        : normalizedRelative
       await pushArtifact({
         name: resolveAttachmentName({}, normalizedPath),
         path: isAbsolutePath(normalizedPath) ? normalizedPath : '',
-        relativePath: isAbsolutePath(normalizedPath) ? '' : normalizedPath,
+        relativePath: isAbsolutePath(normalizedPath) ? '' : withChatDir,
       })
     }
 
     return artifactFiles.slice(0, 8)
-  }, [])
+  }, [currentFile?.path])
 
   const handleOpenArtifactFromMessage = useCallback((file) => {
     const relativePath = String(file?.relativePath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '')
@@ -1496,6 +1515,7 @@ function ChatInterface({
           onToggleArtifactsOpen={() => setArtifactsOpen((open) => !open)}
           artifactEntriesCount={artifactEntries.length}
           messages={messages}
+          chatFilePath={currentFile?.path}
           streamingSegments={streamingSegments}
           isThinking={isThinking}
           thinkingState={thinkingState}

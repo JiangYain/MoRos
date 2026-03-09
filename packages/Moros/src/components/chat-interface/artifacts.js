@@ -13,7 +13,7 @@ export const ARTIFACT_FILE_EXTENSIONS = [
 
 const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
 const ARTIFACT_EXT_PATTERN = '(?:html?|json|md|markdown|txt|csv|ya?ml|xml|toml|ini|log|js|jsx|ts|tsx|css|scss|py|sh|svg|png|jpe?g|webp|gif)'
-const WINDOWS_ABS_ARTIFACT_PATH_REGEX = new RegExp(`[A-Za-z]:[\\\\/][^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
+const WINDOWS_ABS_ARTIFACT_PATH_REGEX = new RegExp(`[A-Za-z]:[\\\\/][^:"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
 const POSIX_ABS_ARTIFACT_PATH_REGEX = new RegExp(`/[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
 const RELATIVE_ARTIFACT_PATH_REGEX = new RegExp(`(?:^|[\\s("'\\\`])((?:\\.{1,2}[\\\\/])?[^"'\\\`\\n\\r<>|?*:]+\\.${ARTIFACT_EXT_PATTERN})(?=$|[\\s)"'\\\`,.:;!?])`, 'gi')
 const LOCALHOST_URL_REGEX = /(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:\/[^\s"'`<>]*)?/gi
@@ -85,6 +85,16 @@ const stripEnclosingQuotes = (value) => {
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")) || (text.startsWith('`') && text.endsWith('`'))) {
     return text.slice(1, -1).trim()
   }
+  return text
+}
+
+const stripStatusPrefix = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const savedPrefix = text.match(/^saved\s*:\s*(.+)$/i)
+  if (savedPrefix?.[1]) return String(savedPrefix[1]).trim()
+  const wrotePrefix = text.match(/^(?:successfully\s+)?wrote\s+\d+\s+bytes\s+to\s+(.+)$/i)
+  if (wrotePrefix?.[1]) return String(wrotePrefix[1]).trim()
   return text
 }
 
@@ -171,13 +181,28 @@ export const extractArtifactPathsFromText = (value, options = {}) => {
 
 export const sanitizeArtifactPathCandidate = (value, options = {}) => {
   const includeRelative = options?.includeRelative !== false
-  const raw = stripEnclosingQuotes(value)
+  const preferRelativeForLeadingSlash = Boolean(options?.preferRelativeForLeadingSlash)
+  const raw = stripStatusPrefix(stripEnclosingQuotes(value))
   if (!raw) return ''
 
-  const absoluteMatches = extractAbsoluteArtifactPathsFromText(raw)
-  if (absoluteMatches.length > 0) return absoluteMatches[0]
+  const toPreferredLeadingSlashPath = (inputPath) => {
+    const normalizedPath = normalizeAttachmentPath(inputPath)
+    if (!preferRelativeForLeadingSlash || !includeRelative || !normalizedPath.startsWith('/')) {
+      return normalizedPath
+    }
+    const isLikelySystemPosixRoot = /^\/(?:users|home|var|tmp|opt|etc|mnt|volumes)\b/i.test(normalizedPath)
+    if (isLikelySystemPosixRoot) return normalizedPath
+    const strippedRelative = normalizeRelativeArtifactPath(normalizedPath.replace(/^\/+/, ''))
+    if (strippedRelative && hasArtifactLikeExtension(strippedRelative)) {
+      return strippedRelative
+    }
+    return normalizedPath
+  }
 
-  const normalized = normalizeAttachmentPath(raw)
+  const absoluteMatches = extractAbsoluteArtifactPathsFromText(raw)
+  if (absoluteMatches.length > 0) return toPreferredLeadingSlashPath(absoluteMatches[0])
+
+  const normalized = toPreferredLeadingSlashPath(raw)
   if (isAbsolutePath(normalized) && hasArtifactLikeExtension(normalized)) {
     return normalized
   }
@@ -210,9 +235,10 @@ export const extractLocalhostUrlsFromText = (value) => {
 
 const collectArtifactPathsFromTool = (tool, options = {}) => {
   const includeRelative = Boolean(options?.includeRelative)
+  const preferRelativeForLeadingSlash = Boolean(options?.preferRelativeForLeadingSlash)
   const pathSet = new Set()
   const pushPath = (value) => {
-    const normalized = sanitizeArtifactPathCandidate(value, { includeRelative })
+    const normalized = sanitizeArtifactPathCandidate(value, { includeRelative, preferRelativeForLeadingSlash })
     if (!normalized) return
     if (!isAbsolutePath(normalized) && !includeRelative) return
     if (/^[A-Za-z]+:\/\//.test(normalized)) return
@@ -234,9 +260,10 @@ const collectArtifactPathsFromTool = (tool, options = {}) => {
 
 export const collectArtifactPathsFromToolEvents = (tools, options = {}) => {
   const includeRelative = Boolean(options?.includeRelative)
+  const preferRelativeForLeadingSlash = Boolean(options?.preferRelativeForLeadingSlash)
   const pathSet = new Set()
   for (const tool of Array.isArray(tools) ? tools : []) {
-    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative })) {
+    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative, preferRelativeForLeadingSlash })) {
       pathSet.add(pathValue)
     }
   }
@@ -264,9 +291,10 @@ export const collectArtifactUrlsFromToolEvents = (tools) => {
 
 export const collectArtifactPathsFromMessages = (messages, options = {}) => {
   const includeRelative = Boolean(options?.includeRelative)
+  const preferRelativeForLeadingSlash = Boolean(options?.preferRelativeForLeadingSlash)
   const pathSet = new Set()
   const pushPath = (value) => {
-    const normalized = sanitizeArtifactPathCandidate(value, { includeRelative })
+    const normalized = sanitizeArtifactPathCandidate(value, { includeRelative, preferRelativeForLeadingSlash })
     if (!normalized) return
     if (isAbsolutePath(normalized)) {
       pathSet.add(normalized)
@@ -278,7 +306,7 @@ export const collectArtifactPathsFromMessages = (messages, options = {}) => {
     pathSet.add(relativePath)
   }
   const collectFromTool = (tool) => {
-    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative })) {
+    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative, preferRelativeForLeadingSlash })) {
       pushPath(pathValue)
     }
   }

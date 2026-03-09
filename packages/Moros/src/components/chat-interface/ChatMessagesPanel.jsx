@@ -8,6 +8,7 @@ import { filesApi } from '../../utils/api'
 import MorosShapeIcon from '../MorosShapeIcon'
 import ChatEmptyTerminalState from './ChatEmptyTerminalState'
 import ToolExecutionTimeline from './ToolExecutionTimeline'
+import FileTypeIcon from './FileTypeIcon'
 import {
   cloneAssistantSegments,
   extractTrailingErrorNote,
@@ -25,6 +26,7 @@ import {
 
 function ChatMessagesPanel({
   messages,
+  chatFilePath,
   streamingSegments,
   isThinking,
   streamingContent,
@@ -90,16 +92,32 @@ function ChatMessagesPanel({
       }
       return Array.isArray(message?.tools) ? message.tools : []
     })()
+    const normalizedChatFilePath = String(chatFilePath || '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '')
+      .trim()
+    const chatDir = normalizedChatFilePath.includes('/')
+      ? normalizedChatFilePath.slice(0, normalizedChatFilePath.lastIndexOf('/'))
+      : ''
     const derivedPaths = shouldFallbackToToolEvents
-      ? collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
+      ? collectArtifactPathsFromToolEvents(toolEvents, {
+          includeRelative: true,
+          preferRelativeForLeadingSlash: true,
+        })
       : []
 
     const merged = []
     const seen = new Set()
     const pushFile = (input) => {
       const rawPath = normalizeAttachmentPath(input?.path || '')
-      const pathCandidate = sanitizeArtifactPathCandidate(rawPath, { includeRelative: true })
-      const relativeCandidate = sanitizeArtifactPathCandidate(input?.relativePath, { includeRelative: true })
+      const pathCandidate = sanitizeArtifactPathCandidate(rawPath, {
+        includeRelative: true,
+        preferRelativeForLeadingSlash: true,
+      })
+      const relativeCandidate = sanitizeArtifactPathCandidate(input?.relativePath, {
+        includeRelative: true,
+        preferRelativeForLeadingSlash: true,
+      })
       let relativePath = ''
       let absolutePath = ''
       const applyCandidate = (candidate) => {
@@ -114,10 +132,14 @@ function ChatMessagesPanel({
         const normalizedRelative = normalized
           .replace(/\\/g, '/')
           .replace(/^\.\//, '')
+          .replace(/^\/+/, '')
           .trim()
         if (!normalizedRelative) return
+        const withChatDir = (!normalizedRelative.includes('/') && chatDir)
+          ? `${chatDir}/${normalizedRelative}`
+          : normalizedRelative
         if (!relativePath) {
-          relativePath = normalizedRelative
+          relativePath = withChatDir
         }
       }
       applyCandidate(pathCandidate)
@@ -189,7 +211,7 @@ function ChatMessagesPanel({
       return !rootFallbackNameSet.has(key)
     })
     return pruned.slice(0, 8)
-  }, [])
+  }, [chatFilePath])
 
   const renderAssistantSegments = useCallback((segments, options = {}) => {
     const { isStreaming = false, showThinking = false, thinkingState: segmentThinkingState = 'idle' } = options
@@ -333,7 +355,11 @@ function ChatMessagesPanel({
                               className="chat-message-artifact-thumb"
                             />
                           ) : (
-                            <span className="chat-message-artifact-dot" aria-hidden />
+                            <FileTypeIcon
+                              pathValue={file.relativePath || file.path}
+                              nameValue={file.name}
+                              className="chat-message-artifact-file-icon"
+                            />
                           )}
                           <span className="chat-uploaded-file-name">{file.name}</span>
                         </button>

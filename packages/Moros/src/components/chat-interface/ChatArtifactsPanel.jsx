@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { filesApi } from '../../utils/api'
 import { isTextArtifactPath } from './artifacts'
+import FileTypeIcon from './FileTypeIcon'
 
 function ArtifactPreviewPane({
   activeArtifact,
@@ -291,6 +292,7 @@ function ChatArtifactsPanel({
               )}
               {filteredArtifactEntries.map((entry) => {
                 const isFolder = entry.type === 'folder'
+                const isUrlArtifact = entry.artifactType === 'url'
                 return (
                   <button
                     key={entry.id}
@@ -299,11 +301,13 @@ function ChatArtifactsPanel({
                     onClick={() => onSelectArtifact(entry.id)}
                   >
                     <span className="chat-artifact-file-icon">
-                      {isFolder ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
-                      )}
+                      <FileTypeIcon
+                        pathValue={entry.relativePath || entry.path}
+                        nameValue={entry.name}
+                        isFolder={isFolder}
+                        isUrl={isUrlArtifact}
+                        className="chat-artifact-file-icon-image"
+                      />
                     </span>
                     <span className="chat-artifact-file-name">{entry.name}</span>
                     {entry.size != null && (

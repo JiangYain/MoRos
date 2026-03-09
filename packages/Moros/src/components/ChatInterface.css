@@ -72,6 +72,10 @@
   align-items: center;
 }
 
+.chat-shell.artifacts-open .chat-messages {
+  align-items: flex-start;
+}
+
 .chat-messages::-webkit-scrollbar {
   width: 5px; /* 更细的滚动条 */
 }
@@ -513,11 +517,25 @@
   flex-shrink: 0;
 }
 
-.chat-message-artifact-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
+.chat-message-artifact-file-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.chat-file-icon-fallback {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 75%, transparent);
   flex-shrink: 0;
 }
 

@@ -8,6 +8,7 @@ function ChatMainColumn({
   onToggleArtifactsOpen,
   artifactEntriesCount,
   messages,
+  chatFilePath,
   streamingSegments,
   isThinking,
   thinkingState,
@@ -56,6 +57,7 @@ function ChatMainColumn({
 
       <ChatMessagesPanel
         messages={messages}
+        chatFilePath={chatFilePath}
         streamingSegments={streamingSegments}
         isThinking={isThinking}
         thinkingState={thinkingState}

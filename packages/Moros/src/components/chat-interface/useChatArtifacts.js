@@ -16,6 +16,7 @@ import {
 
 export function useChatArtifacts({
   messages,
+  chatFilePath,
   onArtifactsVisibilityChange,
   artifactsCloseRequestSeq,
 }) {
@@ -32,6 +33,18 @@ export function useChatArtifacts({
   const [activeArtifactId, setActiveArtifactId] = useState('')
   const [artifactsTab, setArtifactsTab] = useState('files')
   const [artifactSearchTerm, setArtifactSearchTerm] = useState('')
+  const [previewVersion, setPreviewVersion] = useState(0)
+
+  const chatDirectoryRelative = useMemo(() => {
+    const normalizedPath = String(chatFilePath || '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '')
+      .trim()
+    if (!normalizedPath) return ''
+    const lastSlashIndex = normalizedPath.lastIndexOf('/')
+    if (lastSlashIndex <= 0) return ''
+    return normalizedPath.slice(0, lastSlashIndex)
+  }, [chatFilePath])
 
   useEffect(() => {
     try {
@@ -54,10 +67,11 @@ export function useChatArtifacts({
     }
   }, [onArtifactsVisibilityChange])
 
-  const refreshArtifacts = useCallback(async () => {
+  const refreshArtifacts = useCallback(async (refreshOptions = {}) => {
     setArtifactsLoading(true)
     setArtifactsError('')
     try {
+      const bumpPreviewVersion = refreshOptions?.bumpPreviewVersion !== false
       const nextEntries = []
       const seen = new Set()
       const hasArtifactExtension = (value) => {
@@ -95,8 +109,14 @@ export function useChatArtifacts({
           return
         }
 
-        const pathCandidate = sanitizeArtifactPathCandidate(rawPath, { includeRelative: true })
-        const relativeCandidate = sanitizeArtifactPathCandidate(entryLike?.relativePath, { includeRelative: true })
+        const pathCandidate = sanitizeArtifactPathCandidate(rawPath, {
+          includeRelative: true,
+          preferRelativeForLeadingSlash: true,
+        })
+        const relativeCandidate = sanitizeArtifactPathCandidate(entryLike?.relativePath, {
+          includeRelative: true,
+          preferRelativeForLeadingSlash: true,
+        })
 
         let relativePath = ''
         let absolutePath = ''
@@ -109,8 +129,16 @@ export function useChatArtifacts({
             }
             return
           }
-          const normalizedRelative = normalized.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+          let normalizedRelative = normalized
+            .replace(/\\/g, '/')
+            .replace(/^\.\//, '')
+            .replace(/^\/+/, '')
+            .trim()
           if (!normalizedRelative) return
+          const isBareFileName = !normalizedRelative.includes('/')
+          if (isBareFileName && chatDirectoryRelative) {
+            normalizedRelative = `${chatDirectoryRelative}/${normalizedRelative}`
+          }
           if (!relativePath) {
             relativePath = normalizedRelative
           }
@@ -158,7 +186,10 @@ export function useChatArtifacts({
         }
       }
 
-      const messageArtifactPaths = collectArtifactPathsFromMessages(messages, { includeRelative: true })
+      const messageArtifactPaths = collectArtifactPathsFromMessages(messages, {
+        includeRelative: true,
+        preferRelativeForLeadingSlash: true,
+      })
       for (const pathValue of [...messageArtifactPaths].reverse()) {
         await pushFileEntry({ path: pathValue })
       }
@@ -204,6 +235,9 @@ export function useChatArtifacts({
 
       const prunedEntries = nextEntries.filter((entry) => !fallbackRootEntryIds.has(entry?.id))
 
+      if (bumpPreviewVersion) {
+        setPreviewVersion(Date.now())
+      }
       setArtifactEntries(prunedEntries)
       setActiveArtifactId((prevId) => {
         if (prunedEntries.some((entry) => entry.id === prevId)) return prevId
@@ -218,7 +252,7 @@ export function useChatArtifacts({
     } finally {
       setArtifactsLoading(false)
     }
-  }, [messages])
+  }, [messages, chatDirectoryRelative])
 
   useEffect(() => {
     if (!artifactsOpen) return
@@ -228,7 +262,7 @@ export function useChatArtifacts({
   useEffect(() => {
     if (!artifactsOpen) return
     const timer = setInterval(() => {
-      void refreshArtifacts()
+      void refreshArtifacts({ bumpPreviewVersion: false })
     }, 2000)
     return () => clearInterval(timer)
   }, [artifactsOpen, refreshArtifacts])
@@ -237,35 +271,42 @@ export function useChatArtifacts({
     return artifactEntries.find((entry) => entry.id === activeArtifactId) || null
   }, [artifactEntries, activeArtifactId])
 
+  const appendVersionQuery = useCallback((url) => {
+    const normalizedUrl = String(url || '').trim()
+    if (!normalizedUrl) return ''
+    const separator = normalizedUrl.includes('?') ? '&' : '?'
+    return `${normalizedUrl}${separator}v=${previewVersion}`
+  }, [previewVersion])
+
   const activeArtifactRawUrl = useMemo(() => {
     if (activeArtifact?.artifactType === 'url') return ''
     const relativePath = String(activeArtifact?.relativePath || '').trim()
-    if (relativePath) return filesApi.getRawFileUrl(relativePath)
+    if (relativePath) return appendVersionQuery(filesApi.getRawFileUrl(relativePath))
 
     const absolutePath = normalizeAttachmentPath(activeArtifact?.path)
     if (absolutePath && isAbsolutePath(absolutePath)) {
-      return filesApi.getRawAbsoluteFileUrl(absolutePath)
+      return appendVersionQuery(filesApi.getRawAbsoluteFileUrl(absolutePath))
     }
     return ''
-  }, [activeArtifact?.artifactType, activeArtifact?.relativePath, activeArtifact?.path])
+  }, [activeArtifact?.artifactType, activeArtifact?.relativePath, activeArtifact?.path, appendVersionQuery])
 
   const activeArtifactUrl = useMemo(() => {
     if (activeArtifact?.artifactType === 'url') {
       return String(activeArtifact?.previewUrl || activeArtifact?.path || '').trim()
     }
     const relativePath = String(activeArtifact?.relativePath || '').trim()
-    if (relativePath) return filesApi.getRawFileUrl(relativePath)
+    if (relativePath) return appendVersionQuery(filesApi.getRawFileUrl(relativePath))
 
     const absolutePath = normalizeAttachmentPath(activeArtifact?.path)
     if (absolutePath && isAbsolutePath(absolutePath)) {
       const normalizedPath = absolutePath.toLowerCase()
       if (normalizedPath.endsWith('.html') || normalizedPath.endsWith('.htm')) {
-        return filesApi.getRawAbsoluteHtmlUrl(absolutePath)
+        return appendVersionQuery(filesApi.getRawAbsoluteHtmlUrl(absolutePath))
       }
-      return filesApi.getRawAbsoluteFileUrl(absolutePath)
+      return appendVersionQuery(filesApi.getRawAbsoluteFileUrl(absolutePath))
     }
     return ''
-  }, [activeArtifact?.artifactType, activeArtifact?.previewUrl, activeArtifact?.relativePath, activeArtifact?.path])
+  }, [activeArtifact?.artifactType, activeArtifact?.previewUrl, activeArtifact?.relativePath, activeArtifact?.path, appendVersionQuery])
 
   const activeArtifactExtension = useMemo(() => {
     if (activeArtifact?.artifactType === 'url') return ''

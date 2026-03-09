@@ -316,7 +316,7 @@
 
 textarea.chat-composer-input {
   resize: none;
-  max-height: 200px;
+  max-height: 296px;
   overflow-y: auto;
 }
 

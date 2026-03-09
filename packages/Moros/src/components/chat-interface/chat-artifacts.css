@@ -292,6 +292,12 @@
   align-items: center;
 }
 
+.chat-artifact-file-icon-image {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+}
+
 .chat-artifact-file-name {
   flex: 1;
   font-size: 12.5px;

@@ -1,5 +1,13 @@
 <div align="center">
-<img src="./moros_flow_smooth.gif">
+
+<img src="./moros_flow_smooth.gif" width="700">
+
+</div>
+
+<div align="center">
+
+<video src="./Demo01.mp4" width="700" controls preload="metadata"></video>
+
 </div>
 
 ## Executive summary
