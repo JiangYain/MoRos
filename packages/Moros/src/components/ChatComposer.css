@@ -221,14 +221,32 @@
   overflow: hidden;
 }
 
+.chat-composer-add.chat-input-action {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--border-subtle, rgba(0, 0, 0, 0.16)) 90%, transparent);
+  background: color-mix(in srgb, var(--bg-primary, #ffffff) 94%, var(--bg-secondary, #f3f3f3) 6%);
+  color: var(--text-secondary, #6a6a6a);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.chat-composer-add.chat-input-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bg-primary, #ffffff) 88%, var(--bg-tertiary, #ececec) 12%);
+  color: var(--text-primary, #171717);
+  border-color: color-mix(in srgb, var(--text-primary, #171717) 16%, transparent);
+}
+
 .chat-composer-add-glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 18px;
-  font-size: 19px;
-  font-weight: 500;
+  font-size: 20px;
+  font-weight: 400;
   line-height: 1;
   transform: rotate(0deg);
   transform-origin: center;
@@ -247,51 +265,24 @@
   opacity: 1;
 }
 
-.chat-composer-resize-handle {
-  position: absolute;
-  top: -4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 40px;
-  height: 8px;
-  cursor: ns-resize;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.chat-composer-resize-handle::after {
-  content: '';
-  width: 24px;
-  height: 3px;
-  border-radius: 1.5px;
-  background: var(--border-color);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.chat-composer-resize-handle:hover::after {
-  opacity: 0.7;
-}
-
 .chat-composer.chat-landing-card {
   width: 100%;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 64px;
+  align-items: flex-end;
+  gap: 10px;
+  min-height: 68px;
   padding: 10px 12px;
-  border-radius: 4px;
-  border: 0.5px solid var(--border-subtle, var(--border-color));
-  background: var(--bg-primary);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle, rgba(0, 0, 0, 0.12)) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary, #f5f5f5) 84%, var(--bg-primary, #ffffff) 16%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 6px 16px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
 .chat-composer.chat-landing-card:focus-within {
-  border-color: var(--text-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-color: color-mix(in srgb, var(--text-primary, #171717) 22%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 52%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary, #f5f5f5) 76%, var(--bg-primary, #ffffff) 24%);
 }
 
 .chat-composer-input {
@@ -299,11 +290,11 @@
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 16px;
   font-family: inherit;
-  line-height: 1.5;
-  padding: 10px 4px;
-  min-height: 24px;
+  line-height: 1.55;
+  padding: 9px 4px;
+  min-height: 26px;
 }
 
 .chat-composer-input::placeholder {
@@ -318,6 +309,36 @@ textarea.chat-composer-input {
   resize: none;
   max-height: 296px;
   overflow-y: auto;
+}
+
+.chat-composer .chat-send-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--text-primary, #171717) 20%, transparent);
+  background: var(--text-primary, #171717);
+  color: var(--bg-primary, #ffffff);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+}
+
+.chat-composer .chat-send-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+}
+
+.chat-composer .chat-send-btn:disabled {
+  background: color-mix(in srgb, var(--bg-tertiary, #e9e9e9) 88%, var(--bg-primary, #ffffff) 12%);
+  color: var(--text-tertiary, #9d9d9d);
+  border-color: color-mix(in srgb, var(--border-subtle, rgba(0, 0, 0, 0.14)) 88%, transparent);
+  box-shadow: none;
+  opacity: 1;
+}
+
+.chat-composer .chat-send-btn.loading {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border-subtle, rgba(0, 0, 0, 0.18)) 92%, transparent);
 }
 
 .chat-composer.drag-over::before {

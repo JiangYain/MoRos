@@ -490,29 +490,33 @@
 }
 
 .switch-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  padding: 14px 2px;
+  min-height: 64px;
 }
 
 .switch-row + .switch-row {
-  border-top: 1px solid var(--border-color);
+  border-top: 0.5px solid color-mix(in srgb, var(--border-color) 72%, transparent);
 }
 
 .switch-meta {
   flex: 1;
+  min-width: 0;
 }
 
 .switch-title {
   margin: 0;
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
   color: var(--text-primary);
 }
 
 .switch-description {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.45;
@@ -520,9 +524,11 @@
 
 .switch {
   position: relative;
-  display: inline-block;
-  width: 28px;
-  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 26px;
   flex-shrink: 0;
 }
 
@@ -536,23 +542,24 @@
   position: absolute;
   inset: 0;
   cursor: pointer;
-  background-color: var(--bg-tertiary);
-  border-radius: 1px;
+  background: color-mix(in srgb, var(--bg-tertiary) 86%, var(--bg-primary) 14%);
+  border-radius: 999px;
   transition: 0.2s ease;
-  border: 0.5px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  box-sizing: border-box;
 }
 
 .slider:before {
   content: '';
   position: absolute;
-  width: 10px;
-  height: 10px;
-  left: 1px;
-  top: 1.5px;
-  border-radius: 1px;
-  background: #fff;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: var(--bg-primary);
   transition: 0.2s ease;
-  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .switch input:checked + .slider {
@@ -561,7 +568,11 @@
 }
 
 .switch input:checked + .slider:before {
-  transform: translateX(14px);
+  transform: translateX(20px);
+}
+
+.switch input:focus-visible + .slider {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-primary) 20%, transparent);
 }
 
 .connection-status {

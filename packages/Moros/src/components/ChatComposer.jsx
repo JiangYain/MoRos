@@ -396,7 +396,7 @@ function ChatComposer({
           disabled={disabled || isLoading}
           aria-expanded={hasAddMenu ? isAddMenuOpen : undefined}
         >
-          <span className="chat-composer-add-glyph" aria-hidden>/</span>
+          <span className="chat-composer-add-glyph" aria-hidden>+</span>
         </button>
 
         {useMultiline ? (

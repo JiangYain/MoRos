@@ -1,38 +1,9 @@
 import express from 'express'
 import path from 'path'
 import fs from 'fs/promises'
-import { generateKnowledgeGraph, getRelatedFiles } from '../utils/knowledgeGraph.js'
 import { getFileTree } from '../utils/fileSystem.js'
 
 export const knowledgeRouter = express.Router()
-
-// 获取知识图谱
-knowledgeRouter.get('/graph', async (req, res) => {
-  try {
-    const graph = await generateKnowledgeGraph()
-    res.json({ success: true, data: graph })
-  } catch (error) {
-    console.error('生成知识图谱失败:', error)
-    res.status(500).json({ success: false, error: '生成知识图谱失败' })
-  }
-})
-
-// 获取相关文件推荐
-knowledgeRouter.get('/related/:path(*)', async (req, res) => {
-  try {
-    const filePath = req.params.path
-    
-    if (!filePath) {
-      return res.status(400).json({ success: false, error: '文件路径不能为空' })
-    }
-    
-    const relatedFiles = await getRelatedFiles(filePath)
-    res.json({ success: true, data: relatedFiles })
-  } catch (error) {
-    console.error('获取相关文件失败:', error)
-    res.status(500).json({ success: false, error: '获取相关文件失败' })
-  }
-})
 
 // 搜索文件（全文检索 + 片段）
 knowledgeRouter.get('/search', async (req, res) => {

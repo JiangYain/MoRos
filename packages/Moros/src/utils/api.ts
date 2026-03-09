@@ -189,20 +189,6 @@ export const filesApi = {
 };
 
 export const knowledgeApi = {
-	async getKnowledgeGraph(): Promise<{ nodes: any[]; links: any[] }> {
-		const response = await fetch(`${API_BASE}/knowledge/graph`);
-		const result = (await response.json()) as ApiResponse;
-		if (!result.success) throw new Error(result.error);
-		return result.data || { nodes: [], links: [] };
-	},
-
-	async getRelatedFiles(filePath: string): Promise<any[]> {
-		const response = await fetch(`${API_BASE}/knowledge/related/${encodePathSegments(filePath)}`);
-		const result = (await response.json()) as ApiResponse;
-		if (!result.success) throw new Error(result.error);
-		return result.data || [];
-	},
-
 	async searchFiles(query: string): Promise<Array<{ path: string; name: string; snippet: string; line: number }>> {
 		const response = await fetch(`${API_BASE}/knowledge/search?q=${encodeURIComponent(query)}`);
 		const result = (await response.json()) as ApiResponse;

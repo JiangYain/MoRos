@@ -6,7 +6,13 @@
 
 <div align="center">
 
-<video src="./Demo01.mp4" width="700" controls preload="metadata"></video>
+<a href="https://github.com/JiangYain/MoRos/releases/latest/download/Demo01.mp4">
+  ▶ Watch full demo video (GitHub Release asset)
+</a>
+<br />
+<a href="https://github.com/JiangYain/MoRos/releases/latest">
+  View latest release page
+</a>
 
 </div>
 
