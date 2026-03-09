@@ -13,7 +13,14 @@ node_modules/
 
 # ==================== 用户数据目录 ====================
 # 这是用户的个人笔记数据，不应包含在开源项目中
-markov-data/
+# 保留 markov-data 空目录模板，忽略其中所有实际数据
+markov-data/*
+markov-data/.*
+!markov-data/.gitkeep
+
+# 各类历史/备份数据目录不纳入版本控制
+markov-data_*/
+markov-data_BackUp/
 
 # ==================== 缓存和临时文件 ====================
 .cache/
