@@ -26,7 +26,6 @@ import './ChatInterface.css'
 import {
   appendAttachmentPathsToPrompt,
   collectArtifactPathsFromToolEvents,
-  isArtifactWorkspaceCandidate,
   isImageArtifactPath,
   isAbsolutePath,
   normalizeAttachmentPath,
@@ -272,15 +271,20 @@ function ChatInterface({
     }, delayMs)
   }, [artifactsOpen, refreshArtifacts])
 
-  const resolveAssistantArtifactFiles = useCallback(async (segments, requestStartedAtMs) => {
+  const resolveAssistantArtifactFiles = useCallback(async (segments) => {
     const artifactFiles = []
     const seen = new Set()
-    const pushArtifact = (entry) => {
-      const absolutePath = isAbsolutePath(entry?.path) ? normalizeAttachmentPath(entry.path) : ''
+    const pushArtifact = async (entry) => {
+      let absolutePath = isAbsolutePath(entry?.path) ? normalizeAttachmentPath(entry.path) : ''
       const relativePath = String(entry?.relativePath || '')
         .trim()
         .replace(/\\/g, '/')
         .replace(/^\.\//, '')
+      if (!absolutePath && relativePath) {
+        try {
+          absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
+        } catch {}
+      }
       const resolvedPath = absolutePath || normalizeAttachmentPath(relativePath).replace(/\\/g, '/')
       if (!resolvedPath) return
       const key = resolvedPath.toLowerCase()
@@ -298,45 +302,18 @@ function ChatInterface({
     const pathsFromTools = collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
     for (const pathValue of pathsFromTools) {
       const normalizedPath = normalizeAttachmentPath(pathValue)
-      pushArtifact({
+      await pushArtifact({
         name: resolveAttachmentName({}, normalizedPath),
         path: isAbsolutePath(normalizedPath) ? normalizedPath : '',
         relativePath: isAbsolutePath(normalizedPath) ? '' : normalizedPath,
       })
     }
 
-    try {
-      const workspaceTree = await filesApi.getFileTree({ fresh: true })
-      const recentCandidates = (Array.isArray(workspaceTree) ? workspaceTree : [])
-        .filter(isArtifactWorkspaceCandidate)
-        .filter((item) => {
-          const updatedAt = new Date(item?.updatedAt || item?.createdAt || 0).getTime()
-          if (!Number.isFinite(updatedAt) || updatedAt <= 0) return false
-          return updatedAt >= requestStartedAtMs - 1500
-        })
-        .sort((a, b) => new Date(b?.updatedAt || b?.createdAt || 0).getTime() - new Date(a?.updatedAt || a?.createdAt || 0).getTime())
-        .slice(0, 8)
-
-      for (const item of recentCandidates) {
-        const relativePath = String(item?.path || '').trim()
-        if (!relativePath) continue
-        let absolutePath = ''
-        try {
-          absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
-        } catch {}
-        pushArtifact({
-          name: String(item?.name || '').trim() || resolveAttachmentName({}, relativePath),
-          path: absolutePath,
-          relativePath,
-        })
-      }
-    } catch {}
-
     return artifactFiles.slice(0, 8)
   }, [])
 
   const handleOpenArtifactFromMessage = useCallback((file) => {
-    const relativePath = String(file?.relativePath || '').trim().replace(/\\/g, '/')
+    const relativePath = String(file?.relativePath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '')
     const absolutePath = normalizeAttachmentPath(file?.path)
     setArtifactsOpen(true)
     setArtifactsTab('preview')
@@ -354,9 +331,10 @@ function ChatInterface({
         return
       }
       if (relativePath) {
-        setActiveArtifactId(`workspace:${relativePath}`)
+        const fallbackId = `chat-file:${String(absolutePath || relativePath).toLowerCase()}`
+        setActiveArtifactId(fallbackId)
       } else if (absolutePath) {
-        setActiveArtifactId(`chat:${absolutePath}`)
+        setActiveArtifactId(`chat-file:${absolutePath.toLowerCase()}`)
       }
     })()
   }, [setArtifactsOpen, setArtifactsTab, setActiveArtifactId, refreshArtifacts])
@@ -904,7 +882,6 @@ function ChatInterface({
 
     let streamedText = ''
     let newConversationId = conversationId
-    const requestStartedAtMs = Date.now()
     const resolveFinalSegments = (rawPayload) => {
       let finalSegments = normalizeAssistantSegmentsForPersist(snapshotStreamingSegments())
       if (finalSegments.length === 0) {
@@ -1177,7 +1154,7 @@ function ChatInterface({
                 .join('')
               const finalText = textFromSegments || fallbackFinalText
               void (async () => {
-                const artifactFiles = await resolveAssistantArtifactFiles(finalSegments, requestStartedAtMs)
+                const artifactFiles = await resolveAssistantArtifactFiles(finalSegments)
                 const aiMessage = {
                   role: 'assistant',
                   content: finalText || '（无文本输出）',

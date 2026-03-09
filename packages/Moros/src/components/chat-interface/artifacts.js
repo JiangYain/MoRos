@@ -16,6 +16,7 @@ const ARTIFACT_EXT_PATTERN = '(?:html?|json|md|markdown|txt|csv|ya?ml|xml|toml|i
 const WINDOWS_ABS_ARTIFACT_PATH_REGEX = new RegExp(`[A-Za-z]:[\\\\/][^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
 const POSIX_ABS_ARTIFACT_PATH_REGEX = new RegExp(`/[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
 const RELATIVE_ARTIFACT_PATH_REGEX = new RegExp(`(?:^|[\\s("'\\\`])((?:\\.{1,2}[\\\\/])?[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN})(?=$|[\\s)"'\\\`,.:;!?])`, 'gi')
+const LOCALHOST_URL_REGEX = /(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:\/[^\s"'`<>]*)?/gi
 
 export const resolveAttachmentPath = (fileLike) => {
   const candidates = [fileLike?.path, fileLike?.absolutePath, fileLike?.webkitRelativePath]
@@ -47,11 +48,35 @@ export const appendAttachmentPathsToPrompt = (messageText, files) => {
 
 export const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
 
+export const normalizeLocalhostUrl = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`
+  try {
+    const parsed = new URL(withProtocol)
+    const host = String(parsed.hostname || '').toLowerCase()
+    if (host !== 'localhost' && host !== '127.0.0.1') return ''
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+    return parsed.toString()
+  } catch {
+    return ''
+  }
+}
+
+export const isLocalhostUrl = (value) => Boolean(normalizeLocalhostUrl(value))
+
 export const normalizeAttachmentPath = (value) => {
   const text = String(value || '').trim()
   if (!text) return ''
   if (/^[A-Za-z]:\//.test(text)) return text.replace(/\//g, '\\')
   return text
+}
+
+const normalizeRelativeArtifactPath = (value) => {
+  return normalizeAttachmentPath(value)
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .trim()
 }
 
 const hasArtifactLikeExtension = (pathValue) => {
@@ -108,7 +133,7 @@ const extractRelativeArtifactPathsFromText = (value) => {
   const matches = []
   let match
   while ((match = RELATIVE_ARTIFACT_PATH_REGEX.exec(text)) !== null) {
-    const candidate = normalizeAttachmentPath(match[1] || '')
+    const candidate = normalizeRelativeArtifactPath(match[1] || '')
     if (!candidate) continue
     if (isAbsolutePath(candidate)) continue
     if (/^[A-Za-z]+:\/\//.test(candidate)) continue
@@ -123,6 +148,15 @@ export const extractArtifactPathsFromText = (value, options = {}) => {
   const absoluteMatches = extractAbsoluteArtifactPathsFromText(value)
   if (!includeRelative) return absoluteMatches
   return [...absoluteMatches, ...extractRelativeArtifactPathsFromText(value)]
+}
+
+export const extractLocalhostUrlsFromText = (value) => {
+  const text = String(value || '')
+  if (!text) return []
+  const matches = text.match(LOCALHOST_URL_REGEX) || []
+  return matches
+    .map((url) => normalizeLocalhostUrl(url))
+    .filter(Boolean)
 }
 
 const collectArtifactPathsFromTool = (tool, options = {}) => {
@@ -161,17 +195,43 @@ export const collectArtifactPathsFromToolEvents = (tools, options = {}) => {
   return [...pathSet]
 }
 
-export const collectArtifactPathsFromMessages = (messages) => {
+export const collectArtifactUrlsFromToolEvents = (tools) => {
+  const urlSet = new Set()
+  const pushUrl = (value) => {
+    const normalized = normalizeLocalhostUrl(value)
+    if (!normalized) return
+    urlSet.add(normalized)
+  }
+
+  for (const tool of Array.isArray(tools) ? tools : []) {
+    for (const url of extractLocalhostUrlsFromText(tool?.outputPreview)) {
+      pushUrl(url)
+    }
+    for (const url of extractLocalhostUrlsFromText(tool?.output)) {
+      pushUrl(url)
+    }
+  }
+  return [...urlSet]
+}
+
+export const collectArtifactPathsFromMessages = (messages, options = {}) => {
+  const includeRelative = Boolean(options?.includeRelative)
   const pathSet = new Set()
   const pushPath = (value) => {
     const normalized = normalizeAttachmentPath(value)
     if (!normalized) return
-    if (!isAbsolutePath(normalized)) return
     if (!hasArtifactLikeExtension(normalized)) return
-    pathSet.add(normalized)
+    if (isAbsolutePath(normalized)) {
+      pathSet.add(normalized)
+      return
+    }
+    if (!includeRelative) return
+    const relativePath = normalizeRelativeArtifactPath(normalized)
+    if (!relativePath) return
+    pathSet.add(relativePath)
   }
   const collectFromTool = (tool) => {
-    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative: false })) {
+    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative })) {
       pushPath(pathValue)
     }
   }
@@ -187,16 +247,59 @@ export const collectArtifactPathsFromMessages = (messages) => {
           for (const tool of segment.tools) collectFromTool(tool)
         }
         if (segment?.type === 'text') {
-          for (const pathValue of extractArtifactPathsFromText(segment?.content, { includeRelative: false })) {
+          for (const pathValue of extractArtifactPathsFromText(segment?.content, { includeRelative })) {
             pushPath(pathValue)
           }
         }
       }
     }
-    for (const pathValue of extractArtifactPathsFromText(message?.content, { includeRelative: false })) {
+    for (const pathValue of extractArtifactPathsFromText(message?.content, { includeRelative })) {
       pushPath(pathValue)
     }
   }
 
   return [...pathSet]
+}
+
+export const collectArtifactUrlsFromMessages = (messages) => {
+  const urlSet = new Set()
+  const pushUrl = (value) => {
+    const normalized = normalizeLocalhostUrl(value)
+    if (!normalized) return
+    urlSet.add(normalized)
+  }
+
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role !== 'assistant') continue
+    if (Array.isArray(message?.files)) {
+      for (const file of message.files) {
+        pushUrl(file?.url)
+        pushUrl(file?.path)
+      }
+    }
+    if (Array.isArray(message?.tools)) {
+      for (const url of collectArtifactUrlsFromToolEvents(message.tools)) {
+        pushUrl(url)
+      }
+    }
+    if (Array.isArray(message?.segments)) {
+      for (const segment of message.segments) {
+        if (segment?.type === 'tools' && Array.isArray(segment?.tools)) {
+          for (const url of collectArtifactUrlsFromToolEvents(segment.tools)) {
+            pushUrl(url)
+          }
+        }
+        if (segment?.type === 'text') {
+          for (const url of extractLocalhostUrlsFromText(segment.content)) {
+            pushUrl(url)
+          }
+        }
+      }
+    }
+    for (const url of extractLocalhostUrlsFromText(message?.content)) {
+      pushUrl(url)
+    }
+  }
+
+  return [...urlSet]
 }

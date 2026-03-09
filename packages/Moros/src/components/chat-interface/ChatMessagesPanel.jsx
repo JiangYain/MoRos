@@ -81,13 +81,17 @@ function ChatMessagesPanel({
 
   const resolveMessageArtifacts = useCallback((message) => {
     const providedFiles = Array.isArray(message?.files) ? message.files : []
+    const shouldFallbackToToolEvents = providedFiles.length === 0
     const toolEvents = (() => {
+      if (!shouldFallbackToToolEvents) return []
       if (Array.isArray(message?.segments)) {
         return flattenToolEventsFromSegments(cloneAssistantSegments(message.segments))
       }
       return Array.isArray(message?.tools) ? message.tools : []
     })()
-    const derivedPaths = collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
+    const derivedPaths = shouldFallbackToToolEvents
+      ? collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
+      : []
 
     const merged = []
     const seen = new Set()
@@ -98,18 +102,21 @@ function ChatMessagesPanel({
         .replace(/\\/g, '/')
         .replace(/^\.\//, '')
       const absolutePath = isAbsolutePath(rawPath) ? rawPath : ''
-      const resolvedPath = absolutePath || relativePath
-      if (!resolvedPath) return
-      const key = resolvedPath.toLowerCase()
+      const resolvedPath = String(absolutePath || relativePath || '').trim()
+      const fallbackName = String(input?.name || '').trim()
+      if (!resolvedPath && !fallbackName) return
+      const key = resolvedPath ? resolvedPath.toLowerCase() : `name:${fallbackName.toLowerCase()}`
       if (seen.has(key)) return
       seen.add(key)
 
       const isImage = Boolean(input?.isImage) || isImageArtifactPath(resolvedPath)
       const previewUrl = isImage
-        ? (relativePath ? filesApi.getRawFileUrl(relativePath) : filesApi.getRawAbsoluteFileUrl(absolutePath))
+        ? (relativePath
+            ? filesApi.getRawFileUrl(relativePath)
+            : (absolutePath ? filesApi.getRawAbsoluteFileUrl(absolutePath) : ''))
         : ''
       merged.push({
-        name: String(input?.name || '').trim() || resolveAttachmentName({}, resolvedPath),
+        name: fallbackName || resolveAttachmentName({}, resolvedPath),
         path: absolutePath || resolvedPath,
         relativePath: relativePath || undefined,
         isImage,

@@ -17,13 +17,15 @@ function ArtifactPreviewPane({
   const [textError, setTextError] = useState('')
   const [htmlPreviewMode, setHtmlPreviewMode] = useState('code')
 
+  const isUrlArtifact = activeArtifact?.artifactType === 'url'
   const normalizedExtension = String(activeArtifactExtension || '').toLowerCase()
   const isHtmlArtifact = normalizedExtension === '.html' || normalizedExtension === '.htm'
   const isTextPreview = useMemo(() => {
     if (!activeArtifact) return false
+    if (isUrlArtifact) return false
     if (activeArtifactIsImage) return false
     return isTextArtifactPath(activeArtifactExtension || activeArtifact?.path || activeArtifact?.relativePath || '')
-  }, [activeArtifact, activeArtifactIsImage, activeArtifactExtension])
+  }, [activeArtifact, isUrlArtifact, activeArtifactIsImage, activeArtifactExtension])
 
   useEffect(() => {
     setHtmlPreviewMode('code')
@@ -104,7 +106,18 @@ function ArtifactPreviewPane({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </button>
           )}
-          {activeArtifactUrl && (
+          {isUrlArtifact && activeArtifactUrl && (
+            <a
+              className="chat-artifacts-action-btn"
+              href={activeArtifactUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="打开端口页面"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+            </a>
+          )}
+          {!isUrlArtifact && activeArtifactUrl && (
             <a
               className="chat-artifacts-action-btn"
               href={activeArtifactUrl}
@@ -118,7 +131,18 @@ function ArtifactPreviewPane({
       </div>
       <div className="chat-artifacts-content-path">{activeArtifact.path}</div>
       <div className="chat-artifacts-content-preview">
-        {activeArtifactIsImage && activeArtifactUrl ? (
+        {isUrlArtifact ? (
+          activeArtifactUrl ? (
+            <iframe
+              className="chat-artifacts-iframe"
+              title={activeArtifact.name}
+              src={activeArtifactUrl}
+              sandbox="allow-same-origin allow-scripts"
+            />
+          ) : (
+            <div className="chat-artifacts-content-empty">端口地址不可用</div>
+          )
+        ) : activeArtifactIsImage && activeArtifactUrl ? (
           <div className="chat-artifacts-image-wrap">
             <img src={activeArtifactUrl} alt={activeArtifact.name} className="chat-artifacts-image" />
           </div>
@@ -263,7 +287,7 @@ function ChatArtifactsPanel({
                 <div className="chat-artifacts-placeholder error">{artifactsError}</div>
               )}
               {!artifactsLoading && !artifactsError && filteredArtifactEntries.length === 0 && (
-                <div className="chat-artifacts-placeholder">暂无文件</div>
+                <div className="chat-artifacts-placeholder">暂无当前会话文件或端口</div>
               )}
               {filteredArtifactEntries.map((entry) => {
                 const isFolder = entry.type === 'folder'

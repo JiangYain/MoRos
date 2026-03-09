@@ -4,9 +4,12 @@ import {
   ARTIFACT_FILE_EXTENSIONS,
   isImageArtifactPath,
   collectArtifactPathsFromMessages,
+  collectArtifactUrlsFromMessages,
   isAbsolutePath,
-  isArtifactWorkspaceCandidate,
+  isLocalhostUrl,
+  normalizeLocalhostUrl,
   normalizeAttachmentPath,
+  resolveAttachmentPath,
   resolveAttachmentName,
 } from './artifacts'
 
@@ -54,69 +57,103 @@ export function useChatArtifacts({
     setArtifactsLoading(true)
     setArtifactsError('')
     try {
-      const messageArtifactPaths = collectArtifactPathsFromMessages(messages)
-      const tree = await filesApi.getFileTree({ fresh: true })
-      const workspaceCandidates = (Array.isArray(tree) ? tree : [])
-        .filter(isArtifactWorkspaceCandidate)
-        .slice(0, 80)
-      const workspaceEntries = await Promise.all(
-        workspaceCandidates.map(async (item) => {
-          const relativePath = String(item?.path || '').replace(/\\/g, '/').trim()
-          if (!relativePath) return null
-          let absolutePath = ''
+      const nextEntries = []
+      const seen = new Set()
+      const hasArtifactExtension = (value) => {
+        const lowerValue = String(value || '').toLowerCase()
+        return ARTIFACT_FILE_EXTENSIONS.some((ext) => lowerValue.endsWith(ext))
+      }
+
+      const pushUrlEntry = (value) => {
+        const normalizedUrl = normalizeLocalhostUrl(value)
+        if (!normalizedUrl) return
+        const key = `url:${normalizedUrl.toLowerCase()}`
+        if (seen.has(key)) return
+        seen.add(key)
+        let label = normalizedUrl
+        try {
+          const parsed = new URL(normalizedUrl)
+          const suffix = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : ''
+          label = `${parsed.host}${suffix}`
+        } catch {}
+        nextEntries.push({
+          id: `chat-url:${normalizedUrl.toLowerCase()}`,
+          name: label,
+          path: normalizedUrl,
+          relativePath: undefined,
+          source: 'chat',
+          artifactType: 'url',
+          previewUrl: normalizedUrl,
+        })
+      }
+
+      const pushFileEntry = async (entryLike) => {
+        const rawPath = normalizeAttachmentPath(resolveAttachmentPath(entryLike))
+        if (isLocalhostUrl(rawPath)) {
+          pushUrlEntry(rawPath)
+          return
+        }
+
+        let relativePath = String(entryLike?.relativePath || '').replace(/\\/g, '/').replace(/^\.\//, '').trim()
+        let absolutePath = ''
+
+        if (rawPath) {
+          if (isAbsolutePath(rawPath)) {
+            absolutePath = rawPath
+          } else if (!relativePath) {
+            relativePath = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+          }
+        }
+
+        const pathForExtension = absolutePath || relativePath
+        if (!hasArtifactExtension(pathForExtension)) return
+
+        if (!absolutePath && relativePath) {
           try {
             absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
           } catch {}
-          return {
-            id: `workspace:${relativePath}`,
-            name: String(item?.name || '').trim() || relativePath.split('/').pop() || relativePath,
-            path: absolutePath || relativePath,
-            relativePath,
-            size: Number.isFinite(item?.size) ? item.size : undefined,
-            source: 'workspace',
-          }
-        }),
-      )
-
-      const mergedMap = new Map()
-      const upsertEntry = (entry) => {
-        if (!entry) return
-        const key = String(entry.path || entry.relativePath || '').trim().toLowerCase()
-        if (!key) return
-        if (!mergedMap.has(key)) {
-          mergedMap.set(key, entry)
-          return
         }
-        const existing = mergedMap.get(key)
-        const source = existing.source === entry.source ? existing.source : 'workspace+chat'
-        mergedMap.set(key, {
-          ...existing,
-          ...entry,
-          source,
-          relativePath: existing.relativePath || entry.relativePath,
-          path: existing.path || entry.path,
-        })
-      }
 
-      for (const entry of workspaceEntries) {
-        upsertEntry(entry)
-      }
-      for (const pathValue of messageArtifactPaths) {
-        upsertEntry({
-          id: `chat:${pathValue}`,
-          name: resolveAttachmentName({}, pathValue),
-          path: pathValue,
-          relativePath: undefined,
+        const canonicalPath = String(absolutePath || relativePath || '').trim()
+        if (!canonicalPath) return
+        const key = `file:${canonicalPath.toLowerCase()}`
+        if (seen.has(key)) return
+        seen.add(key)
+
+        const displayPath = absolutePath || relativePath
+        nextEntries.push({
+          id: `chat-file:${canonicalPath.toLowerCase()}`,
+          name: resolveAttachmentName(entryLike || {}, displayPath),
+          path: displayPath,
+          relativePath: relativePath || undefined,
+          size: Number.isFinite(entryLike?.size) ? entryLike.size : undefined,
           source: 'chat',
+          artifactType: 'file',
         })
       }
 
-      const nextEntries = [...mergedMap.values()].sort((a, b) => {
-        const aWorkspace = String(a?.source || '').includes('workspace') ? 0 : 1
-        const bWorkspace = String(b?.source || '').includes('workspace') ? 0 : 1
-        if (aWorkspace !== bWorkspace) return aWorkspace - bWorkspace
-        return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
-      })
+      const assistantMessages = [...(Array.isArray(messages) ? messages : [])]
+        .filter((message) => message?.role === 'assistant')
+        .reverse()
+
+      for (const message of assistantMessages) {
+        if (!Array.isArray(message?.files)) continue
+        for (const fileEntry of message.files) {
+          if (!fileEntry) continue
+          pushUrlEntry(fileEntry?.url)
+          await pushFileEntry(fileEntry)
+        }
+      }
+
+      const messageArtifactPaths = collectArtifactPathsFromMessages(messages, { includeRelative: true })
+      for (const pathValue of [...messageArtifactPaths].reverse()) {
+        await pushFileEntry({ path: pathValue })
+      }
+
+      const messageArtifactUrls = collectArtifactUrlsFromMessages(messages)
+      for (const urlValue of messageArtifactUrls) {
+        pushUrlEntry(urlValue)
+      }
 
       setArtifactEntries(nextEntries)
       setActiveArtifactId((prevId) => {
@@ -152,6 +189,7 @@ export function useChatArtifacts({
   }, [artifactEntries, activeArtifactId])
 
   const activeArtifactRawUrl = useMemo(() => {
+    if (activeArtifact?.artifactType === 'url') return ''
     const relativePath = String(activeArtifact?.relativePath || '').trim()
     if (relativePath) return filesApi.getRawFileUrl(relativePath)
 
@@ -160,9 +198,12 @@ export function useChatArtifacts({
       return filesApi.getRawAbsoluteFileUrl(absolutePath)
     }
     return ''
-  }, [activeArtifact?.relativePath, activeArtifact?.path])
+  }, [activeArtifact?.artifactType, activeArtifact?.relativePath, activeArtifact?.path])
 
   const activeArtifactUrl = useMemo(() => {
+    if (activeArtifact?.artifactType === 'url') {
+      return String(activeArtifact?.previewUrl || activeArtifact?.path || '').trim()
+    }
     const relativePath = String(activeArtifact?.relativePath || '').trim()
     if (relativePath) return filesApi.getRawFileUrl(relativePath)
 
@@ -175,13 +216,14 @@ export function useChatArtifacts({
       return filesApi.getRawAbsoluteFileUrl(absolutePath)
     }
     return ''
-  }, [activeArtifact?.relativePath, activeArtifact?.path])
+  }, [activeArtifact?.artifactType, activeArtifact?.previewUrl, activeArtifact?.relativePath, activeArtifact?.path])
 
   const activeArtifactExtension = useMemo(() => {
+    if (activeArtifact?.artifactType === 'url') return ''
     const pathValue = String(activeArtifact?.path || activeArtifact?.relativePath || '').toLowerCase()
     const matchedExt = ARTIFACT_FILE_EXTENSIONS.find((ext) => pathValue.endsWith(ext))
     return matchedExt || ''
-  }, [activeArtifact?.path, activeArtifact?.relativePath])
+  }, [activeArtifact?.artifactType, activeArtifact?.path, activeArtifact?.relativePath])
 
   const activeArtifactIsImage = useMemo(() => {
     return isImageArtifactPath(activeArtifactExtension)
@@ -204,6 +246,7 @@ export function useChatArtifacts({
   }, [])
 
   const handleRevealArtifact = useCallback(async (entry) => {
+    if (entry?.artifactType === 'url') return
     const relativePath = String(entry?.relativePath || '').trim()
     if (!relativePath) return
     try {
