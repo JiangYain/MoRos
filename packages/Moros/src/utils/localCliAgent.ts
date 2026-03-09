@@ -30,6 +30,11 @@ export type LocalCliStreamEvent =
 			raw?: any;
 	  }
 	| {
+			event: "thinking";
+			delta: string;
+			raw?: any;
+	  }
+	| {
 			event: "tool_event";
 			phase: "start" | "update" | "end";
 			toolCallId?: string;
@@ -273,6 +278,12 @@ export const chatWithLocalCliStreaming = (
 								onEvent({
 									event: "message",
 									answer: deltaText,
+									raw: payload,
+								});
+							} else if (deltaType === "thinking_delta" && typeof deltaText === "string" && deltaText) {
+								onEvent({
+									event: "thinking",
+									delta: deltaText,
 									raw: payload,
 								});
 							}

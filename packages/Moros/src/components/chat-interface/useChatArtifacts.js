@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { filesApi } from '../../utils/api'
 import {
   ARTIFACT_FILE_EXTENSIONS,
+  isImageArtifactPath,
   collectArtifactPathsFromMessages,
   isAbsolutePath,
   isArtifactWorkspaceCandidate,
@@ -54,7 +55,7 @@ export function useChatArtifacts({
     setArtifactsError('')
     try {
       const messageArtifactPaths = collectArtifactPathsFromMessages(messages)
-      const tree = await filesApi.getFileTree()
+      const tree = await filesApi.getFileTree({ fresh: true })
       const workspaceCandidates = (Array.isArray(tree) ? tree : [])
         .filter(isArtifactWorkspaceCandidate)
         .slice(0, 80)
@@ -71,6 +72,7 @@ export function useChatArtifacts({
             name: String(item?.name || '').trim() || relativePath.split('/').pop() || relativePath,
             path: absolutePath || relativePath,
             relativePath,
+            size: Number.isFinite(item?.size) ? item.size : undefined,
             source: 'workspace',
           }
         }),
@@ -121,10 +123,12 @@ export function useChatArtifacts({
         if (nextEntries.some((entry) => entry.id === prevId)) return prevId
         return nextEntries[0]?.id || ''
       })
+      return nextEntries
     } catch (error) {
       setArtifactsError(String(error?.message || '读取 Artifacts 失败'))
       setArtifactEntries([])
       setActiveArtifactId('')
+      return []
     } finally {
       setArtifactsLoading(false)
     }
@@ -135,9 +139,28 @@ export function useChatArtifacts({
     void refreshArtifacts()
   }, [artifactsOpen, refreshArtifacts])
 
+  useEffect(() => {
+    if (!artifactsOpen) return
+    const timer = setInterval(() => {
+      void refreshArtifacts()
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [artifactsOpen, refreshArtifacts])
+
   const activeArtifact = useMemo(() => {
     return artifactEntries.find((entry) => entry.id === activeArtifactId) || null
   }, [artifactEntries, activeArtifactId])
+
+  const activeArtifactRawUrl = useMemo(() => {
+    const relativePath = String(activeArtifact?.relativePath || '').trim()
+    if (relativePath) return filesApi.getRawFileUrl(relativePath)
+
+    const absolutePath = normalizeAttachmentPath(activeArtifact?.path)
+    if (absolutePath && isAbsolutePath(absolutePath)) {
+      return filesApi.getRawAbsoluteFileUrl(absolutePath)
+    }
+    return ''
+  }, [activeArtifact?.relativePath, activeArtifact?.path])
 
   const activeArtifactUrl = useMemo(() => {
     const relativePath = String(activeArtifact?.relativePath || '').trim()
@@ -161,7 +184,7 @@ export function useChatArtifacts({
   }, [activeArtifact?.path, activeArtifact?.relativePath])
 
   const activeArtifactIsImage = useMemo(() => {
-    return ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(activeArtifactExtension)
+    return isImageArtifactPath(activeArtifactExtension)
   }, [activeArtifactExtension])
 
   const filteredArtifactEntries = useMemo(() => {
@@ -205,6 +228,8 @@ export function useChatArtifacts({
     filteredArtifactEntries,
     activeArtifact,
     activeArtifactUrl,
+    activeArtifactRawUrl,
+    activeArtifactExtension,
     activeArtifactIsImage,
     refreshArtifacts,
     formatFileSize,

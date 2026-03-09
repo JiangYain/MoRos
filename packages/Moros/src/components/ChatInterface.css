@@ -289,6 +289,10 @@
   justify-content: flex-end; /* 用户消息右对齐时保持靠右 */
 }
 
+.chat-message.assistant .chat-message-files {
+  justify-content: flex-start;
+}
+
 .chat-message-meta {
   margin-top: 8px;
   display: flex;
@@ -482,6 +486,39 @@
   color: var(--text-secondary);
   font-weight: 400;
   position: relative;
+}
+
+.chat-message-artifact-file {
+  border: 0.5px solid var(--border-subtle);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.chat-message-artifact-file:hover {
+  border-color: var(--text-tertiary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transform: translateY(-1px);
+}
+
+.chat-message-artifact-file.is-image {
+  align-items: center;
+}
+
+.chat-message-artifact-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 0.5px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.chat-message-artifact-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  flex-shrink: 0;
 }
 
 /* 上传中状态 */

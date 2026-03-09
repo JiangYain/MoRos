@@ -4,14 +4,23 @@ import { Streamdown } from 'streamdown'
 import { code } from '@streamdown/code'
 import { math } from '@streamdown/math'
 import { cjk } from '@streamdown/cjk'
+import { filesApi } from '../../utils/api'
 import MorosShapeIcon from '../MorosShapeIcon'
 import ChatEmptyTerminalState from './ChatEmptyTerminalState'
 import ToolExecutionTimeline from './ToolExecutionTimeline'
 import {
   cloneAssistantSegments,
   extractTrailingErrorNote,
+  flattenToolEventsFromSegments,
   segmentsContainErrorNote,
 } from './assistantSegments'
+import {
+  collectArtifactPathsFromToolEvents,
+  isAbsolutePath,
+  isImageArtifactPath,
+  normalizeAttachmentPath,
+  resolveAttachmentName,
+} from './artifacts'
 
 function ChatMessagesPanel({
   messages,
@@ -19,12 +28,14 @@ function ChatMessagesPanel({
   isThinking,
   streamingContent,
   justFinished,
+  thinkingState = 'idle',
   normalizeMarkdownForRender,
   t,
   avatar,
   username,
   timeLocale,
   messagesEndRef,
+  onOpenArtifact,
 }) {
   const [copiedMessageIndex, setCopiedMessageIndex] = useState(null)
   const copyMessageTimerRef = useRef(null)
@@ -68,8 +79,58 @@ function ChatMessagesPanel({
     }
   }, [resolveMessageMarkdownForCopy])
 
+  const resolveMessageArtifacts = useCallback((message) => {
+    const providedFiles = Array.isArray(message?.files) ? message.files : []
+    const toolEvents = (() => {
+      if (Array.isArray(message?.segments)) {
+        return flattenToolEventsFromSegments(cloneAssistantSegments(message.segments))
+      }
+      return Array.isArray(message?.tools) ? message.tools : []
+    })()
+    const derivedPaths = collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
+
+    const merged = []
+    const seen = new Set()
+    const pushFile = (input) => {
+      const rawPath = normalizeAttachmentPath(input?.path || '')
+      const relativePathCandidate = String(input?.relativePath || '').trim()
+      const relativePath = normalizeAttachmentPath(relativePathCandidate || (!isAbsolutePath(rawPath) ? rawPath : ''))
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+      const absolutePath = isAbsolutePath(rawPath) ? rawPath : ''
+      const resolvedPath = absolutePath || relativePath
+      if (!resolvedPath) return
+      const key = resolvedPath.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+
+      const isImage = Boolean(input?.isImage) || isImageArtifactPath(resolvedPath)
+      const previewUrl = isImage
+        ? (relativePath ? filesApi.getRawFileUrl(relativePath) : filesApi.getRawAbsoluteFileUrl(absolutePath))
+        : ''
+      merged.push({
+        name: String(input?.name || '').trim() || resolveAttachmentName({}, resolvedPath),
+        path: absolutePath || resolvedPath,
+        relativePath: relativePath || undefined,
+        isImage,
+        previewUrl,
+      })
+    }
+
+    for (const file of providedFiles) {
+      pushFile(file)
+    }
+    for (const pathValue of derivedPaths) {
+      pushFile({
+        path: pathValue,
+        name: resolveAttachmentName({}, pathValue),
+      })
+    }
+    return merged.slice(0, 8)
+  }, [])
+
   const renderAssistantSegments = useCallback((segments, options = {}) => {
-    const { isStreaming = false, showThinking = false } = options
+    const { isStreaming = false, showThinking = false, thinkingState: segmentThinkingState = 'idle' } = options
     const normalizedSegments = cloneAssistantSegments(segments)
     if (normalizedSegments.length === 0) {
       return (
@@ -77,6 +138,10 @@ function ChatMessagesPanel({
           tools={[]}
           isStreaming={isStreaming}
           isThinking={showThinking}
+          thinkingState={segmentThinkingState}
+          loadingLabel={t('chat.loading_line')}
+          exploringLabel={t('chat.exploring')}
+          exploredLabel={t('chat.explored')}
         />
       )
     }
@@ -89,6 +154,10 @@ function ChatMessagesPanel({
             key={`segment-tools-${index}`}
             tools={segment.tools}
             isStreaming={isStreaming}
+            thinkingState={segmentThinkingState}
+            loadingLabel={t('chat.loading_line')}
+            exploringLabel={t('chat.exploring')}
+            exploredLabel={t('chat.explored')}
           />
         )
       }
@@ -131,6 +200,7 @@ function ChatMessagesPanel({
           {messages.map((msg, index) => {
             const messageSegments = msg.role === 'assistant' ? cloneAssistantSegments(msg.segments) : []
             const hasMessageSegments = messageSegments.length > 0
+            const messageArtifacts = resolveMessageArtifacts(msg)
             const trailingErrorNote = msg.error ? extractTrailingErrorNote(msg.content) : ''
             const shouldRenderErrorNoteAfterSegments =
               msg.role === 'assistant' &&
@@ -164,7 +234,12 @@ function ChatMessagesPanel({
                     ) : (
                       <>
                         {Array.isArray(msg.tools) && msg.tools.length > 0 && (
-                          <ToolExecutionTimeline tools={msg.tools} />
+                          <ToolExecutionTimeline
+                            tools={msg.tools}
+                            loadingLabel={t('chat.loading_line')}
+                            exploringLabel={t('chat.exploring')}
+                            exploredLabel={t('chat.explored')}
+                          />
                         )}
                         <div className="chat-message-text">
                           <Streamdown
@@ -179,12 +254,27 @@ function ChatMessagesPanel({
                   ) : (
                     <div className="chat-message-text">{msg.content || ''}</div>
                   )}
-                  {msg.files && msg.files.length > 0 && (
+                  {messageArtifacts.length > 0 && (
                     <div className="chat-message-files">
-                      {msg.files.map((file, i) => (
-                        <div key={i} className="chat-uploaded-file" title={file.name}>
+                      {messageArtifacts.map((file, i) => (
+                        <button
+                          key={`${file.path || file.relativePath || file.name}-${i}`}
+                          type="button"
+                          className={`chat-uploaded-file chat-message-artifact-file ${file.isImage ? 'is-image' : ''}`}
+                          title={file.name}
+                          onClick={() => onOpenArtifact?.(file)}
+                        >
+                          {file.isImage && file.previewUrl ? (
+                            <img
+                              src={file.previewUrl}
+                              alt={file.name}
+                              className="chat-message-artifact-thumb"
+                            />
+                          ) : (
+                            <span className="chat-message-artifact-dot" aria-hidden />
+                          )}
                           <span className="chat-uploaded-file-name">{file.name}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -230,6 +320,7 @@ function ChatMessagesPanel({
                 {renderAssistantSegments(streamingSegments, {
                   isStreaming: true,
                   showThinking: isThinking && streamingSegments.length === 0,
+                  thinkingState,
                 })}
               </div>
             </div>

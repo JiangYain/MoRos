@@ -1,8 +1,21 @@
-export const ARTIFACT_FILE_EXTENSIONS = ['.html', '.htm', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif']
+export const IMAGE_ARTIFACT_FILE_EXTENSIONS = ['.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif']
+export const TEXT_ARTIFACT_FILE_EXTENSIONS = [
+  '.html', '.htm',
+  '.json', '.md', '.markdown', '.txt', '.csv',
+  '.yaml', '.yml', '.xml', '.toml', '.ini', '.log',
+  '.js', '.jsx', '.ts', '.tsx', '.css', '.scss',
+  '.py', '.sh',
+]
+export const ARTIFACT_FILE_EXTENSIONS = [
+  ...IMAGE_ARTIFACT_FILE_EXTENSIONS,
+  ...TEXT_ARTIFACT_FILE_EXTENSIONS,
+]
 
 const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
-const WINDOWS_ABS_ARTIFACT_PATH_REGEX = /[A-Za-z]:[\\/][^"'`\n\r<>|?*]+\.(?:html?|svg|png|jpe?g|webp|gif)\b/g
-const POSIX_ABS_ARTIFACT_PATH_REGEX = /\/[^"'`\n\r<>|?*]+\.(?:html?|svg|png|jpe?g|webp|gif)\b/g
+const ARTIFACT_EXT_PATTERN = '(?:html?|json|md|markdown|txt|csv|ya?ml|xml|toml|ini|log|js|jsx|ts|tsx|css|scss|py|sh|svg|png|jpe?g|webp|gif)'
+const WINDOWS_ABS_ARTIFACT_PATH_REGEX = new RegExp(`[A-Za-z]:[\\\\/][^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
+const POSIX_ABS_ARTIFACT_PATH_REGEX = new RegExp(`/[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN}\\b`, 'gi')
+const RELATIVE_ARTIFACT_PATH_REGEX = new RegExp(`(?:^|[\\s("'\\\`])((?:\\.{1,2}[\\\\/])?[^"'\\\`\\n\\r<>|?*]+\\.${ARTIFACT_EXT_PATTERN})(?=$|[\\s)"'\\\`,.:;!?])`, 'gi')
 
 export const resolveAttachmentPath = (fileLike) => {
   const candidates = [fileLike?.path, fileLike?.absolutePath, fileLike?.webkitRelativePath]
@@ -47,15 +60,33 @@ const hasArtifactLikeExtension = (pathValue) => {
   return ARTIFACT_FILE_EXTENSIONS.some((ext) => normalized.endsWith(ext))
 }
 
+export const isImageArtifactPath = (pathValue) => {
+  const normalized = String(pathValue || '').trim().toLowerCase()
+  if (!normalized) return false
+  return IMAGE_ARTIFACT_FILE_EXTENSIONS.some((ext) => normalized.endsWith(ext))
+}
+
+export const isTextArtifactPath = (pathValue) => {
+  const normalized = String(pathValue || '').trim().toLowerCase()
+  if (!normalized) return false
+  return TEXT_ARTIFACT_FILE_EXTENSIONS.some((ext) => normalized.endsWith(ext))
+}
+
 export const isArtifactWorkspaceCandidate = (item) => {
   if (!item || item.type !== 'file') return false
   const pathValue = String(item.path || '').replace(/\\/g, '/').toLowerCase()
   const nameValue = String(item.name || '').toLowerCase()
   if (!hasArtifactLikeExtension(pathValue) && !hasArtifactLikeExtension(nameValue)) return false
+  if (nameValue.startsWith('.')) return false
+  if (isImageArtifactPath(nameValue) || isImageArtifactPath(pathValue)) return true
   if (nameValue === 'bundle.html') return true
   if (nameValue.endsWith('.artifact.html')) return true
   if (pathValue.includes('/artifacts/')) return true
   if (pathValue.includes('/pi-agent-runtime/')) return true
+  if (pathValue.includes('/agent-sessions/')) return true
+  if (pathValue.includes('/outputs/')) return true
+  if (/(artifact|report|result|output|preview)/.test(nameValue)) return true
+  if (isTextArtifactPath(nameValue) || isTextArtifactPath(pathValue)) return true
   return false
 }
 
@@ -71,6 +102,65 @@ const extractAbsoluteArtifactPathsFromText = (value) => {
     .filter((item) => isAbsolutePath(item) && hasArtifactLikeExtension(item))
 }
 
+const extractRelativeArtifactPathsFromText = (value) => {
+  const text = String(value || '')
+  if (!text) return []
+  const matches = []
+  let match
+  while ((match = RELATIVE_ARTIFACT_PATH_REGEX.exec(text)) !== null) {
+    const candidate = normalizeAttachmentPath(match[1] || '')
+    if (!candidate) continue
+    if (isAbsolutePath(candidate)) continue
+    if (/^[A-Za-z]+:\/\//.test(candidate)) continue
+    if (!hasArtifactLikeExtension(candidate)) continue
+    matches.push(candidate)
+  }
+  return matches
+}
+
+export const extractArtifactPathsFromText = (value, options = {}) => {
+  const includeRelative = Boolean(options?.includeRelative)
+  const absoluteMatches = extractAbsoluteArtifactPathsFromText(value)
+  if (!includeRelative) return absoluteMatches
+  return [...absoluteMatches, ...extractRelativeArtifactPathsFromText(value)]
+}
+
+const collectArtifactPathsFromTool = (tool, options = {}) => {
+  const includeRelative = Boolean(options?.includeRelative)
+  const pathSet = new Set()
+  const pushPath = (value) => {
+    const normalized = normalizeAttachmentPath(value)
+    if (!normalized) return
+    if (!hasArtifactLikeExtension(normalized)) return
+    if (!isAbsolutePath(normalized) && !includeRelative) return
+    if (/^[A-Za-z]+:\/\//.test(normalized)) return
+    pathSet.add(normalized)
+  }
+
+  pushPath(tool?.path)
+  pushPath(tool?.args?.path)
+
+  for (const pathValue of extractArtifactPathsFromText(tool?.outputPreview, { includeRelative })) {
+    pushPath(pathValue)
+  }
+  for (const pathValue of extractArtifactPathsFromText(tool?.output, { includeRelative })) {
+    pushPath(pathValue)
+  }
+
+  return [...pathSet]
+}
+
+export const collectArtifactPathsFromToolEvents = (tools, options = {}) => {
+  const includeRelative = Boolean(options?.includeRelative)
+  const pathSet = new Set()
+  for (const tool of Array.isArray(tools) ? tools : []) {
+    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative })) {
+      pathSet.add(pathValue)
+    }
+  }
+  return [...pathSet]
+}
+
 export const collectArtifactPathsFromMessages = (messages) => {
   const pathSet = new Set()
   const pushPath = (value) => {
@@ -81,12 +171,7 @@ export const collectArtifactPathsFromMessages = (messages) => {
     pathSet.add(normalized)
   }
   const collectFromTool = (tool) => {
-    pushPath(tool?.path)
-    pushPath(tool?.args?.path)
-    for (const pathValue of extractAbsoluteArtifactPathsFromText(tool?.outputPreview)) {
-      pushPath(pathValue)
-    }
-    for (const pathValue of extractAbsoluteArtifactPathsFromText(tool?.output)) {
+    for (const pathValue of collectArtifactPathsFromTool(tool, { includeRelative: false })) {
       pushPath(pathValue)
     }
   }
@@ -102,13 +187,13 @@ export const collectArtifactPathsFromMessages = (messages) => {
           for (const tool of segment.tools) collectFromTool(tool)
         }
         if (segment?.type === 'text') {
-          for (const pathValue of extractAbsoluteArtifactPathsFromText(segment?.content)) {
+          for (const pathValue of extractArtifactPathsFromText(segment?.content, { includeRelative: false })) {
             pushPath(pathValue)
           }
         }
       }
     }
-    for (const pathValue of extractAbsoluteArtifactPathsFromText(message?.content)) {
+    for (const pathValue of extractArtifactPathsFromText(message?.content, { includeRelative: false })) {
       pushPath(pathValue)
     }
   }

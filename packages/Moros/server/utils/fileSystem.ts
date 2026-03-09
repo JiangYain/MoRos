@@ -10,7 +10,7 @@ const ORDER_FILE = '.order.json'
 const METADATA_FILE = '.metadata.json'
 const LEGACY_WORKSPACE_CONFIG_FILE = '.moros-workspaces.json'
 const GLOBAL_SETTINGS_FILE = '.moros-settings.json'
-const FILE_TREE_CACHE_TTL_MS = 120000
+const FILE_TREE_CACHE_TTL_MS = 3000
 
 let fileTreeCache: { expiresAt: number; data: FileItem[] } | null = null
 let fileTreeInFlight: Promise<FileItem[]> | null = null
@@ -52,10 +52,11 @@ async function readDirectoryMetadata(dirPath: string): Promise<{ [key: string]: 
 }
 
 // 获取文件系统树
-export async function getFileTree(): Promise<FileItem[]> {
+export async function getFileTree(options: { fresh?: boolean } = {}): Promise<FileItem[]> {
   await ensureDataDir()
+  const fresh = Boolean(options.fresh)
   const now = Date.now()
-  if (fileTreeCache && fileTreeCache.expiresAt > now) {
+  if (!fresh && fileTreeCache && fileTreeCache.expiresAt > now) {
     return fileTreeCache.data
   }
   if (fileTreeInFlight) {

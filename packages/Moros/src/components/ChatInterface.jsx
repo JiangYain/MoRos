@@ -25,6 +25,9 @@ import { filesApi } from '../utils/api'
 import './ChatInterface.css'
 import {
   appendAttachmentPathsToPrompt,
+  collectArtifactPathsFromToolEvents,
+  isArtifactWorkspaceCandidate,
+  isImageArtifactPath,
   isAbsolutePath,
   normalizeAttachmentPath,
   resolveAttachmentName,
@@ -79,6 +82,7 @@ function ChatInterface({
   const [streamingSegments, setStreamingSegments] = useState([])
   const [isDragOver, setIsDragOver] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
+  const [thinkingState, setThinkingState] = useState('idle')
   const [justFinished, setJustFinished] = useState(false)
   const justFinishedTimerRef = useRef(null)
   const [autoPrompt, setAutoPrompt] = useState('')
@@ -109,6 +113,8 @@ function ChatInterface({
     filteredArtifactEntries,
     activeArtifact,
     activeArtifactUrl,
+    activeArtifactRawUrl,
+    activeArtifactExtension,
     activeArtifactIsImage,
     refreshArtifacts,
     formatFileSize,
@@ -126,6 +132,8 @@ function ChatInterface({
   const fileInputRef = useRef(null)
   const streamHandleRef = useRef(null) // 用于停止流式响应
   const loadTokenRef = useRef(0)
+  const sidebarRefreshTimerRef = useRef(null)
+  const artifactsRefreshTimerRef = useRef(null)
   const thinkingStartedAtRef = useRef(0)
   const thinkingHideTimerRef = useRef(null)
   const firstTokenSeenRef = useRef(false)
@@ -232,8 +240,126 @@ function ChatInterface({
       if (thinkingHideTimerRef.current) {
         clearTimeout(thinkingHideTimerRef.current)
       }
+      if (sidebarRefreshTimerRef.current) {
+        clearTimeout(sidebarRefreshTimerRef.current)
+      }
+      if (artifactsRefreshTimerRef.current) {
+        clearTimeout(artifactsRefreshTimerRef.current)
+      }
     }
   }, [])
+
+  const requestSidebarRefresh = useCallback((delayMs = 140) => {
+    if (sidebarRefreshTimerRef.current) {
+      clearTimeout(sidebarRefreshTimerRef.current)
+    }
+    sidebarRefreshTimerRef.current = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('moros:file-tree-refresh-request', {
+        detail: { source: 'chat-runtime' },
+      }))
+      sidebarRefreshTimerRef.current = null
+    }, delayMs)
+  }, [])
+
+  const requestArtifactsRefresh = useCallback((delayMs = 160) => {
+    if (!artifactsOpen) return
+    if (artifactsRefreshTimerRef.current) {
+      clearTimeout(artifactsRefreshTimerRef.current)
+    }
+    artifactsRefreshTimerRef.current = setTimeout(() => {
+      void refreshArtifacts()
+      artifactsRefreshTimerRef.current = null
+    }, delayMs)
+  }, [artifactsOpen, refreshArtifacts])
+
+  const resolveAssistantArtifactFiles = useCallback(async (segments, requestStartedAtMs) => {
+    const artifactFiles = []
+    const seen = new Set()
+    const pushArtifact = (entry) => {
+      const absolutePath = isAbsolutePath(entry?.path) ? normalizeAttachmentPath(entry.path) : ''
+      const relativePath = String(entry?.relativePath || '')
+        .trim()
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+      const resolvedPath = absolutePath || normalizeAttachmentPath(relativePath).replace(/\\/g, '/')
+      if (!resolvedPath) return
+      const key = resolvedPath.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      artifactFiles.push({
+        name: String(entry?.name || '').trim() || resolveAttachmentName({}, resolvedPath),
+        path: absolutePath || resolvedPath,
+        relativePath: relativePath || undefined,
+        isImage: isImageArtifactPath(resolvedPath),
+      })
+    }
+
+    const toolEvents = flattenToolEventsFromSegments(segments)
+    const pathsFromTools = collectArtifactPathsFromToolEvents(toolEvents, { includeRelative: true })
+    for (const pathValue of pathsFromTools) {
+      const normalizedPath = normalizeAttachmentPath(pathValue)
+      pushArtifact({
+        name: resolveAttachmentName({}, normalizedPath),
+        path: isAbsolutePath(normalizedPath) ? normalizedPath : '',
+        relativePath: isAbsolutePath(normalizedPath) ? '' : normalizedPath,
+      })
+    }
+
+    try {
+      const workspaceTree = await filesApi.getFileTree({ fresh: true })
+      const recentCandidates = (Array.isArray(workspaceTree) ? workspaceTree : [])
+        .filter(isArtifactWorkspaceCandidate)
+        .filter((item) => {
+          const updatedAt = new Date(item?.updatedAt || item?.createdAt || 0).getTime()
+          if (!Number.isFinite(updatedAt) || updatedAt <= 0) return false
+          return updatedAt >= requestStartedAtMs - 1500
+        })
+        .sort((a, b) => new Date(b?.updatedAt || b?.createdAt || 0).getTime() - new Date(a?.updatedAt || a?.createdAt || 0).getTime())
+        .slice(0, 8)
+
+      for (const item of recentCandidates) {
+        const relativePath = String(item?.path || '').trim()
+        if (!relativePath) continue
+        let absolutePath = ''
+        try {
+          absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
+        } catch {}
+        pushArtifact({
+          name: String(item?.name || '').trim() || resolveAttachmentName({}, relativePath),
+          path: absolutePath,
+          relativePath,
+        })
+      }
+    } catch {}
+
+    return artifactFiles.slice(0, 8)
+  }, [])
+
+  const handleOpenArtifactFromMessage = useCallback((file) => {
+    const relativePath = String(file?.relativePath || '').trim().replace(/\\/g, '/')
+    const absolutePath = normalizeAttachmentPath(file?.path)
+    setArtifactsOpen(true)
+    setArtifactsTab('preview')
+    void (async () => {
+      const nextEntries = await refreshArtifacts()
+      const matched = (Array.isArray(nextEntries) ? nextEntries : []).find((entry) => {
+        const entryRelative = String(entry?.relativePath || '').trim().replace(/\\/g, '/').toLowerCase()
+        const entryPath = normalizeAttachmentPath(entry?.path).toLowerCase()
+        if (relativePath && entryRelative === relativePath.toLowerCase()) return true
+        if (absolutePath && entryPath === absolutePath.toLowerCase()) return true
+        return false
+      })
+      if (matched?.id) {
+        setActiveArtifactId(matched.id)
+        return
+      }
+      if (relativePath) {
+        setActiveArtifactId(`workspace:${relativePath}`)
+      } else if (absolutePath) {
+        setActiveArtifactId(`chat:${absolutePath}`)
+      }
+    })()
+  }, [setArtifactsOpen, setArtifactsTab, setActiveArtifactId, refreshArtifacts])
 
   // 从文件内容加载对话历史
   useEffect(() => {
@@ -772,11 +898,13 @@ function ChatInterface({
     firstTokenSeenRef.current = false
     thinkingStartedAtRef.current = Date.now()
     setIsThinking(true)
+    setThinkingState('loading')
     setStreamingContent('')
     resetStreamingSegments()
 
     let streamedText = ''
     let newConversationId = conversationId
+    const requestStartedAtMs = Date.now()
     const resolveFinalSegments = (rawPayload) => {
       let finalSegments = normalizeAssistantSegmentsForPersist(snapshotStreamingSegments())
       if (finalSegments.length === 0) {
@@ -812,6 +940,7 @@ function ChatInterface({
           setStreamingContent('')
           setIsLoading(false)
           setIsThinking(false)
+          setThinkingState('idle')
           streamHandleRef.current = null
           saveChatHistory([...newMessages, authErrorMessage], conversationId, {
             provider: chatProvider,
@@ -856,6 +985,7 @@ function ChatInterface({
           setStreamingContent('')
           setIsLoading(false)
           setIsThinking(false)
+          setThinkingState('idle')
           streamHandleRef.current = null
           saveChatHistory([...newMessages, authErrorMessage], conversationId, {
             provider: chatProvider,
@@ -881,6 +1011,7 @@ function ChatInterface({
           setStreamingContent('')
           setIsLoading(false)
           setIsThinking(false)
+          setThinkingState('idle')
           streamHandleRef.current = null
           saveChatHistory([...newMessages, authErrorMessage], conversationId, {
             provider: chatProvider,
@@ -947,10 +1078,20 @@ function ChatInterface({
               firstTokenSeenRef.current = false
               thinkingStartedAtRef.current = Date.now()
               setIsThinking(true)
+              setThinkingState('loading')
+              return
+            }
+
+            if (event.event === 'thinking') {
+              if (event.delta) {
+                setThinkingState('exploring')
+              }
               return
             }
 
             if (event.event === 'tool_event') {
+              requestSidebarRefresh()
+              requestArtifactsRefresh()
               if (!firstTokenSeenRef.current) {
                 firstTokenSeenRef.current = true
                 const elapsed = Date.now() - thinkingStartedAtRef.current
@@ -964,6 +1105,7 @@ function ChatInterface({
                   }, remaining)
                 }
               }
+              setThinkingState('exploring')
               appendStreamingToolSegment(event)
               return
             }
@@ -983,6 +1125,7 @@ function ChatInterface({
                 }
               }
               const nextChunk = normalizeBrandText(event.answer || '')
+              setThinkingState('exploring')
               streamedText += nextChunk
               appendStreamingTextSegment(nextChunk)
               setStreamingContent(normalizeMarkdownForRender(streamedText))
@@ -1012,6 +1155,7 @@ function ChatInterface({
                 setStreamingContent('')
                 setIsLoading(false)
                 setIsThinking(false)
+                setThinkingState('idle')
                 streamHandleRef.current = null
                 saveChatHistory([...newMessages, errorMessage], conversationId, {
                   provider: chatProvider,
@@ -1020,6 +1164,8 @@ function ChatInterface({
                   agentSessionFile: nextSessionFile,
                 })
                 resetStreamingSegments()
+                requestSidebarRefresh(20)
+                requestArtifactsRefresh(20)
                 return
               }
               const fallbackFinalText = normalizeMarkdownForRender(
@@ -1030,26 +1176,33 @@ function ChatInterface({
                 .map((segment) => segment.content)
                 .join('')
               const finalText = textFromSegments || fallbackFinalText
-              const aiMessage = {
-                role: 'assistant',
-                content: finalText || '（无文本输出）',
-                segments: finalSegments.length > 0 ? finalSegments : undefined,
-                tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
-                timestamp: new Date().toISOString()
-              }
-              const updatedMessages = [...newMessages, aiMessage]
-              setMessages(updatedMessages)
-              setStreamingContent('')
-              setIsLoading(false)
-              setIsThinking(false)
-              streamHandleRef.current = null
-              saveChatHistory(updatedMessages, conversationId, {
-                provider: chatProvider,
-                model: requestModel,
-                agentRuntimeSessionId: nextRuntimeSessionId,
-                agentSessionFile: nextSessionFile,
-              })
-              resetStreamingSegments()
+              void (async () => {
+                const artifactFiles = await resolveAssistantArtifactFiles(finalSegments, requestStartedAtMs)
+                const aiMessage = {
+                  role: 'assistant',
+                  content: finalText || '（无文本输出）',
+                  segments: finalSegments.length > 0 ? finalSegments : undefined,
+                  tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
+                  files: artifactFiles.length > 0 ? artifactFiles : undefined,
+                  timestamp: new Date().toISOString()
+                }
+                const updatedMessages = [...newMessages, aiMessage]
+                setMessages(updatedMessages)
+                setStreamingContent('')
+                setIsLoading(false)
+                setIsThinking(false)
+                setThinkingState('idle')
+                streamHandleRef.current = null
+                saveChatHistory(updatedMessages, conversationId, {
+                  provider: chatProvider,
+                  model: requestModel,
+                  agentRuntimeSessionId: nextRuntimeSessionId,
+                  agentSessionFile: nextSessionFile,
+                })
+                resetStreamingSegments()
+                requestSidebarRefresh(20)
+                requestArtifactsRefresh(20)
+              })()
             } else if (event.event === 'error') {
               if (thinkingHideTimerRef.current) {
                 clearTimeout(thinkingHideTimerRef.current)
@@ -1074,6 +1227,7 @@ function ChatInterface({
               setStreamingContent('')
               setIsLoading(false)
               setIsThinking(false)
+              setThinkingState('idle')
               streamHandleRef.current = null
               saveChatHistory([...newMessages, errorMessage], conversationId, {
                 provider: chatProvider,
@@ -1082,6 +1236,8 @@ function ChatInterface({
                 agentSessionFile: nextSessionFile,
               })
               resetStreamingSegments()
+              requestSidebarRefresh(20)
+              requestArtifactsRefresh(20)
             }
           }
         )
@@ -1111,6 +1267,7 @@ function ChatInterface({
         setStreamingContent('')
         setIsLoading(false)
         setIsThinking(false)
+        setThinkingState('idle')
         streamHandleRef.current = null
         saveChatHistory([...newMessages, errorMessage], conversationId, {
           provider: chatProvider,
@@ -1119,6 +1276,8 @@ function ChatInterface({
           agentSessionFile: nextSessionFile,
         })
         resetStreamingSegments()
+        requestSidebarRefresh(20)
+        requestArtifactsRefresh(20)
       }
       return
     }
@@ -1130,6 +1289,7 @@ function ChatInterface({
       setStreamingContent('')
       setIsLoading(false)
       setIsThinking(false)
+      setThinkingState('idle')
       streamHandleRef.current = null
       saveChatHistory(newMessages, conversationId)
       return
@@ -1159,6 +1319,7 @@ function ChatInterface({
               }
             }
             const nextChunk = normalizeBrandText(event.answer || '')
+            setThinkingState('exploring')
             streamedText += nextChunk
             appendStreamingTextSegment(nextChunk)
             setStreamingContent(normalizeMarkdownForRender(streamedText))
@@ -1186,6 +1347,7 @@ function ChatInterface({
             setStreamingContent('')
             setIsLoading(false)
             setIsThinking(false)
+            setThinkingState('idle')
             streamHandleRef.current = null
             resetStreamingSegments()
 
@@ -1219,6 +1381,7 @@ function ChatInterface({
             setStreamingContent('')
             setIsLoading(false)
             setIsThinking(false)
+            setThinkingState('idle')
             streamHandleRef.current = null
             saveChatHistory([...newMessages, errorMessage], newConversationId)
             resetStreamingSegments()
@@ -1253,6 +1416,8 @@ function ChatInterface({
       setStreamingContent('')
       setIsLoading(false)
       setIsThinking(false)
+      setThinkingState('idle')
+      setThinkingState('idle')
       streamHandleRef.current = null
       saveChatHistory([...newMessages, errorMessage], newConversationId)
       resetStreamingSegments()
@@ -1285,6 +1450,7 @@ function ChatInterface({
       }
       setIsLoading(false)
       setIsThinking(false)
+      setThinkingState('idle')
       
       // 保存当前流式内容
       const stoppedSegments = normalizeAssistantSegmentsForPersist(snapshotStreamingSegments())
@@ -1332,6 +1498,8 @@ function ChatInterface({
       
       setStreamingContent('')
       resetStreamingSegments()
+      requestSidebarRefresh(20)
+      requestArtifactsRefresh(20)
     }
   }
 
@@ -1353,6 +1521,7 @@ function ChatInterface({
           messages={messages}
           streamingSegments={streamingSegments}
           isThinking={isThinking}
+          thinkingState={thinkingState}
           streamingContent={streamingContent}
           justFinished={justFinished}
           normalizeMarkdownForRender={normalizeMarkdownForRender}
@@ -1361,6 +1530,7 @@ function ChatInterface({
           username={username}
           timeLocale={timeLocale}
           messagesEndRef={messagesEndRef}
+          onOpenArtifact={handleOpenArtifactFromMessage}
           handleDragEnter={handleDragEnter}
           handleDragOver={handleDragOver}
           handleDragLeave={handleDragLeave}
@@ -1403,6 +1573,8 @@ function ChatInterface({
           formatFileSize={formatFileSize}
           activeArtifact={activeArtifact}
           activeArtifactUrl={activeArtifactUrl}
+          activeArtifactRawUrl={activeArtifactRawUrl}
+          activeArtifactExtension={activeArtifactExtension}
           activeArtifactIsImage={activeArtifactIsImage}
           onClosePreview={() => setActiveArtifactId('')}
           onRevealArtifact={() => void handleRevealArtifact(activeArtifact)}

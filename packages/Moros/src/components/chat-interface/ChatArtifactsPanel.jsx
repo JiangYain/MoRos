@@ -1,13 +1,81 @@
-import React from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { filesApi } from '../../utils/api'
+import { isTextArtifactPath } from './artifacts'
 
 function ArtifactPreviewPane({
   activeArtifact,
   activeArtifactUrl,
+  activeArtifactRawUrl,
+  activeArtifactExtension,
   activeArtifactIsImage,
   onClosePreview,
   onRevealArtifact,
   showRevealAction = false,
 }) {
+  const [textContent, setTextContent] = useState('')
+  const [textLoading, setTextLoading] = useState(false)
+  const [textError, setTextError] = useState('')
+  const [htmlPreviewMode, setHtmlPreviewMode] = useState('code')
+
+  const normalizedExtension = String(activeArtifactExtension || '').toLowerCase()
+  const isHtmlArtifact = normalizedExtension === '.html' || normalizedExtension === '.htm'
+  const isTextPreview = useMemo(() => {
+    if (!activeArtifact) return false
+    if (activeArtifactIsImage) return false
+    return isTextArtifactPath(activeArtifactExtension || activeArtifact?.path || activeArtifact?.relativePath || '')
+  }, [activeArtifact, activeArtifactIsImage, activeArtifactExtension])
+
+  useEffect(() => {
+    setHtmlPreviewMode('code')
+  }, [activeArtifact?.id])
+
+  useEffect(() => {
+    let disposed = false
+    if (!activeArtifact || !isTextPreview) {
+      setTextContent('')
+      setTextError('')
+      setTextLoading(false)
+      return () => {
+        disposed = true
+      }
+    }
+
+    const loadText = async () => {
+      setTextLoading(true)
+      setTextError('')
+      try {
+        const relativePath = String(activeArtifact?.relativePath || '').trim()
+        let content = ''
+        if (relativePath) {
+          content = await filesApi.readFile(relativePath)
+        } else if (activeArtifactRawUrl) {
+          const response = await fetch(activeArtifactRawUrl)
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          content = await response.text()
+        } else {
+          throw new Error('缺少可读取的文件地址')
+        }
+        if (disposed) return
+        setTextContent(String(content || ''))
+      } catch (error) {
+        if (disposed) return
+        setTextError(String(error?.message || '读取文件内容失败'))
+        setTextContent('')
+      } finally {
+        if (!disposed) {
+          setTextLoading(false)
+        }
+      }
+    }
+
+    void loadText()
+    return () => {
+      disposed = true
+    }
+  }, [activeArtifact, activeArtifactRawUrl, isTextPreview])
+
   if (!activeArtifact) {
     return <div className="chat-artifacts-content-empty">选择文件以预览</div>
   }
@@ -50,23 +118,64 @@ function ArtifactPreviewPane({
       </div>
       <div className="chat-artifacts-content-path">{activeArtifact.path}</div>
       <div className="chat-artifacts-content-preview">
-        {activeArtifactUrl ? (
-          activeArtifactIsImage ? (
-            <div className="chat-artifacts-image-wrap">
-              <img src={activeArtifactUrl} alt={activeArtifact.name} className="chat-artifacts-image" />
-            </div>
-          ) : (
-            <iframe
-              className="chat-artifacts-iframe"
-              title={activeArtifact.name}
-              src={activeArtifactUrl}
-              sandbox="allow-same-origin allow-scripts"
-            />
-          )
-        ) : (
-          <div className="chat-artifacts-content-empty">
-            无法预览此文件
+        {activeArtifactIsImage && activeArtifactUrl ? (
+          <div className="chat-artifacts-image-wrap">
+            <img src={activeArtifactUrl} alt={activeArtifact.name} className="chat-artifacts-image" />
           </div>
+        ) : isTextPreview ? (
+          <div className="chat-artifacts-text-preview-wrap">
+            <div className="chat-artifacts-text-preview-toolbar">
+              <span className="chat-artifacts-text-preview-label">
+                代码视图 {normalizedExtension ? `(${normalizedExtension})` : ''}
+              </span>
+              {isHtmlArtifact && (
+                <div className="chat-artifacts-html-toggle">
+                  <button
+                    type="button"
+                    className={`chat-artifacts-html-toggle-btn ${htmlPreviewMode === 'code' ? 'active' : ''}`}
+                    onClick={() => setHtmlPreviewMode('code')}
+                  >
+                    代码
+                  </button>
+                  <button
+                    type="button"
+                    className={`chat-artifacts-html-toggle-btn ${htmlPreviewMode === 'preview' ? 'active' : ''}`}
+                    onClick={() => setHtmlPreviewMode('preview')}
+                  >
+                    预览
+                  </button>
+                </div>
+              )}
+            </div>
+            {textLoading ? (
+              <div className="chat-artifacts-content-empty">读取中…</div>
+            ) : textError ? (
+              <div className="chat-artifacts-placeholder error">{textError}</div>
+            ) : isHtmlArtifact && htmlPreviewMode === 'preview' && activeArtifactUrl ? (
+              <iframe
+                className="chat-artifacts-iframe"
+                title={activeArtifact.name}
+                src={activeArtifactUrl}
+                sandbox="allow-same-origin allow-scripts"
+              />
+            ) : (
+              <textarea
+                className="chat-artifacts-code-viewer"
+                value={textContent}
+                readOnly
+                spellCheck={false}
+              />
+            )}
+          </div>
+        ) : activeArtifactUrl ? (
+          <iframe
+            className="chat-artifacts-iframe"
+            title={activeArtifact.name}
+            src={activeArtifactUrl}
+            sandbox="allow-same-origin allow-scripts"
+          />
+        ) : (
+          <div className="chat-artifacts-content-empty">无法预览此文件</div>
         )}
       </div>
     </>
@@ -89,6 +198,8 @@ function ChatArtifactsPanel({
   formatFileSize,
   activeArtifact,
   activeArtifactUrl,
+  activeArtifactRawUrl,
+  activeArtifactExtension,
   activeArtifactIsImage,
   onClosePreview,
   onRevealArtifact,
@@ -184,6 +295,8 @@ function ChatArtifactsPanel({
             <ArtifactPreviewPane
               activeArtifact={activeArtifact}
               activeArtifactUrl={activeArtifactUrl}
+              activeArtifactRawUrl={activeArtifactRawUrl}
+              activeArtifactExtension={activeArtifactExtension}
               activeArtifactIsImage={activeArtifactIsImage}
               onClosePreview={onClosePreview}
               onRevealArtifact={onRevealArtifact}
@@ -198,6 +311,8 @@ function ChatArtifactsPanel({
             <ArtifactPreviewPane
               activeArtifact={activeArtifact}
               activeArtifactUrl={activeArtifactUrl}
+              activeArtifactRawUrl={activeArtifactRawUrl}
+              activeArtifactExtension={activeArtifactExtension}
               activeArtifactIsImage={activeArtifactIsImage}
               onClosePreview={onClosePreview}
               onRevealArtifact={onRevealArtifact}

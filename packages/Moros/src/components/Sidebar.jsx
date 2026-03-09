@@ -68,6 +68,7 @@ function Sidebar({
   const [searchLoading, setSearchLoading] = useState(false)
   const [showColorPicker, setShowColorPicker] = useState(null) // { item, x, y }
   const fileTreeRef = React.useRef(null)
+  const loadFileTreeRef = React.useRef(null)
   const initialFileTreeLoadedRef = React.useRef(fileTree.length > 0)
   const hasCachedTreeOnInitRef = React.useRef(fileTree.length > 0)
   const [hoverPreviewFile, setHoverPreviewFile] = useState(null)
@@ -486,13 +487,14 @@ function Sidebar({
     const {
       showLoading = !initialFileTreeLoadedRef.current,
       preserveScroll = true,
+      fresh = false,
     } = options
     const previousScrollTop = preserveScroll ? fileTreeRef.current?.scrollTop ?? null : null
     try {
       if (showLoading) {
         setLoading(true)
       }
-      let files = await filesApi.getFileTree()
+      let files = await filesApi.getFileTree({ fresh })
 
       // 一次性迁移旧版 .markovchat 后缀为 .MoRos
       if (!legacyMigrationAttemptedRef.current) {
@@ -507,7 +509,7 @@ function Sidebar({
               console.warn(`迁移文件失败: ${file.path}`, error)
             }
           }
-          files = await filesApi.getFileTree()
+          files = await filesApi.getFileTree({ fresh: true })
         }
       }
 
@@ -549,7 +551,7 @@ function Sidebar({
                 }
               }
               if (removedAny) {
-                const freshFiles = await filesApi.getFileTree()
+                const freshFiles = await filesApi.getFileTree({ fresh: true })
                 applyFileTree(buildTree(freshFiles))
               }
             }
@@ -567,6 +569,24 @@ function Sidebar({
       }
     }
   }
+
+  useEffect(() => {
+    loadFileTreeRef.current = loadFileTree
+  }, [loadFileTree])
+
+  useEffect(() => {
+    const handleFileTreeRefreshRequest = () => {
+      void loadFileTreeRef.current?.({
+        showLoading: false,
+        preserveScroll: true,
+        fresh: true,
+      })
+    }
+    window.addEventListener('moros:file-tree-refresh-request', handleFileTreeRefreshRequest)
+    return () => {
+      window.removeEventListener('moros:file-tree-refresh-request', handleFileTreeRefreshRequest)
+    }
+  }, [])
 
   useEffect(() => {
     void loadWorkspacePaths()

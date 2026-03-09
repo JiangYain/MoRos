@@ -29,7 +29,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100
 // 获取文件树
 filesRouter.get('/', async (req, res) => {
   try {
-    const files = await getFileTree()
+    const fresh = ['1', 'true', 'yes'].includes(String(req.query?.fresh || '').toLowerCase())
+    const files = await getFileTree({ fresh })
     res.json({ success: true, data: files })
   } catch (error) {
     console.error('获取文件树失败:', error)

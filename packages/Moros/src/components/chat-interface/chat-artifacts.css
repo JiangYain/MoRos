@@ -409,6 +409,70 @@
   flex-direction: column;
 }
 
+.chat-artifacts-text-preview-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-artifacts-text-preview-toolbar {
+  height: 34px;
+  border-bottom: 0.5px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.chat-artifacts-text-preview-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.chat-artifacts-html-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.chat-artifacts-html-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 9px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.chat-artifacts-html-toggle-btn.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.chat-artifacts-code-viewer {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: none;
+  resize: none;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.56;
+  padding: 12px;
+  outline: none;
+  tab-size: 2;
+}
+
 .chat-artifacts-iframe {
   width: 100%;
   flex: 1;

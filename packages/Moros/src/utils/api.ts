@@ -12,8 +12,9 @@ interface ApiResponse<T = any> {
 }
 
 export const filesApi = {
-	async getFileTree(): Promise<any[]> {
-		const response = await fetch(`${API_BASE}/files`);
+	async getFileTree(options?: { fresh?: boolean }): Promise<any[]> {
+		const query = options?.fresh ? "?fresh=1" : "";
+		const response = await fetch(`${API_BASE}/files${query}`);
 		const result = (await response.json()) as ApiResponse;
 		if (!result.success) throw new Error(result.error);
 		return result.data || [];

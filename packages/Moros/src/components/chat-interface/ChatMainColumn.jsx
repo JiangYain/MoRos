@@ -10,6 +10,7 @@ function ChatMainColumn({
   messages,
   streamingSegments,
   isThinking,
+  thinkingState,
   streamingContent,
   justFinished,
   normalizeMarkdownForRender,
@@ -18,6 +19,7 @@ function ChatMainColumn({
   username,
   timeLocale,
   messagesEndRef,
+  onOpenArtifact,
   handleDragEnter,
   handleDragOver,
   handleDragLeave,
@@ -56,6 +58,7 @@ function ChatMainColumn({
         messages={messages}
         streamingSegments={streamingSegments}
         isThinking={isThinking}
+        thinkingState={thinkingState}
         streamingContent={streamingContent}
         justFinished={justFinished}
         normalizeMarkdownForRender={normalizeMarkdownForRender}
@@ -64,6 +67,7 @@ function ChatMainColumn({
         username={username}
         timeLocale={timeLocale}
         messagesEndRef={messagesEndRef}
+        onOpenArtifact={onOpenArtifact}
       />
 
       <ChatInputSection

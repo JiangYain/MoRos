@@ -29,13 +29,22 @@ const formatToolLabel = (tool) => {
   return { display, arg: '' }
 }
 
-function ToolExecutionTimeline({ tools, isStreaming = false, isThinking = false }) {
+function ToolExecutionTimeline({
+  tools,
+  isStreaming = false,
+  isThinking = false,
+  thinkingState = 'idle',
+  loadingLabel = 'Loading...',
+  exploringLabel = 'Exploring...',
+  exploredLabel = 'Explored',
+}) {
   const hasTools = Array.isArray(tools) && tools.length > 0
   if (!hasTools && !isThinking) return null
 
   const running = hasTools ? tools.filter((t) => t?.status === 'running') : []
   const finished = hasTools ? tools.filter((t) => t?.status !== 'running') : []
   const showExploringLine = isThinking && running.length === 0
+  const thinkingLineLabel = thinkingState === 'exploring' ? exploringLabel : loadingLabel
   const [expandedRowKeys, setExpandedRowKeys] = useState(() => new Set())
 
   const markRowExpanded = useCallback((rowKey) => {
@@ -51,7 +60,7 @@ function ToolExecutionTimeline({ tools, isStreaming = false, isThinking = false 
     <div className={`chat-tool-events ${isStreaming ? 'streaming' : ''}`}>
       {showExploringLine && (
         <div className="tool-row tool-running" key="thinking-row">
-          <span className="tool-row-name shimmer-text">Loading...</span>
+          <span className="tool-row-name shimmer-text">{thinkingLineLabel}</span>
         </div>
       )}
       {running.map((tool, index) => {
@@ -72,7 +81,7 @@ function ToolExecutionTimeline({ tools, isStreaming = false, isThinking = false 
       {finished.length > 0 && (
         <details className="tool-finished-group">
           <summary className="tool-finished-summary">
-            <span className="tool-finished-label">Explored</span>
+            <span className="tool-finished-label">{exploredLabel}</span>
             <svg className="tool-finished-chevron" width="10" height="10" viewBox="0 0 10 10">
               <path d="M2.5 3.5L5 6.5L7.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
