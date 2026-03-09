@@ -1,42 +1,60 @@
-# Contributing to pi
+# Contributing to MoRos
 
-Thanks for wanting to contribute! This guide exists to save both of us time.
+感谢你为 MoRos 做出贡献。
 
-## The One Rule
+本仓库基于 `pi-mono` 演进，但开源主体是 **MoRos**，请优先将改动聚焦在 `packages/Moros`，并确保贡献内容与 MoRos 的产品方向一致。
 
-**You must understand your code.** If you can't explain what your changes do and how they interact with the rest of the system, your PR will be closed.
+## 核心原则
 
-Using AI to write code is fine. You can gain understanding by interrogating an agent with access to the codebase until you grasp all edge cases and effects of your changes. What's not fine is submitting agent-generated slop without that understanding.
+**你必须理解自己提交的代码。**  
+如果你无法清晰解释改动的目的、实现方式、影响范围与边界条件，PR 可能会被关闭。
 
-If you use an agent, run it from the `pi-mono` root directory so it picks up `AGENTS.md` automatically. Your agent must follow the rules and guidelines in that file.
+可以使用 AI 工具辅助开发，但你需要对最终提交负责，并自行完成验证。
 
-## First-Time Contributors
+## 提交前沟通
 
-We use an approval gate for new contributors:
+首次贡献或较大改动，请先创建 Issue，说明以下内容：
 
-1. Open an issue describing what you want to change and why
-2. Keep it concise (if it doesn't fit on one screen, it's too long)
-3. Write in your own voice, at least for the intro
-4. A maintainer will comment `lgtm` if approved
-5. Once approved, you can submit PRs
+1. 你要解决什么问题
+2. 为什么现在要做
+3. 计划如何实现（简明即可）
 
-This exists because AI makes it trivial to generate plausible-looking but low-quality contributions. The issue step lets us filter early.
+维护者确认方向后再提交 PR，可以显著减少返工。
 
-## Before Submitting a PR
+## 本地开发
+
+从仓库根目录进入 MoRos 包：
 
 ```bash
-npm run check  # must pass with no errors
-./test.sh      # must pass
+cd packages/Moros
+npm install
 ```
 
-Do not edit `CHANGELOG.md`. Changelog entries are added by maintainers.
+常用命令：
 
-If you're adding a new provider to `packages/ai`, see `AGENTS.md` for required tests.
+```bash
+npm run dev           # 前端 + 后端开发
+npm run build         # 构建
+npm run electron-dev  # 桌面调试
+npm run dist          # 打包安装程序
+```
 
-## Philosophy
+## PR 提交要求
 
-pi's core is minimal. If your feature doesn't belong in the core, it should be an extension. PRs that bloat the core will likely be rejected.
+- PR 应聚焦单一目标，避免把无关改动混在一起
+- 提交说明请写清楚：背景、方案、影响范围、验证方式
+- 如改动行为、接口或配置，请同步更新相关文档（至少包括 `README.md`）
+- 不要提交密钥、令牌、隐私数据或本地环境文件
 
-## Questions?
+## 关于 AI Agent
 
-Open an issue or ask on [Discord](https://discord.com/invite/nKXTsAcmbT).
+如果你使用 AI Agent，请从仓库根目录运行，使其读取并遵循 `AGENTS.md` 规则。
+
+## License 与贡献授权
+
+本项目许可证为 `packages/Moros/LICENSE`（MCSL-1.0）。  
+提交 PR 即表示你确认有权提交该内容，并同意你的贡献在本项目中按该许可证进行分发。
+
+## 讨论与反馈
+
+请通过 Issue 发起讨论：<https://github.com/JiangYain/MoRos/issues>

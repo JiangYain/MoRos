@@ -1,132 +1,216 @@
-# PolyForm Noncommercial License 1.0.0
+MoRos Community Source License 1.0
+(MCSL-1.0)
 
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+Copyright (c) [YEAR] [COPYRIGHT OWNER]
+All rights reserved except as expressly granted by this License.
 
-## Acceptance
+1. Purpose
 
-In order to get any license under these terms, you must agree
-to them as both strict obligations and conditions to all
-your licenses.
+This License governs the use, modification, distribution, deployment, and relicensing of the MoRos project and its related source code, executables, documentation, and protected brand assets.
 
-## Copyright License
+The goals of this License are:
 
-The licensor grants you a copyright license for the
-software to do everything you might do with the software
-that would otherwise infringe the licensor's copyright
-in it for any permitted purpose.  However, you may
-only distribute the software according to [Distribution
-License](#distribution-license) and make changes or new works
-based on the software according to [Changes and New Works
-License](#changes-and-new-works-license).
+(a) to permit personal and other non-commercial use of the Work;
+(b) to prohibit commercial use;
+(c) to prohibit closed-source integration, closed-source distribution, and closed-source network deployment;
+(d) to protect the name "MoRos", its logo, SVG icons, and other brand identifiers from modification, misuse, or implied endorsement;
+(e) to require preservation of original copyright and license notices in all redistributions and public deployments; and
+(f) to require corresponding source code to remain available when derivative works are distributed or provided as a public network service.
 
-## Distribution License
+2. Definitions
 
-The licensor grants you an additional copyright license
-to distribute copies of the software.  Your license
-to distribute covers distributing the software with
-changes and new works permitted by [Changes and New Works
-License](#changes-and-new-works-license).
+For purposes of this License:
 
-## Notices
+"Work" means the MoRos project released under this License, including source code, object code, build scripts, configuration files, documentation, interface assets, and accompanying materials, except that Protected Marks are subject to additional restrictions under this License.
 
-You must ensure that anyone who gets a copy of any part of
-the software from you also gets a copy of these terms or the
-URL for them above, as well as copies of any plain-text lines
-beginning with `Required Notice:` that the licensor provided
-with the software.  For example:
+"Source Form" means the preferred form for making modifications, including source code, documentation source files, configuration files, build files, scripts, and related instructions.
 
-> Required Notice: Copyright Yongqian Jiang (https://github.com/JiangYain)
+"Object Form" means any form resulting from mechanical transformation or translation of a Source Form, including compiled, packaged, compressed, or converted forms.
 
-## Changes and New Works License
+"Derivative Work" means any work based upon the Work in which the Work is modified, adapted, extended, translated, reorganized, or otherwise changed, but excludes mere aggregation with separate and independent works that do not form an adaptation of the Work.
 
-The licensor grants you an additional copyright license to
-make changes and new works based on the software for any
-permitted purpose.
+"Complete Corresponding Source" means all source code, scripts, configuration, and instructions necessary to generate, install, and run the distributed or deployed version of the Work or Derivative Work, excluding general-purpose operating system components, system libraries, or independent third-party components not included in that version.
 
-## Patent License
+"Protected Marks" means any of the following, whether or not registered as trademarks:
+(a) the name "MoRos", including any capitalization variants, abbreviations, confusingly similar spellings, or derivative variants;
+(b) the project's logos, icons, SVG marks, brand graphics, app icons, splash screens, and logo combinations;
+(c) any visual assets used as branding or identifiers in the repository, including but not limited to files such as logo.svg, icon.svg, and contents of branding/, assets/logo*, or assets/icon*; and
+(d) any other names, graphics, slogans, or brand elements designated in writing by the Licensor as Protected Marks.
 
-The licensor grants you a patent license for the software that
-covers patent claims the licensor can license, or becomes able
-to license, that you would infringe by using the software.
+"Non-Commercial Use" means any use that is not intended for, directed toward, or connected with commercial advantage, monetary compensation, subscription revenue, advertising revenue, service revenue, enterprise operations, or any direct or indirect commercial benefit.
 
-## Noncommercial Purposes
+"Commercial Use" means any of the following:
+(a) selling, licensing, sublicensing, renting, distributing, hosting, offering as SaaS, charging for access, offering paid plugins, or providing commercial consulting or support;
+(b) use by or within a company, business, studio, organization, or revenue-generating activity for commercial benefit, operational efficiency, revenue generation, customer delivery, or internal production;
+(c) integration into a paid product, paid service, commercial agent, commercial workflow, commercial integration, or commercial offering;
+(d) monetization by advertising, sponsorship, paid downloads, paid access, memberships, subscriptions, data monetization, or similar commercial models; or
+(e) any other use reasonably determined by the Licensor to have a commercial or competitive commercial purpose.
 
-Any noncommercial purpose is a permitted purpose.
+"Public Network Service" means any service made available to third parties over the internet, a private network, API, browser interface, client-server architecture, remote desktop environment, or similar network mechanism that allows third parties to use the Work or substantial functionality of it.
 
-## Personal Uses
+"Contribution" means any code, patch, documentation, design, script, or other material intentionally submitted to the Licensor for inclusion in the Work, excluding material explicitly marked in writing as "Not a Contribution" or with equivalent language.
 
-Personal use for research, experiment, and testing for
-the benefit of public knowledge, personal study, private
-entertainment, hobby projects, amateur pursuits, or religious
-observance, without any anticipated commercial application,
-is use for a permitted purpose.
+"Contributor" means the Licensor and any person or entity whose Contribution has been incorporated into the Work.
 
-## Noncommercial Organizations
+"Licensor" means the copyright holder or entity authorized to license the Work under this License.
 
-Use by any charitable organization, educational institution,
-public research organization, public safety or health
-organization, environmental protection organization,
-or government institution is use for a permitted purpose
-regardless of the source of funding or obligations resulting
-from the funding.
+3. Grant of Rights
 
-## Fair Use
+Subject to your full compliance with all terms of this License, the Licensor grants you a worldwide, non-exclusive, non-transferable, revocable, royalty-free copyright license to do the following solely for Non-Commercial Use:
 
-You may have "fair use" rights for the software under the
-law. These terms do not limit them.
+(a) use, run, and access the Work;
+(b) reproduce the Work;
+(c) modify the Work and create Derivative Works;
+(d) distribute the Work or Derivative Works in Source Form or Object Form; and
+(e) deploy the Work or Derivative Works as a Public Network Service.
 
-## No Other Rights
+Private modifications do not need to be published. If your modifications are neither distributed nor made available to third parties as a Public Network Service, you are under no obligation to disclose those modifications.
 
-These terms do not allow you to sublicense or transfer any of
-your licenses to anyone else, or prevent the licensor from
-granting licenses to anyone else.  These terms do not imply
-any other licenses.
+No rights are granted except as expressly stated in this License. All other rights are reserved by the Licensor.
 
-## Patent Defense
+4. Prohibition on Commercial Use
 
-If you make any written claim that the software infringes or
-contributes to infringement of any patent, your patent license
-for the software granted under these terms ends immediately. If
-your company makes such a claim, your patent license ends
-immediately for work on behalf of your company.
+You may not use the Work or any substantial portion of it for any Commercial Use without the Licensor's prior written permission.
 
-## Violations
+Without limitation, you may not:
 
-The first time you are notified in writing that you have
-violated any of these terms, or done anything with the software
-not covered by your licenses, your licenses can nonetheless
-continue if you come into full compliance with these terms,
-and take practical steps to correct past violations, within
-32 days of receiving notice.  Otherwise, all your licenses
-end immediately.
+(a) use the Work in or for any company, business, commercial team, or revenue-generating project;
+(b) integrate the Work into any closed-source or paid software, commercial SaaS, commercial agent system, commercial plugin, or commercial product;
+(c) provide paid access, commercial APIs, hosting, managed deployment, commercial integrations, or customer-facing services based on the Work;
+(d) use the Work for commercial demonstrations, sales support, commercial service delivery, or profit-generating operations; or
+(e) sell, sublicense, or commercially distribute the Work or any service based on it.
 
-## No Liability
+Any Commercial Use requires a separate written commercial license from the Licensor.
 
-***As far as the law allows, the software comes as is, without
-any warranty or condition, and the licensor will not be liable
-to you for any damages arising out of these terms or the use
-or nature of the software, under any kind of legal claim.***
+5. Prohibition on Closed-Source Integration and Redistribution
 
-## Definitions
+You may not:
 
-The **licensor** is the individual or entity offering these
-terms, and the **software** is the software the licensor makes
-available under these terms.
+(a) distribute the Work or any Derivative Work in closed-source form;
+(b) relicense the Work or any Derivative Work under a proprietary license or under terms that conflict with this License;
+(c) integrate the Work into any software, service, plugin, desktop application, cloud service, SDK, model workflow, automation platform, or other product whose source code is not publicly available under this License; or
+(d) impose terms that deprive downstream recipients of the source code access, attribution notices, disclaimers, or license text required by this License.
 
-**You** refers to the individual or entity agreeing to these
-terms.
+Private modification is allowed. Public closed-source use is not.
 
-**Your company** is any legal entity, sole proprietorship,
-or other kind of organization that you work for, plus all
-organizations that have control over, are under the control of,
-or are under common control with that organization.  **Control**
-means ownership of substantially all the assets of an entity,
-or the power to direct its management and policies by vote,
-contract, or otherwise.  Control can be direct or indirect.
+If you distribute a Derivative Work, or deploy a Derivative Work as a Public Network Service, you must also provide the Complete Corresponding Source of that version and license it downstream under this same License.
 
-**Your licenses** are all the licenses granted to you for the
-software under these terms.
+6. Conditions for Distribution and Network Deployment
 
-**Use** means anything you do with the software requiring one
-of your licenses.
+If you distribute the Work or any Derivative Work, or deploy it as a Public Network Service, you must comply with all of the following:
 
+(a) Complete Corresponding Source
+You must provide the recipients or users of the service with free access to the Complete Corresponding Source of the distributed or deployed version.
+
+(b) Same License
+You must license the Work and any Derivative Work under this same License. You may not replace this License with a proprietary license or add terms that conflict with it.
+
+(c) Modification Notice
+You must clearly state, in modified files, documentation, or release notes, that you have modified the Work and the date of such modification.
+
+(d) Preserve Notices
+You must preserve all original copyright notices, attribution notices, patent notices, trademark notices, NOTICE files, disclaimers, and the full text of this License.
+
+(e) Source Access for Network Services
+If you deploy the Work or a Derivative Work as a Public Network Service, you must provide a reasonably prominent source access link or source availability notice in the service interface, help page, about page, login page, API documentation, or a similarly prominent location.
+
+(f) No Misrepresentation of Origin
+You may not mislead any recipient or user into believing that your version is an official version or that it is approved, sponsored, certified, or endorsed by the original authors, contributors, or project maintainers.
+
+7. Protected Marks
+
+This License does not grant any trademark rights, brand rights, or adaptation rights in any Protected Marks.
+
+Except for the limited cases expressly permitted below, you may not use any Protected Mark.
+
+Permitted uses are limited to:
+
+(a) unmodified, necessary, referential use solely for preserving copyright notices, attribution, NOTICE text, or the License text;
+(b) factual, non-branding statements such as "based on MoRos" or "forked from MoRos," provided such statements are not used as product branding; or
+(c) nominative or descriptive fair use as required by law.
+
+Without limitation, you may not:
+
+(a) modify, recolor, reshape, redraw, crop, animate, stylize, combine, partially replace, or otherwise alter any MoRos logo, SVG icon, or brand graphic and continue to use it;
+(b) use "MoRos" as the name of your product, service, app, package, domain, account, store listing, or primary identifier;
+(c) use any name, graphic, icon, or brand element that is identical to or confusingly similar to "MoRos" or its official branding;
+(d) continue to use the official name or official logo in your derivative version, network service, marketing materials, installation interface, app icon, splash screen, window title, menu bar, or website header; or
+(e) imply in any way that the original authors, Licensor, organization, or Contributors approve, endorse, sponsor, certify, or maintain your version, service, or distribution.
+
+Removal and replacement are allowed. Modification and continued use are not.
+
+If you create a Derivative Work and distribute or publicly deploy it, you may remove the original Protected Marks and replace them with your own name and graphics. However, you may not modify the original MoRos name or logo and continue using it as branding for your version.
+
+8. Attribution, Copyright, NOTICE, and Disclaimer Obligations
+
+In any copying, distribution, public deployment, or display of the Work or any Derivative Work, you must:
+
+(a) retain the original copyright notice;
+(b) retain the full text of this License;
+(c) retain all original NOTICE text, attribution notices, patent notices, and trademark notices;
+(d) not remove, obscure, weaken, or alter any disclaimer; and
+(e) if you add your own copyright notice for modifications, ensure that it does not replace, negate, or overshadow the original copyright and license notices.
+
+9. Contributions and Patent License
+
+Unless you explicitly state otherwise in writing at the time of submission, any Contribution intentionally submitted for inclusion in the Work and accepted into the Work shall be deemed licensed under this License.
+
+Subject to the terms and conditions of this License, each Contributor hereby grants you a perpetual, worldwide, non-exclusive, royalty-free patent license to make, have made, use, modify, distribute, and deploy that Contributor's Contribution, but only to the extent that such patent claims are necessarily infringed by the Contribution alone or by the combination of the Contribution with the Work.
+
+If you or an entity acting on your behalf initiate patent litigation, including a claim, counterclaim, or cross-claim, alleging that the Work or a Contribution infringes a patent, then any patent licenses granted to you under this License shall terminate automatically as of the date such litigation is filed.
+
+10. No Endorsement
+
+You may not use the names of the original authors, the Licensor, any Contributor, any organization, the project name, any trade name, any trademark, any service mark, any logo, or any other identifier to imply that:
+
+(a) your product, service, or version is officially approved;
+(b) your version is an official version;
+(c) the original authors, Licensor, organization, or Contributors are affiliated with, sponsor, recommend, certify, support, or guarantee your product, service, or version.
+
+Any such use requires prior written permission.
+
+11. Termination
+
+If you violate any term of this License, all rights granted to you under this License terminate automatically.
+
+For a first-time violation, if you:
+
+(a) cease the violating conduct;
+(b) take reasonably practicable steps to remedy the consequences; and
+(c) return to full compliance within 30 days after receiving written notice from the Licensor,
+
+the Licensor may, at its sole discretion, reinstate your rights under this License.
+
+For serious violations, the Licensor may terminate your rights immediately and without cure, including but not limited to:
+
+(a) Commercial Use;
+(b) closed-source distribution or closed-source public network deployment;
+(c) unauthorized continued use or modification of the MoRos name, logo, SVG icons, or other Protected Marks;
+(d) removal of copyright notices, license text, or disclaimers; or
+(e) false endorsement, source confusion, or misrepresentation as an official version.
+
+Upon termination, you must immediately cease use, distribution, and deployment of the Work, except as otherwise required by applicable law.
+
+12. Disclaimer of Warranty
+
+THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR AND ALL CONTRIBUTORS DISCLAIM ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, ACCURACY, SECURITY, RELIABILITY, AND AVAILABILITY.
+
+YOU ASSUME ALL RISKS ASSOCIATED WITH YOUR USE OF THE WORK.
+
+13. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSOR OR ANY CONTRIBUTOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, STRICT LIABILITY, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE WORK OR THIS LICENSE, INCLUDING BUT NOT LIMITED TO DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, LOSS OF DATA, LOSS OF PROFITS, LOSS OF GOODWILL, OR BUSINESS INTERRUPTION, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+14. Severability
+
+If any provision of this License is held to be invalid, illegal, or unenforceable, the remaining provisions shall remain in full force and effect to the maximum extent permitted by law.
+
+15. Entire Agreement
+
+This License constitutes the entire agreement between you and the Licensor concerning the use, modification, distribution, and deployment of the Work.
+
+Any separate commercial license, trademark license, branding authorization, or other exception must be granted expressly in writing by the Licensor.
+
+End of Terms and Conditions
