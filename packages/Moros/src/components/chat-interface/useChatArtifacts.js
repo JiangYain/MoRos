@@ -68,7 +68,10 @@ export function useChatArtifacts({
   }, [onArtifactsVisibilityChange])
 
   const refreshArtifacts = useCallback(async (refreshOptions = {}) => {
-    setArtifactsLoading(true)
+    const silent = refreshOptions?.silent === true
+    if (!silent) {
+      setArtifactsLoading(true)
+    }
     setArtifactsError('')
     try {
       const bumpPreviewVersion = refreshOptions?.bumpPreviewVersion !== false
@@ -250,21 +253,15 @@ export function useChatArtifacts({
       setActiveArtifactId('')
       return []
     } finally {
-      setArtifactsLoading(false)
+      if (!silent) {
+        setArtifactsLoading(false)
+      }
     }
   }, [messages, chatDirectoryRelative])
 
   useEffect(() => {
     if (!artifactsOpen) return
     void refreshArtifacts()
-  }, [artifactsOpen, refreshArtifacts])
-
-  useEffect(() => {
-    if (!artifactsOpen) return
-    const timer = setInterval(() => {
-      void refreshArtifacts({ bumpPreviewVersion: false })
-    }, 2000)
-    return () => clearInterval(timer)
   }, [artifactsOpen, refreshArtifacts])
 
   const activeArtifact = useMemo(() => {

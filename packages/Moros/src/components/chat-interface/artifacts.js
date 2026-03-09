@@ -43,7 +43,8 @@ export const appendAttachmentPathsToPrompt = (messageText, files) => {
     .filter(Boolean)
   if (paths.length === 0) return base
   const lines = paths.map((pathValue) => `- ${pathValue}`)
-  return `${base}\n\nAttached file paths:\n${lines.join('\n')}`
+  const pathHandlingNote = 'Use these exact local paths as provided. On Windows, do not rewrite C:\\ paths into /c/ style paths.'
+  return `${base}\n\nAttached file paths:\n${lines.join('\n')}\n\nPath handling note: ${pathHandlingNote}`
 }
 
 export const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())

@@ -42,6 +42,8 @@ function ChatMainColumn({
   inputRef,
   isDragOver,
   handleKeyDown,
+  skillItems,
+  handleSkillSelect,
 }) {
   return (
     <div className="chat-main-column">
@@ -95,6 +97,8 @@ function ChatMainColumn({
         inputRef={inputRef}
         isDragOver={isDragOver}
         handleKeyDown={handleKeyDown}
+        skillItems={skillItems}
+        handleSkillSelect={handleSkillSelect}
       />
     </div>
   )

@@ -273,16 +273,32 @@ filesRouter.post('/upload', (req, res) => {
 
       await fs.mkdir(targetDir, { recursive: true })
 
+      const originalName = (file.originalname || '').trim()
       const mime = (file.mimetype || '').toLowerCase()
-      const ext = mime.includes('png') ? 'png'
-        : mime.includes('jpeg') ? 'jpg'
-        : mime.includes('jpg') ? 'jpg'
-        : mime.includes('gif') ? 'gif'
-        : mime.includes('webp') ? 'webp'
-        : (path.extname(file.originalname || '').replace('.', '') || 'bin')
+      const isImageMime = /image\/(png|jpe?g|gif|webp|svg)/i.test(mime)
 
-      const base = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      const fileName = `${base}.${ext}`
+      let fileName: string
+      if (!useAssetsSubdir && originalName && !isImageMime) {
+        const safeName = path.basename(originalName).replace(/[<>:"|?*]/g, '_')
+        const candidate = path.join(targetDir, safeName)
+        try {
+          await fs.access(candidate)
+          const extPart = path.extname(safeName)
+          const basePart = path.basename(safeName, extPart)
+          fileName = `${basePart}_${Date.now().toString(36)}${extPart}`
+        } catch {
+          fileName = safeName
+        }
+      } else {
+        const ext = mime.includes('png') ? 'png'
+          : mime.includes('jpeg') ? 'jpg'
+          : mime.includes('jpg') ? 'jpg'
+          : mime.includes('gif') ? 'gif'
+          : mime.includes('webp') ? 'webp'
+          : (path.extname(originalName || '').replace('.', '') || 'bin')
+        const base = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+        fileName = `${base}.${ext}`
+      }
       const destFullPath = path.join(targetDir, fileName)
 
       await fs.writeFile(destFullPath, (file as any).buffer)

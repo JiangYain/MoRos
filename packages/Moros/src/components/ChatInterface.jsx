@@ -97,6 +97,75 @@ function ChatInterface({
     return Array.from(new Set(cleaned))
   }, [skillPaths])
 
+  const effectiveSkillRootPaths = useMemo(() => {
+    if (normalizedSkillPaths.length > 0) return normalizedSkillPaths
+    return ['skills']
+  }, [normalizedSkillPaths])
+
+  const [skillItems, setSkillItems] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    const loadSkillItems = async () => {
+      try {
+        const tree = await filesApi.getFileTree()
+        const roots = effectiveSkillRootPaths
+          .map((root) => String(root || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''))
+          .filter(Boolean)
+        if (roots.length === 0) {
+          if (!cancelled) setSkillItems([])
+          return
+        }
+        const normalizedRoots = roots.map((root) => root.toLowerCase())
+        const rootSet = new Set(normalizedRoots)
+        const items = []
+        for (const node of Array.isArray(tree) ? tree : []) {
+          if (node?.type !== 'folder') continue
+          const nodePath = String(node?.path || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+          if (!nodePath) continue
+          const nodePathLower = nodePath.toLowerCase()
+          if (rootSet.has(nodePathLower)) continue
+          for (const normalizedRoot of normalizedRoots) {
+            const prefix = `${normalizedRoot}/`
+            if (!nodePathLower.startsWith(prefix)) continue
+            const rest = nodePathLower.slice(prefix.length)
+            if (!rest || rest.includes('/')) continue
+            const nodeName = String(node?.name || '').trim()
+            if (!nodeName || nodeName.startsWith('.')) continue
+            items.push({
+              id: String(node?.id || nodePath),
+              name: nodeName,
+              path: nodePath,
+            })
+            break
+          }
+        }
+        const dedupedItems = Array.from(
+          new Map(items.map((item) => [String(item.path || '').toLowerCase(), item])).values(),
+        ).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+        if (!cancelled) {
+          setSkillItems(dedupedItems)
+        }
+      } catch {
+        if (!cancelled) {
+          setSkillItems([])
+        }
+      }
+    }
+    void loadSkillItems()
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveSkillRootPaths])
+
+  const handleSkillSelect = useCallback((skill) => {
+    if (!skill?.name) return
+    setInputValue((prev) => {
+      const prefix = `@skill:${skill.name} `
+      if (prev.startsWith(prefix)) return prev
+      return prefix + prev
+    })
+  }, [])
+
   const {
     artifactsOpen,
     setArtifactsOpen,
@@ -261,13 +330,13 @@ function ChatInterface({
     }, delayMs)
   }, [])
 
-  const requestArtifactsRefresh = useCallback((delayMs = 160) => {
+  const requestArtifactsRefresh = useCallback((delayMs = 160, refreshOptions = {}) => {
     if (!artifactsOpen) return
     if (artifactsRefreshTimerRef.current) {
       clearTimeout(artifactsRefreshTimerRef.current)
     }
     artifactsRefreshTimerRef.current = setTimeout(() => {
-      void refreshArtifacts()
+      void refreshArtifacts(refreshOptions)
       artifactsRefreshTimerRef.current = null
     }, delayMs)
   }, [artifactsOpen, refreshArtifacts])
@@ -554,6 +623,30 @@ function ChatInterface({
     }
   }, [chatProvider, chatModel])
 
+  const chatFileDirectoryPath = useMemo(() => {
+    const normalizedPath = String(currentFile?.path || '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '')
+      .trim()
+    if (!normalizedPath) return ''
+    const slashIndex = normalizedPath.lastIndexOf('/')
+    if (slashIndex < 0) return ''
+    return normalizedPath.slice(0, slashIndex)
+  }, [currentFile?.path])
+
+  const isPathlessBrowserFile = useCallback((fileLike) => {
+    if (!(typeof File !== 'undefined' && fileLike instanceof File)) return false
+    const name = String(fileLike?.name || '').trim()
+    const candidatePath = resolveAttachmentPath(fileLike)
+    const normalizedCandidate = String(candidatePath || '').trim().replace(/\\/g, '/')
+    if (!name) return false
+    if (!normalizedCandidate) return true
+    if (normalizedCandidate.toLowerCase() === name.toLowerCase()) return true
+    if (/^(?:[a-z]:)?\/?fakepath\//i.test(normalizedCandidate)) return true
+    if (!normalizedCandidate.includes('/')) return true
+    return false
+  }, [])
+
   const resolveAttachmentAbsolutePath = useCallback(async (fileLike) => {
     const candidatePath = resolveAttachmentPath(fileLike)
     if (!candidatePath) return ''
@@ -572,6 +665,47 @@ function ChatInterface({
     if (normalizedFiles.length === 0) return
     const entries = []
     for (const fileLike of normalizedFiles) {
+      if (isPathlessBrowserFile(fileLike)) {
+        const uploadId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const uploadName = resolveAttachmentName(fileLike, resolveAttachmentPath(fileLike))
+        setUploadingFiles((prev) => [
+          ...(Array.isArray(prev) ? prev : []),
+          { id: uploadId, name: uploadName, progress: 12 },
+        ])
+        try {
+          const uploaded = await filesApi.uploadFile(
+            fileLike,
+            chatFileDirectoryPath || undefined,
+            false,
+          )
+          setUploadingFiles((prev) =>
+            (Array.isArray(prev) ? prev : []).map((item) =>
+              item.id === uploadId ? { ...item, progress: 88 } : item,
+            ),
+          )
+          const absolutePath = await resolveAttachmentAbsolutePath({
+            path: uploaded.path,
+            name: uploaded.name || uploadName,
+          })
+          if (absolutePath) {
+            entries.push({
+              type: 'path',
+              transfer_method: 'local_path',
+              path: absolutePath,
+              name: uploaded.name || uploadName,
+            })
+          }
+        } catch (error) {
+          console.error('上传附件失败:', error)
+          alert(t('chat.add_file_failed', { msg: error?.message || 'Upload failed' }))
+        } finally {
+          setUploadingFiles((prev) =>
+            (Array.isArray(prev) ? prev : []).filter((item) => item.id !== uploadId),
+          )
+        }
+        continue
+      }
+
       const absolutePath = await resolveAttachmentAbsolutePath(fileLike)
       if (!absolutePath) continue
       entries.push({
@@ -597,7 +731,7 @@ function ChatInterface({
       }
       return next
     })
-  }, [resolveAttachmentAbsolutePath])
+  }, [resolveAttachmentAbsolutePath, isPathlessBrowserFile, chatFileDirectoryPath, t])
 
   useEffect(() => {
     const handleSidebarAttachment = (event) => {
@@ -1087,7 +1221,7 @@ function ChatInterface({
 
             if (event.event === 'tool_event') {
               requestSidebarRefresh()
-              requestArtifactsRefresh()
+              requestArtifactsRefresh(180, { bumpPreviewVersion: false, silent: true })
               if (!firstTokenSeenRef.current) {
                 firstTokenSeenRef.current = true
                 const elapsed = Date.now() - thinkingStartedAtRef.current
@@ -1139,29 +1273,33 @@ function ChatInterface({
                   .map((segment) => segment.content)
                   .join('')
                 const errorText = `${t('chat.error_prefix')}: ${normalizeBrandText(assistantErrorFromRaw)}`
-                const errorMessage = {
-                  role: 'assistant',
-                  content: recoveredText ? `${recoveredText}\n\n_${errorText}_` : errorText,
-                  error: true,
-                  segments: finalSegments.length > 0 ? finalSegments : undefined,
-                  tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
-                  timestamp: new Date().toISOString()
-                }
-                setMessages([...newMessages, errorMessage])
-                setStreamingContent('')
-                setIsLoading(false)
-                setIsThinking(false)
-                setThinkingState('idle')
-                streamHandleRef.current = null
-                saveChatHistory([...newMessages, errorMessage], conversationId, {
-                  provider: chatProvider,
-                  model: requestModel,
-                  agentRuntimeSessionId: nextRuntimeSessionId,
-                  agentSessionFile: nextSessionFile,
-                })
-                resetStreamingSegments()
-                requestSidebarRefresh(20)
-                requestArtifactsRefresh(20)
+                void (async () => {
+                  const artifactFiles = await resolveAssistantArtifactFiles(finalSegments)
+                  const errorMessage = {
+                    role: 'assistant',
+                    content: recoveredText ? `${recoveredText}\n\n_${errorText}_` : errorText,
+                    error: true,
+                    segments: finalSegments.length > 0 ? finalSegments : undefined,
+                    tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
+                    files: artifactFiles.length > 0 ? artifactFiles : undefined,
+                    timestamp: new Date().toISOString()
+                  }
+                  setMessages([...newMessages, errorMessage])
+                  setStreamingContent('')
+                  setIsLoading(false)
+                  setIsThinking(false)
+                  setThinkingState('idle')
+                  streamHandleRef.current = null
+                  saveChatHistory([...newMessages, errorMessage], conversationId, {
+                    provider: chatProvider,
+                    model: requestModel,
+                    agentRuntimeSessionId: nextRuntimeSessionId,
+                    agentSessionFile: nextSessionFile,
+                  })
+                  resetStreamingSegments()
+                  requestSidebarRefresh(20)
+                  requestArtifactsRefresh(20, { bumpPreviewVersion: true, silent: true })
+                })()
                 return
               }
               const fallbackFinalText = normalizeMarkdownForRender(
@@ -1197,7 +1335,7 @@ function ChatInterface({
                 })
                 resetStreamingSegments()
                 requestSidebarRefresh(20)
-                requestArtifactsRefresh(20)
+                requestArtifactsRefresh(20, { bumpPreviewVersion: true, silent: true })
               })()
             } else if (event.event === 'error') {
               if (thinkingHideTimerRef.current) {
@@ -1211,29 +1349,33 @@ function ChatInterface({
                 .map((segment) => segment.content)
                 .join('')
               const errorText = `${t('chat.error_prefix')}: ${normalizeBrandText(event.message || '')}`
-              const errorMessage = {
-                role: 'assistant',
-                content: recoveredText ? `${recoveredText}\n\n_${errorText}_` : errorText,
-                error: true,
-                segments: finalSegments.length > 0 ? finalSegments : undefined,
-                tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
-                timestamp: new Date().toISOString()
-              }
-              setMessages([...newMessages, errorMessage])
-              setStreamingContent('')
-              setIsLoading(false)
-              setIsThinking(false)
-              setThinkingState('idle')
-              streamHandleRef.current = null
-              saveChatHistory([...newMessages, errorMessage], conversationId, {
-                provider: chatProvider,
-                model: requestModel,
-                agentRuntimeSessionId: nextRuntimeSessionId,
-                agentSessionFile: nextSessionFile,
-              })
-              resetStreamingSegments()
-              requestSidebarRefresh(20)
-              requestArtifactsRefresh(20)
+              void (async () => {
+                const artifactFiles = await resolveAssistantArtifactFiles(finalSegments)
+                const errorMessage = {
+                  role: 'assistant',
+                  content: recoveredText ? `${recoveredText}\n\n_${errorText}_` : errorText,
+                  error: true,
+                  segments: finalSegments.length > 0 ? finalSegments : undefined,
+                  tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
+                  files: artifactFiles.length > 0 ? artifactFiles : undefined,
+                  timestamp: new Date().toISOString()
+                }
+                setMessages([...newMessages, errorMessage])
+                setStreamingContent('')
+                setIsLoading(false)
+                setIsThinking(false)
+                setThinkingState('idle')
+                streamHandleRef.current = null
+                saveChatHistory([...newMessages, errorMessage], conversationId, {
+                  provider: chatProvider,
+                  model: requestModel,
+                  agentRuntimeSessionId: nextRuntimeSessionId,
+                  agentSessionFile: nextSessionFile,
+                })
+                resetStreamingSegments()
+                requestSidebarRefresh(20)
+                requestArtifactsRefresh(20, { bumpPreviewVersion: true, silent: true })
+              })()
             }
           }
         )
@@ -1251,29 +1393,33 @@ function ChatInterface({
           .map((segment) => segment.content)
           .join('')
         const errorText = `${t('chat.error_prefix')}: ${normalizeBrandText(error.message || '')}`
-        const errorMessage = {
-          role: 'assistant',
-          content: recoveredText ? `${recoveredText}\n\n_${errorText}_` : errorText,
-          error: true,
-          segments: finalSegments.length > 0 ? finalSegments : undefined,
-          tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
-          timestamp: new Date().toISOString()
-        }
-        setMessages([...newMessages, errorMessage])
-        setStreamingContent('')
-        setIsLoading(false)
-        setIsThinking(false)
-        setThinkingState('idle')
-        streamHandleRef.current = null
-        saveChatHistory([...newMessages, errorMessage], conversationId, {
-          provider: chatProvider,
-          model: requestModel,
-          agentRuntimeSessionId: nextRuntimeSessionId,
-          agentSessionFile: nextSessionFile,
-        })
-        resetStreamingSegments()
-        requestSidebarRefresh(20)
-        requestArtifactsRefresh(20)
+        void (async () => {
+          const artifactFiles = await resolveAssistantArtifactFiles(finalSegments)
+          const errorMessage = {
+            role: 'assistant',
+            content: recoveredText ? `${recoveredText}\n\n_${errorText}_` : errorText,
+            error: true,
+            segments: finalSegments.length > 0 ? finalSegments : undefined,
+            tools: finalToolEvents.length > 0 ? finalToolEvents : undefined,
+            files: artifactFiles.length > 0 ? artifactFiles : undefined,
+            timestamp: new Date().toISOString()
+          }
+          setMessages([...newMessages, errorMessage])
+          setStreamingContent('')
+          setIsLoading(false)
+          setIsThinking(false)
+          setThinkingState('idle')
+          streamHandleRef.current = null
+          saveChatHistory([...newMessages, errorMessage], conversationId, {
+            provider: chatProvider,
+            model: requestModel,
+            agentRuntimeSessionId: nextRuntimeSessionId,
+            agentSessionFile: nextSessionFile,
+          })
+          resetStreamingSegments()
+          requestSidebarRefresh(20)
+          requestArtifactsRefresh(20, { bumpPreviewVersion: true, silent: true })
+        })()
       }
       return
     }
@@ -1495,7 +1641,7 @@ function ChatInterface({
       setStreamingContent('')
       resetStreamingSegments()
       requestSidebarRefresh(20)
-      requestArtifactsRefresh(20)
+      requestArtifactsRefresh(20, { bumpPreviewVersion: true, silent: true })
     }
   }
 
@@ -1549,6 +1695,8 @@ function ChatInterface({
           inputRef={inputRef}
           isDragOver={isDragOver}
           handleKeyDown={handleKeyDown}
+          skillItems={skillItems}
+          handleSkillSelect={handleSkillSelect}
         />
 
         <ChatArtifactsPanel

@@ -89,15 +89,15 @@
 
 /* 折叠状态下的文件选中样式 - 轻量黑色圆环 */
 .sidebar.collapsed .file-item.active {
-  background: rgba(0, 0, 0, 0.03);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.24);
+  background: rgba(0, 0, 0, 0.025);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18);
   transform: none;
 }
 
 /* 深色主题下的折叠选中样式 */
 [data-theme="dark"] .sidebar.collapsed .file-item.active {
-  background: rgba(0, 0, 0, 0.04);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36);
+  background: rgba(0, 0, 0, 0.03);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.28);
 }
 
 /* 折叠状态下的悬浮效果也保持圆形 */
@@ -120,14 +120,14 @@
 
 /* 确保选中状态的优先级更高，不被悬浮效果覆盖 */
 .sidebar.collapsed .file-item.active:hover {
-  background: rgba(0, 0, 0, 0.03) !important;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.24) !important;
+  background: rgba(0, 0, 0, 0.025) !important;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18) !important;
   transform: none !important;
 }
 
 [data-theme="dark"] .sidebar.collapsed .file-item.active:hover {
-  background: rgba(0, 0, 0, 0.04) !important;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36) !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.28) !important;
   transform: none !important;
 }
 
@@ -219,8 +219,8 @@
 }
 
 .brand-logo {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -623,24 +623,24 @@
   left: 38px;
   right: 6px;
   bottom: 0;
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.16);
+  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.12);
   border-radius: 8px; /* 与主项一致 */
-  box-shadow: 0 2px 10px rgba(var(--accent-color-rgb, 26, 26, 26), 0.12) inset;
+  box-shadow: 0 1px 4px rgba(var(--accent-color-rgb, 26, 26, 26), 0.06) inset;
   z-index: -1;
 }
 
 /* 根级文件项保持原有的选中效果 */
 .file-item.active {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.09);
+  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.06);
   color: var(--accent-color);
   font-weight: 500;
-  box-shadow: 0 1px 4px rgba(var(--accent-color-rgb, 26, 26, 26), 0.06) inset;
+  box-shadow: inset 1.5px 0.5px 2px rgba(var(--accent-color-rgb, 26, 26, 26), 0.03);
 }
 
 /* 确保根级文件项的选中效果优先级更高 */
 .file-section-content > .file-tree-item > .file-item.active {
-  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.09);
-  box-shadow: 0 1px 4px rgba(var(--accent-color-rgb, 26, 26, 26), 0.06) inset;
+  background: rgba(var(--accent-color-rgb, 26, 26, 26), 0.06);
+  box-shadow: inset 1.5px 0.5px 2px rgba(var(--accent-color-rgb, 26, 26, 26), 0.03);
 }
 
 /* 拖拽排序样式 */

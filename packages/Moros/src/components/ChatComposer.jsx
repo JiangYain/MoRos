@@ -1,12 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { ArrowUp, StopCircle } from 'lucide-react'
+import { ArrowUp, Puzzle } from 'lucide-react'
 import { CHAT_MODELS_BY_PROVIDER } from '../utils/chatProvider'
 import './ChatComposer.css'
 
-const MIN_COMPOSER_HEIGHT = 64
-const MIN_TEXTAREA_HEIGHT = 24
+const MIN_COMPOSER_HEIGHT = 100
+const MIN_TEXTAREA_HEIGHT = 22
 const MAX_TEXTAREA_HEIGHT = 296
-const COMPOSER_VERTICAL_PADDING = 24
+const COMPOSER_VERTICAL_PADDING = 56
 
 const PROVIDER_ICON_MAP = {
   'github-copilot': '/assets/provider-icons/github.png',
@@ -105,16 +105,21 @@ function ChatComposer({
   attachTitle = 'Attach file',
   submitTitle = 'Send',
   stopTitle = 'Stop',
+  skillItems = [],
+  onSkillSelect,
 }) {
   const inputValue = String(value || '')
   const canSendNow = !disabled && canSubmit
   const sendDisabled = !isLoading && !canSendNow
   const [textareaHeight, setTextareaHeight] = useState(MIN_TEXTAREA_HEIGHT)
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
+  const [isSkillsMenuOpen, setIsSkillsMenuOpen] = useState(false)
   const [expandedProviderId, setExpandedProviderId] = useState('')
   const textareaElementRef = useRef(null)
   const addMenuPanelRef = useRef(null)
   const addButtonRef = useRef(null)
+  const skillsButtonRef = useRef(null)
+  const skillsMenuRef = useRef(null)
   const providerOptions = React.useMemo(() => {
     if (!Array.isArray(addMenuOptions)) return []
     return addMenuOptions
@@ -219,6 +224,26 @@ function ChatComposer({
     }
   }, [isAddMenuOpen, selectedProviderId])
 
+  useEffect(() => {
+    if (!isSkillsMenuOpen) return
+    const handleOutsideClick = (event) => {
+      const clickTarget = event?.target
+      if (!clickTarget) return
+      if (skillsMenuRef.current?.contains(clickTarget)) return
+      if (skillsButtonRef.current?.contains(clickTarget)) return
+      setIsSkillsMenuOpen(false)
+    }
+    const handleEsc = (event) => {
+      if (event.key === 'Escape') setIsSkillsMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleEsc)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleEsc)
+    }
+  }, [isSkillsMenuOpen])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     if (isLoading) {
@@ -271,9 +296,20 @@ function ChatComposer({
   const handleAddButtonClick = () => {
     if (hasAddMenu) {
       setIsAddMenuOpen((open) => !open)
+      setIsSkillsMenuOpen(false)
       return
     }
     onAttach?.()
+  }
+
+  const handleSkillsButtonClick = () => {
+    setIsSkillsMenuOpen((open) => !open)
+    setIsAddMenuOpen(false)
+  }
+
+  const handleSkillItemClick = (skill) => {
+    onSkillSelect?.(skill)
+    setIsSkillsMenuOpen(false)
   }
 
   const handleAddMenuSelect = (option, shouldCloseMenu = true) => {
@@ -373,6 +409,28 @@ function ChatComposer({
           )}
         </div>
       )}
+      {isSkillsMenuOpen && (
+        <div className="chat-composer-skills-menu" ref={skillsMenuRef}>
+          <div className="chat-composer-skills-header">Skills</div>
+          {skillItems.length > 0 ? (
+            skillItems.map((skill) => (
+              <button
+                key={skill.id || skill.path || skill.name}
+                type="button"
+                className="chat-composer-skill-item"
+                onClick={() => handleSkillItemClick(skill)}
+              >
+                <span className="chat-composer-skill-icon" aria-hidden>
+                  <Puzzle size={12} strokeWidth={2} />
+                </span>
+                <span className="chat-composer-skill-name">{skill.name}</span>
+              </button>
+            ))
+          ) : (
+            <div className="chat-composer-skills-empty">暂无可用 Skill</div>
+          )}
+        </div>
+      )}
       <form
         className={wrapperClassName}
         onSubmit={handleSubmit}
@@ -383,22 +441,9 @@ function ChatComposer({
         style={useMultiline
           ? {
               minHeight: `${Math.max(MIN_COMPOSER_HEIGHT, textareaHeight + COMPOSER_VERTICAL_PADDING)}px`,
-              alignItems: textareaHeight > MIN_TEXTAREA_HEIGHT ? 'flex-end' : 'center',
             }
           : undefined}
       >
-        <button
-          ref={addButtonRef}
-          type="button"
-          className={`chat-input-action chat-composer-add ${isAddMenuOpen ? 'open' : ''}`}
-          onClick={handleAddButtonClick}
-          title={attachTitle}
-          disabled={disabled || isLoading}
-          aria-expanded={hasAddMenu ? isAddMenuOpen : undefined}
-        >
-          <span className="chat-composer-add-glyph" aria-hidden>/</span>
-        </button>
-
         {useMultiline ? (
           <textarea
             ref={setInputElementRef}
@@ -428,18 +473,44 @@ function ChatComposer({
           />
         )}
 
-        <button
-          type="submit"
-          className={`chat-send-btn ${isLoading ? 'loading' : ''}`}
-          disabled={sendDisabled}
-          title={isLoading ? stopTitle : submitTitle}
-        >
-          {isLoading ? (
-            <StopCircle size={18} strokeWidth={2.5} />
-          ) : (
-            <ArrowUp size={18} strokeWidth={2.5} />
-          )}
-        </button>
+        <div className="chat-composer-toolbar">
+          <div className="chat-composer-toolbar-left">
+            <button
+              ref={addButtonRef}
+              type="button"
+              className={`chat-input-action chat-composer-add chat-composer-circle-btn ${isAddMenuOpen ? 'open' : ''}`}
+              onClick={handleAddButtonClick}
+              title={attachTitle}
+              disabled={disabled || isLoading}
+              aria-expanded={hasAddMenu ? isAddMenuOpen : undefined}
+            >
+              <span className="chat-composer-add-glyph" aria-hidden>/</span>
+            </button>
+
+            <button
+              ref={skillsButtonRef}
+              type="button"
+              className="chat-composer-circle-btn chat-composer-skills-btn"
+              onClick={handleSkillsButtonClick}
+              title="Skills"
+              disabled={disabled || isLoading}
+              aria-expanded={isSkillsMenuOpen}
+            >
+              <Puzzle size={14} strokeWidth={2} />
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            className={`chat-send-btn ${isLoading ? 'loading' : ''} ${sendDisabled && !isLoading ? 'hidden-when-empty' : ''}`}
+            disabled={sendDisabled}
+            title={isLoading ? stopTitle : submitTitle}
+          >
+            {isLoading ? null : (
+              <ArrowUp size={16} strokeWidth={2.5} />
+            )}
+          </button>
+        </div>
       </form>
     </div>
   )

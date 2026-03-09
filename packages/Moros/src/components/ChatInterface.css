@@ -597,21 +597,14 @@
 /* Open WebUI 风格的输入框容器 */
 .chat-input-wrapper {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg-primary);
-  border: 0.5px solid var(--border-subtle);
-  border-radius: 4px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+  flex-direction: column;
+  gap: 0;
   position: relative;
 }
 
 .chat-input-wrapper:focus-within {
-  border-color: var(--text-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  background: var(--bg-primary);
+  /* handled by ChatComposer.css */
+  outline: none;
 }
 
 /* 拖拽悬停状态 */

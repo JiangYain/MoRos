@@ -124,6 +124,83 @@ function MainContent({
   const [landingAttachments, setLandingAttachments] = useState([])
   const [landingProvider, setLandingProviderState] = useState(() => getActiveChatProvider())
   const [landingModel, setLandingModelState] = useState(() => getActiveChatModel())
+
+  const normalizedLandingSkillPaths = useMemo(() => {
+    if (!Array.isArray(skillPaths)) return []
+    const cleaned = skillPaths
+      .map((p) => String(p || '').trim())
+      .filter(Boolean)
+    return Array.from(new Set(cleaned))
+  }, [skillPaths])
+
+  const effectiveLandingSkillRootPaths = useMemo(() => {
+    if (normalizedLandingSkillPaths.length > 0) return normalizedLandingSkillPaths
+    return ['skills']
+  }, [normalizedLandingSkillPaths])
+
+  const [landingSkillItems, setLandingSkillItems] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const tree = await filesApi.getFileTree()
+        const roots = effectiveLandingSkillRootPaths
+          .map((root) => String(root || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''))
+          .filter(Boolean)
+        if (roots.length === 0) {
+          if (!cancelled) setLandingSkillItems([])
+          return
+        }
+        const normalizedRoots = roots.map((root) => root.toLowerCase())
+        const rootSet = new Set(normalizedRoots)
+        const items = []
+        for (const node of Array.isArray(tree) ? tree : []) {
+          if (node?.type !== 'folder') continue
+          const nodePath = String(node?.path || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+          if (!nodePath) continue
+          const nodePathLower = nodePath.toLowerCase()
+          if (rootSet.has(nodePathLower)) continue
+          for (const normalizedRoot of normalizedRoots) {
+            const prefix = `${normalizedRoot}/`
+            if (!nodePathLower.startsWith(prefix)) continue
+            const rest = nodePathLower.slice(prefix.length)
+            if (!rest || rest.includes('/')) continue
+            const nodeName = String(node?.name || '').trim()
+            if (!nodeName || nodeName.startsWith('.')) continue
+            items.push({
+              id: String(node?.id || nodePath),
+              name: nodeName,
+              path: nodePath,
+            })
+            break
+          }
+        }
+        const dedupedItems = Array.from(
+          new Map(items.map((item) => [String(item.path || '').toLowerCase(), item])).values(),
+        ).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+        if (!cancelled) {
+          setLandingSkillItems(dedupedItems)
+        }
+      } catch {
+        if (!cancelled) {
+          setLandingSkillItems([])
+        }
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveLandingSkillRootPaths])
+
+  const handleLandingSkillSelect = useCallback((skill) => {
+    if (!skill?.name) return
+    setLandingInput((prev) => {
+      const prefix = `@skill:${skill.name} `
+      if (prev.startsWith(prefix)) return prev
+      return prefix + prev
+    })
+  }, [])
   const highlightRef = useRef(null)
   const layerRef = useRef(null)
   // AI 流式插入（自定义 Hook）
@@ -1128,6 +1205,8 @@ function MainContent({
               attachTitle="Chat options"
               submitTitle="Start chat"
               stopTitle="Start chat"
+              skillItems={landingSkillItems}
+              onSkillSelect={handleLandingSkillSelect}
             />
             {landingAttachments.length > 0 && (
               <div className="landing-uploaded-files">

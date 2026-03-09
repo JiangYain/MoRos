@@ -1,6 +1,7 @@
 import React from 'react'
 import { X } from 'lucide-react'
 import ChatComposer from '../ChatComposer'
+import FileTypeIcon from './FileTypeIcon'
 
 function ChatInputSection({
   onDragEnter,
@@ -25,6 +26,8 @@ function ChatInputSection({
   inputRef,
   isDragOver,
   handleKeyDown,
+  skillItems,
+  handleSkillSelect,
 }) {
   return (
     <div
@@ -69,6 +72,11 @@ function ChatInputSection({
 
           {uploadedFiles.map((file, index) => (
             <div key={index} className="chat-uploaded-file">
+              <FileTypeIcon
+                pathValue={file.path}
+                nameValue={file.name}
+                className="chat-message-artifact-file-icon"
+              />
               <span className="chat-uploaded-file-name">{file.name}</span>
               <button
                 className="chat-uploaded-file-remove"
@@ -109,6 +117,8 @@ function ChatInputSection({
         attachTitle="Add options"
         submitTitle={t('chat.send_message')}
         stopTitle={t('chat.stop_generating')}
+        skillItems={skillItems}
+        onSkillSelect={handleSkillSelect}
       />
     </div>
   )

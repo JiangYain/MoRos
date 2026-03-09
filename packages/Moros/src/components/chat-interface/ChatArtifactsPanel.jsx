@@ -77,7 +77,7 @@ function ArtifactPreviewPane({
     return () => {
       disposed = true
     }
-  }, [activeArtifact, activeArtifactRawUrl, isTextPreview])
+  }, [activeArtifact?.id, activeArtifactRawUrl, isTextPreview])
 
   if (!activeArtifact) {
     return <div className="chat-artifacts-content-empty">选择文件以预览</div>
