@@ -1,20 +1,22 @@
 <div align="center">
+<img src="./moros_flow_smooth.gif" width="700">
+</div>
 
-<a href="https://github.com/JiangYain/MoRos/releases/latest/download/Demo01.mp4">
+<div align="center">
+
+<a href="https://github.com/JiangYain/MoRos/releases/latest">
   <img
     src="./Demo01_preview.gif"
     width="860"
-    alt="MoRos demo preview (click to open full video)"
+    alt="MoRos demo preview – click to view full video on the Release page"
   />
 </a>
 
-<a href="https://github.com/JiangYain/MoRos/releases/latest/download/Demo01.mp4">
-  <strong>▶ Watch full demo video (GitHub Release asset)</strong>
-</a>
-<br />
-<a href="https://github.com/JiangYain/MoRos/releases/latest">
-  View latest release page
-</a>
+<sub>
+  ▲ Click the preview to open the
+  <a href="https://github.com/JiangYain/MoRos/releases/latest">Release page</a>
+  and watch the full HD video
+</sub>
 
 </div>
 

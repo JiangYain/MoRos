@@ -1038,8 +1038,10 @@
 .user-name {
   color: var(--text-primary);
   font-size: 13px;
-  font-weight: var(--w-medium);
-  letter-spacing: 0.1px;
+  font-weight: 300;
+  letter-spacing: 0.5px;
+  font-family: "Cormorant Garamond", "Times New Roman", serif;
+  font-style: italic;
 }
 
 .sidebar.collapsed .user-name {

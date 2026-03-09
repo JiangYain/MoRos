@@ -168,11 +168,11 @@
 }
 
 .chat-composer-model-item:hover:not(:disabled) {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.03));
+  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 60%, var(--bg-primary, #ffffff) 40%);
 }
 
 .chat-composer-model-item.selected {
-  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 90%, var(--bg-primary, #ffffff) 10%);
+  background: color-mix(in srgb, var(--bg-tertiary, rgba(0, 0, 0, 0.08)) 100%, var(--bg-primary, #ffffff) 0%);
   color: var(--text-primary);
   font-weight: 600;
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--text-primary, #1a1a1a) 14%, transparent);
@@ -268,7 +268,7 @@
 .chat-composer.chat-landing-card {
   width: 100%;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
   min-height: 68px;
   padding: 10px 12px;

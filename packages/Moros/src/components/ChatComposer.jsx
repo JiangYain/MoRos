@@ -383,7 +383,7 @@ function ChatComposer({
         style={useMultiline
           ? {
               minHeight: `${Math.max(MIN_COMPOSER_HEIGHT, textareaHeight + COMPOSER_VERTICAL_PADDING)}px`,
-              alignItems: 'flex-end',
+              alignItems: textareaHeight > MIN_TEXTAREA_HEIGHT ? 'flex-end' : 'center',
             }
           : undefined}
       >
@@ -396,7 +396,7 @@ function ChatComposer({
           disabled={disabled || isLoading}
           aria-expanded={hasAddMenu ? isAddMenuOpen : undefined}
         >
-          <span className="chat-composer-add-glyph" aria-hidden>+</span>
+          <span className="chat-composer-add-glyph" aria-hidden>/</span>
         </button>
 
         {useMultiline ? (
