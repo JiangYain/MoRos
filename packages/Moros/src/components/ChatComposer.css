@@ -268,9 +268,11 @@
   font-size: 15px;
   font-family: inherit;
   line-height: 1.6;
-  padding: 0 2px;
-  min-height: 22px;
+  padding: 2px;
+  min-height: 28px;
   width: 100%;
+  box-sizing: border-box;
+  display: block;
 }
 
 .chat-composer-input::placeholder {
@@ -285,7 +287,7 @@
 textarea.chat-composer-input {
   resize: none;
   max-height: 296px;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 /* ── Bottom toolbar: buttons sit on the container's corner diagonals ── */

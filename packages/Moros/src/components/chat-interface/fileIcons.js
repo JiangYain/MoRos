@@ -46,6 +46,7 @@ const FILE_TYPE_ICON_BY_EXTENSION = {
   md: vscodeIcon('file_type_markdown.svg'),
   markdown: vscodeIcon('file_type_markdown.svg'),
   json: vscodeIcon('file_type_json.svg'),
+  excalidraw: vscodeIcon('file_type_svg.svg'),
   yaml: vscodeIcon('file_type_light_yaml_official.svg'),
   yml: vscodeIcon('file_type_light_yaml_official.svg'),
   xml: vscodeIcon('file_type_text.svg'),

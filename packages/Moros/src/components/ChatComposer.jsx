@@ -4,9 +4,10 @@ import { CHAT_MODELS_BY_PROVIDER } from '../utils/chatProvider'
 import './ChatComposer.css'
 
 const MIN_COMPOSER_HEIGHT = 100
-const MIN_TEXTAREA_HEIGHT = 22
+const MIN_TEXTAREA_HEIGHT = 28
 const MAX_TEXTAREA_HEIGHT = 296
 const COMPOSER_VERTICAL_PADDING = 56
+const TEXTAREA_HEIGHT_BUFFER = 6
 
 const PROVIDER_ICON_MAP = {
   'github-copilot': '/assets/provider-icons/github.png',
@@ -112,6 +113,7 @@ function ChatComposer({
   const canSendNow = !disabled && canSubmit
   const sendDisabled = !isLoading && !canSendNow
   const [textareaHeight, setTextareaHeight] = useState(MIN_TEXTAREA_HEIGHT)
+  const [textareaScrollable, setTextareaScrollable] = useState(false)
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
   const [isSkillsMenuOpen, setIsSkillsMenuOpen] = useState(false)
   const [expandedProviderId, setExpandedProviderId] = useState('')
@@ -272,13 +274,21 @@ function ChatComposer({
     if (!useMultiline) return
     const textarea = textareaElementRef.current
     if (!textarea || textarea.tagName !== 'TEXTAREA') return
+    textarea.style.overflowY = 'hidden'
     textarea.style.height = '0px'
+    const fullContentHeight = Math.ceil(textarea.scrollHeight + TEXTAREA_HEIGHT_BUFFER)
     const measuredHeight = Math.min(
       MAX_TEXTAREA_HEIGHT,
-      Math.max(MIN_TEXTAREA_HEIGHT, textarea.scrollHeight),
+      Math.max(MIN_TEXTAREA_HEIGHT, fullContentHeight),
     )
+    const nextScrollable = fullContentHeight > MAX_TEXTAREA_HEIGHT
     textarea.style.height = `${measuredHeight}px`
+    textarea.style.overflowY = nextScrollable ? 'auto' : 'hidden'
+    if (!nextScrollable) {
+      textarea.scrollTop = 0
+    }
     setTextareaHeight((prev) => (Math.abs(prev - measuredHeight) < 1 ? prev : measuredHeight))
+    setTextareaScrollable((prev) => (prev === nextScrollable ? prev : nextScrollable))
   }, [useMultiline])
 
   useEffect(() => {
@@ -456,7 +466,10 @@ function ChatComposer({
             disabled={disabled}
             rows={rows}
             autoFocus={autoFocus}
-            style={{ height: `${textareaHeight}px` }}
+            style={{
+              height: `${textareaHeight}px`,
+              overflowY: textareaScrollable ? 'auto' : 'hidden',
+            }}
           />
         ) : (
           <input

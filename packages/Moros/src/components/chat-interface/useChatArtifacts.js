@@ -9,7 +9,8 @@ import {
   isLocalhostUrl,
   normalizeLocalhostUrl,
   normalizeAttachmentPath,
-  sanitizeArtifactPathCandidate,
+  createWorkspaceArtifactLookup,
+  resolveArtifactFileReference,
   resolveAttachmentPath,
   resolveAttachmentName,
 } from './artifacts'
@@ -77,6 +78,10 @@ export function useChatArtifacts({
       const bumpPreviewVersion = refreshOptions?.bumpPreviewVersion !== false
       const nextEntries = []
       const seen = new Set()
+      let workspaceLookup = null
+      try {
+        workspaceLookup = createWorkspaceArtifactLookup(await filesApi.getFileTree({ fresh: true }))
+      } catch {}
       const hasArtifactExtension = (value) => {
         const lowerValue = String(value || '').toLowerCase()
         return ARTIFACT_FILE_EXTENSIONS.some((ext) => lowerValue.endsWith(ext))
@@ -112,59 +117,23 @@ export function useChatArtifacts({
           return
         }
 
-        const pathCandidate = sanitizeArtifactPathCandidate(rawPath, {
+        const { relativePath, absolutePath } = resolveArtifactFileReference(entryLike, {
           includeRelative: true,
           preferRelativeForLeadingSlash: true,
-        })
-        const relativeCandidate = sanitizeArtifactPathCandidate(entryLike?.relativePath, {
-          includeRelative: true,
-          preferRelativeForLeadingSlash: true,
+          chatDirectoryRelative,
+          workspaceLookup,
         })
 
-        let relativePath = ''
-        let absolutePath = ''
-        const applyPathCandidate = (candidate) => {
-          const normalized = normalizeAttachmentPath(candidate)
-          if (!normalized) return
-          if (isAbsolutePath(normalized)) {
-            if (!absolutePath) {
-              absolutePath = normalized
-            }
-            return
-          }
-          let normalizedRelative = normalized
-            .replace(/\\/g, '/')
-            .replace(/^\.\//, '')
-            .replace(/^\/+/, '')
-            .trim()
-          if (!normalizedRelative) return
-          const isBareFileName = !normalizedRelative.includes('/')
-          if (isBareFileName && chatDirectoryRelative) {
-            normalizedRelative = `${chatDirectoryRelative}/${normalizedRelative}`
-          }
-          if (!relativePath) {
-            relativePath = normalizedRelative
-          }
-        }
-        applyPathCandidate(pathCandidate)
-        applyPathCandidate(relativeCandidate)
-
-        const pathForExtension = absolutePath || relativePath
+        const pathForExtension = relativePath || absolutePath
         if (!hasArtifactExtension(pathForExtension)) return
 
-        if (!absolutePath && relativePath) {
-          try {
-            absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
-          } catch {}
-        }
-
-        const canonicalPath = String(absolutePath || relativePath || '').trim()
+        const canonicalPath = String(relativePath || absolutePath || '').trim()
         if (!canonicalPath) return
         const key = `file:${canonicalPath.toLowerCase()}`
         if (seen.has(key)) return
         seen.add(key)
 
-        const displayPath = absolutePath || relativePath
+        const displayPath = relativePath || absolutePath
         nextEntries.push({
           id: `chat-file:${canonicalPath.toLowerCase()}`,
           name: resolveAttachmentName(entryLike || {}, displayPath),

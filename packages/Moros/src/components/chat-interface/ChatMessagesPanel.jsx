@@ -17,10 +17,9 @@ import {
 } from './assistantSegments'
 import {
   collectArtifactPathsFromToolEvents,
-  isAbsolutePath,
+  createWorkspaceArtifactLookup,
   isImageArtifactPath,
-  normalizeAttachmentPath,
-  sanitizeArtifactPathCandidate,
+  resolveArtifactFileReference,
   resolveAttachmentName,
 } from './artifacts'
 
@@ -41,7 +40,28 @@ function ChatMessagesPanel({
   onOpenArtifact,
 }) {
   const [copiedMessageIndex, setCopiedMessageIndex] = useState(null)
+  const [workspaceLookup, setWorkspaceLookup] = useState(null)
   const copyMessageTimerRef = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadWorkspaceLookup = async () => {
+      try {
+        const tree = await filesApi.getFileTree({ fresh: true })
+        if (!cancelled) {
+          setWorkspaceLookup(createWorkspaceArtifactLookup(tree))
+        }
+      } catch {
+        if (!cancelled) {
+          setWorkspaceLookup(null)
+        }
+      }
+    }
+    void loadWorkspaceLookup()
+    return () => {
+      cancelled = true
+    }
+  }, [chatFilePath])
 
   useEffect(() => {
     return () => {
@@ -84,9 +104,7 @@ function ChatMessagesPanel({
 
   const resolveMessageArtifacts = useCallback((message) => {
     const providedFiles = Array.isArray(message?.files) ? message.files : []
-    const shouldFallbackToToolEvents = providedFiles.length === 0
     const toolEvents = (() => {
-      if (!shouldFallbackToToolEvents) return []
       if (Array.isArray(message?.segments)) {
         return flattenToolEventsFromSegments(cloneAssistantSegments(message.segments))
       }
@@ -99,55 +117,24 @@ function ChatMessagesPanel({
     const chatDir = normalizedChatFilePath.includes('/')
       ? normalizedChatFilePath.slice(0, normalizedChatFilePath.lastIndexOf('/'))
       : ''
-    const derivedPaths = shouldFallbackToToolEvents
-      ? collectArtifactPathsFromToolEvents(toolEvents, {
-          includeRelative: true,
-          preferRelativeForLeadingSlash: true,
-        })
-      : []
+    const derivedPaths = collectArtifactPathsFromToolEvents(toolEvents, {
+      includeRelative: true,
+      preferRelativeForLeadingSlash: true,
+    })
 
     const merged = []
     const seen = new Set()
     const pushFile = (input) => {
-      const rawPath = normalizeAttachmentPath(input?.path || '')
-      const pathCandidate = sanitizeArtifactPathCandidate(rawPath, {
+      const { relativePath, absolutePath } = resolveArtifactFileReference(input, {
         includeRelative: true,
         preferRelativeForLeadingSlash: true,
+        chatDirectoryRelative: chatDir,
+        workspaceLookup,
       })
-      const relativeCandidate = sanitizeArtifactPathCandidate(input?.relativePath, {
-        includeRelative: true,
-        preferRelativeForLeadingSlash: true,
-      })
-      let relativePath = ''
-      let absolutePath = ''
-      const applyCandidate = (candidate) => {
-        const normalized = normalizeAttachmentPath(candidate)
-        if (!normalized) return
-        if (isAbsolutePath(normalized)) {
-          if (!absolutePath) {
-            absolutePath = normalized
-          }
-          return
-        }
-        const normalizedRelative = normalized
-          .replace(/\\/g, '/')
-          .replace(/^\.\//, '')
-          .replace(/^\/+/, '')
-          .trim()
-        if (!normalizedRelative) return
-        const withChatDir = (!normalizedRelative.includes('/') && chatDir)
-          ? `${chatDir}/${normalizedRelative}`
-          : normalizedRelative
-        if (!relativePath) {
-          relativePath = withChatDir
-        }
-      }
-      applyCandidate(pathCandidate)
-      applyCandidate(relativeCandidate)
-      const resolvedPath = String(absolutePath || relativePath || '').trim()
+      const resolvedPath = String(relativePath || absolutePath || '').trim()
       const fallbackName = String(input?.name || '').trim()
-      if (!resolvedPath && !fallbackName) return
-      const key = resolvedPath ? resolvedPath.toLowerCase() : `name:${fallbackName.toLowerCase()}`
+      if (!resolvedPath) return
+      const key = resolvedPath.toLowerCase()
       if (seen.has(key)) return
       seen.add(key)
 
@@ -159,7 +146,7 @@ function ChatMessagesPanel({
         : ''
       merged.push({
         name: fallbackName || resolveAttachmentName({}, resolvedPath),
-        path: absolutePath || resolvedPath,
+        path: relativePath || absolutePath || resolvedPath,
         relativePath: relativePath || undefined,
         isImage,
         previewUrl,
@@ -211,7 +198,7 @@ function ChatMessagesPanel({
       return !rootFallbackNameSet.has(key)
     })
     return pruned.slice(0, 8)
-  }, [chatFilePath])
+  }, [chatFilePath, workspaceLookup])
 
   const renderAssistantSegments = useCallback((segments, options = {}) => {
     const { isStreaming = false, showThinking = false, thinkingState: segmentThinkingState = 'idle' } = options

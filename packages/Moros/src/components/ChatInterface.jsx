@@ -26,9 +26,11 @@ import './ChatInterface.css'
 import {
   appendAttachmentPathsToPrompt,
   collectArtifactPathsFromToolEvents,
+  createWorkspaceArtifactLookup,
   isImageArtifactPath,
   isAbsolutePath,
   normalizeAttachmentPath,
+  resolveArtifactFileReference,
   resolveAttachmentName,
   resolveAttachmentPath,
 } from './chat-interface/artifacts'
@@ -344,6 +346,7 @@ function ChatInterface({
   const resolveAssistantArtifactFiles = useCallback(async (segments) => {
     const artifactFiles = []
     const seen = new Set()
+    let workspaceLookup = null
     const normalizedChatFilePath = String(currentFile?.path || '')
       .replace(/\\/g, '/')
       .replace(/^\.\//, '')
@@ -351,29 +354,24 @@ function ChatInterface({
     const chatDir = normalizedChatFilePath.includes('/')
       ? normalizedChatFilePath.slice(0, normalizedChatFilePath.lastIndexOf('/'))
       : ''
+    try {
+      workspaceLookup = createWorkspaceArtifactLookup(await filesApi.getFileTree({ fresh: true }))
+    } catch {}
     const pushArtifact = async (entry) => {
-      let absolutePath = isAbsolutePath(entry?.path) ? normalizeAttachmentPath(entry.path) : ''
-      let relativePath = String(entry?.relativePath || '')
-        .trim()
-        .replace(/\\/g, '/')
-        .replace(/^\.\//, '')
-        .replace(/^\/+/, '')
-      if (!absolutePath && relativePath && !relativePath.includes('/') && chatDir) {
-        relativePath = `${chatDir}/${relativePath}`
-      }
-      if (!absolutePath && relativePath) {
-        try {
-          absolutePath = normalizeAttachmentPath(await filesApi.getAbsolutePath(relativePath))
-        } catch {}
-      }
-      const resolvedPath = absolutePath || normalizeAttachmentPath(relativePath).replace(/\\/g, '/')
+      const { relativePath, absolutePath } = resolveArtifactFileReference(entry, {
+        includeRelative: true,
+        preferRelativeForLeadingSlash: true,
+        chatDirectoryRelative: chatDir,
+        workspaceLookup,
+      })
+      const resolvedPath = String(relativePath || absolutePath || '').trim()
       if (!resolvedPath) return
       const key = resolvedPath.toLowerCase()
       if (seen.has(key)) return
       seen.add(key)
       artifactFiles.push({
         name: String(entry?.name || '').trim() || resolveAttachmentName({}, resolvedPath),
-        path: absolutePath || resolvedPath,
+        path: relativePath || absolutePath || resolvedPath,
         relativePath: relativePath || undefined,
         isImage: isImageArtifactPath(resolvedPath),
       })
@@ -385,15 +383,9 @@ function ChatInterface({
       preferRelativeForLeadingSlash: true,
     })
     for (const pathValue of pathsFromTools) {
-      const normalizedPath = normalizeAttachmentPath(pathValue)
-      const normalizedRelative = String(normalizedPath || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '')
-      const withChatDir = (!isAbsolutePath(normalizedPath) && normalizedRelative && !normalizedRelative.includes('/') && chatDir)
-        ? `${chatDir}/${normalizedRelative}`
-        : normalizedRelative
       await pushArtifact({
-        name: resolveAttachmentName({}, normalizedPath),
-        path: isAbsolutePath(normalizedPath) ? normalizedPath : '',
-        relativePath: isAbsolutePath(normalizedPath) ? '' : withChatDir,
+        name: resolveAttachmentName({}, pathValue),
+        path: pathValue,
       })
     }
 
@@ -1730,4 +1722,3 @@ function ChatInterface({
 }
 
 export default ChatInterface
-
