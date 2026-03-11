@@ -171,6 +171,8 @@ function MainContent({
               id: String(node?.id || nodePath),
               name: nodeName,
               path: nodePath,
+              color: String(node?.color || '').trim() || undefined,
+              coverImagePath: String(node?.coverImagePath || '').trim() || undefined,
             })
             break
           }
@@ -187,9 +189,14 @@ function MainContent({
         }
       }
     }
+    const handleSkillsUpdated = () => {
+      void load()
+    }
     void load()
+    window.addEventListener('moros:skills-updated', handleSkillsUpdated)
     return () => {
       cancelled = true
+      window.removeEventListener('moros:skills-updated', handleSkillsUpdated)
     }
   }, [effectiveLandingSkillRootPaths])
 

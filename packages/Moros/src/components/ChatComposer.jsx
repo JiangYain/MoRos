@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { ArrowUp, Puzzle } from 'lucide-react'
 import { CHAT_MODELS_BY_PROVIDER } from '../utils/chatProvider'
+import { filesApi } from '../utils/api'
 import './ChatComposer.css'
 
 const MIN_COMPOSER_HEIGHT = 100
@@ -8,6 +9,16 @@ const MIN_TEXTAREA_HEIGHT = 28
 const MAX_TEXTAREA_HEIGHT = 296
 const COMPOSER_VERTICAL_PADDING = 56
 const TEXTAREA_HEIGHT_BUFFER = 6
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+const VSCODE_ICONS_BASE_URL = 'https://cdn.jsdelivr.net/gh/vscode-icons/vscode-icons/icons'
+
+const DEFAULT_SKILL_ICON_BY_NAME = {
+  'skill-creator': '/assets/model-icons/claude.png',
+  excalidraw: '/assets/file-icons/excaildrawlogo.png',
+  pdf: `${VSCODE_ICONS_BASE_URL}/file_type_pdf.svg`,
+  pptx: `${VSCODE_ICONS_BASE_URL}/file_type_powerpoint.svg`,
+  xlsx: `${VSCODE_ICONS_BASE_URL}/file_type_excel.svg`,
+}
 
 const PROVIDER_ICON_MAP = {
   'github-copilot': '/assets/provider-icons/github.png',
@@ -37,6 +48,15 @@ const resolveOptionLabel = (label) => {
     .replace(/^Provider:\s*/i, '')
     .replace(/^Model:\s*/i, '')
     .trim()
+}
+
+const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
+
+const resolveDefaultSkillIconUrl = (skill) => {
+  const skillName = String(skill?.name || skill?.id || '')
+    .trim()
+    .toLowerCase()
+  return DEFAULT_SKILL_ICON_BY_NAME[skillName] || ''
 }
 
 function ProviderIcon({ providerId, label }) {
@@ -75,6 +95,55 @@ function ModelIcon({ modelId, label }) {
       className="chat-composer-provider-icon-image"
       onError={() => setIconFailed(true)}
       loading="lazy"
+    />
+  )
+}
+
+function SkillIcon({ skill }) {
+  const [coverFailed, setCoverFailed] = useState(false)
+  const [defaultFailed, setDefaultFailed] = useState(false)
+  const coverPath = String(skill?.coverImagePath || '').trim()
+  const coverIconUrl = coverPath
+    ? (isAbsolutePath(coverPath) ? filesApi.getRawAbsoluteFileUrl(coverPath) : filesApi.getRawFileUrl(coverPath))
+    : ''
+  const fallbackIconUrl = resolveDefaultSkillIconUrl(skill)
+  const preferredCoverUrl = coverFailed ? '' : coverIconUrl
+  const fallbackUrl = defaultFailed ? '' : fallbackIconUrl
+  const iconUrl = preferredCoverUrl || fallbackUrl
+  const isUsingCoverIcon = Boolean(preferredCoverUrl)
+  const fallback = String(skill?.name || '?').trim().charAt(0).toUpperCase()
+  const iconAccentColor = String(skill?.color || '').trim()
+
+  useEffect(() => {
+    setCoverFailed(false)
+    setDefaultFailed(false)
+  }, [coverPath, fallbackIconUrl])
+
+  if (!iconUrl) {
+    return (
+      <span
+        className="chat-composer-skill-icon-fallback"
+        aria-hidden
+        style={iconAccentColor ? { color: iconAccentColor } : undefined}
+      >
+        {fallback || '?'}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={iconUrl}
+      alt=""
+      className="chat-composer-skill-icon-image"
+      loading="lazy"
+      onError={() => {
+        if (isUsingCoverIcon) {
+          setCoverFailed(true)
+        } else {
+          setDefaultFailed(true)
+        }
+      }}
     />
   )
 }
@@ -421,23 +490,31 @@ function ChatComposer({
       )}
       {isSkillsMenuOpen && (
         <div className="chat-composer-skills-menu" ref={skillsMenuRef}>
-          <div className="chat-composer-skills-header">Skills</div>
+          <div className="chat-composer-skills-header">
+            <span className="chat-composer-skills-title">Skills</span>
+            <span className="chat-composer-skills-caption">Runtime</span>
+          </div>
           {skillItems.length > 0 ? (
-            skillItems.map((skill) => (
-              <button
-                key={skill.id || skill.path || skill.name}
-                type="button"
-                className="chat-composer-skill-item"
-                onClick={() => handleSkillItemClick(skill)}
-              >
-                <span className="chat-composer-skill-icon" aria-hidden>
-                  <Puzzle size={12} strokeWidth={2} />
-                </span>
-                <span className="chat-composer-skill-name">{skill.name}</span>
-              </button>
-            ))
+            <div className="chat-composer-skills-list">
+              {skillItems.map((skill) => (
+                <button
+                  key={skill.id || skill.path || skill.name}
+                  type="button"
+                  className="chat-composer-skill-item"
+                  onClick={() => handleSkillItemClick(skill)}
+                >
+                  <span className="chat-composer-skill-icon" aria-hidden>
+                    <SkillIcon skill={skill} />
+                  </span>
+                  <span className="chat-composer-skill-name">{skill.name}</span>
+                </button>
+              ))}
+            </div>
           ) : (
-            <div className="chat-composer-skills-empty">暂无可用 Skill</div>
+            <div className="chat-composer-skills-empty">
+              <span className="chat-composer-skills-empty-title">暂无可用 Skill</span>
+              <span className="chat-composer-skills-empty-hint">在设置页 Skills 中安装精选 Skill</span>
+            </div>
           )}
         </div>
       )}

@@ -9,6 +9,7 @@ export interface FileItem {
   updatedAt: string
   size?: number
   color?: string // 项目颜色（文件/文件夹）
+  coverImagePath?: string // Skill/文件夹封面图（相对 markov-data）
 }
 
 export interface KnowledgeNode {

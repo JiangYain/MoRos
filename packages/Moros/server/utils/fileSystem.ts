@@ -12,6 +12,13 @@ const LEGACY_WORKSPACE_CONFIG_FILE = '.moros-workspaces.json'
 const GLOBAL_SETTINGS_FILE = '.moros-settings.json'
 const FILE_TREE_CACHE_TTL_MS = 3000
 
+type DirectoryMetadataEntry = {
+  color?: string
+  coverImagePath?: string
+}
+
+type DirectoryMetadata = Record<string, DirectoryMetadataEntry>
+
 let fileTreeCache: { expiresAt: number; data: FileItem[] } | null = null
 let fileTreeInFlight: Promise<FileItem[]> | null = null
 
@@ -31,6 +38,13 @@ function resolveDataPath(targetPath: string): string {
   throw new Error('非法路径')
 }
 
+function normalizeStoredRelativePath(inputPath: string): string {
+  return String(inputPath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+}
+
 // 确保数据目录存在
 export async function ensureDataDir() {
   try {
@@ -42,13 +56,25 @@ export async function ensureDataDir() {
 }
 
 // 读取目录元数据
-async function readDirectoryMetadata(dirPath: string): Promise<{ [key: string]: any }> {
+async function readDirectoryMetadata(dirPath: string): Promise<DirectoryMetadata> {
   try {
     const metadataJson = await fs.readFile(path.join(dirPath, METADATA_FILE), 'utf-8')
-    return JSON.parse(metadataJson)
+    const parsed = JSON.parse(metadataJson)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+    return parsed as DirectoryMetadata
   } catch {
     return {}
   }
+}
+
+async function writeDirectoryMetadata(dirPath: string, metadata: DirectoryMetadata): Promise<void> {
+  await fs.writeFile(
+    path.join(dirPath, METADATA_FILE),
+    JSON.stringify(metadata, null, 2),
+    'utf-8',
+  )
 }
 
 // 获取文件系统树
@@ -130,7 +156,8 @@ export async function getFileTree(options: { fresh?: boolean } = {}): Promise<Fi
           createdAt: stats.birthtime.toISOString(),
           updatedAt: stats.mtime.toISOString(),
           size: entry.isFile() ? stats.size : undefined,
-          color: metadata[entry.name]?.color
+          color: metadata[entry.name]?.color,
+          coverImagePath: metadata[entry.name]?.coverImagePath,
         }
 
         if (!entry.isDirectory()) {
@@ -360,39 +387,67 @@ export async function moveItem(sourcePath: string, targetParentPath?: string): P
   }
 }
 
-// 设置文件夹颜色
-export async function setFolderColor(folderPath: string, color?: string): Promise<void> {
+async function updateFolderMetadata(
+  folderPath: string,
+  updater: (entry: DirectoryMetadataEntry) => DirectoryMetadataEntry,
+): Promise<void> {
   await ensureDataDir()
 
   const folderFullPath = resolveDataPath(folderPath)
+  const folderStats = await fs.stat(folderFullPath)
+  if (!folderStats.isDirectory()) {
+    throw new Error('目标路径不是文件夹')
+  }
+
   const parentDir = path.dirname(folderFullPath)
   const folderName = path.basename(folderFullPath)
-  
-  // 读取父目录的元数据
   const metadata = await readDirectoryMetadata(parentDir)
-  
-  // 设置或删除颜色
-  if (!metadata[folderName]) {
-    metadata[folderName] = {}
-  }
-  
-  if (color) {
-    metadata[folderName].color = color
+  const previousEntry = metadata[folderName] || {}
+  const nextEntry = updater({ ...previousEntry })
+
+  if (Object.keys(nextEntry).length === 0) {
+    delete metadata[folderName]
   } else {
-    delete metadata[folderName].color
-    // 如果对象为空，删除整个条目
-    if (Object.keys(metadata[folderName]).length === 0) {
-      delete metadata[folderName]
+    metadata[folderName] = nextEntry
+  }
+
+  await writeDirectoryMetadata(parentDir, metadata)
+  invalidateFileTreeCache()
+}
+
+// 设置文件夹颜色
+export async function setFolderColor(folderPath: string, color?: string): Promise<void> {
+  const normalizedColor = String(color || '').trim()
+  await updateFolderMetadata(folderPath, (entry) => {
+    if (normalizedColor) {
+      entry.color = normalizedColor
+    } else {
+      delete entry.color
+    }
+    return entry
+  })
+}
+
+// 设置文件夹封面（用于 Skill 展示）
+export async function setFolderCoverImage(folderPath: string, coverImagePath?: string): Promise<void> {
+  const normalizedCoverPath = normalizeStoredRelativePath(String(coverImagePath || ''))
+
+  if (normalizedCoverPath) {
+    const coverFullPath = resolveDataPath(normalizedCoverPath)
+    const coverStats = await fs.stat(coverFullPath)
+    if (!coverStats.isFile()) {
+      throw new Error('封面路径必须指向文件')
     }
   }
-  
-  // 写入元数据文件
-  await fs.writeFile(
-    path.join(parentDir, METADATA_FILE),
-    JSON.stringify(metadata, null, 2),
-    'utf-8'
-  )
-  invalidateFileTreeCache()
+
+  await updateFolderMetadata(folderPath, (entry) => {
+    if (normalizedCoverPath) {
+      entry.coverImagePath = normalizedCoverPath
+    } else {
+      delete entry.coverImagePath
+    }
+    return entry
+  })
 }
 
 // 在系统文件管理器中定位文件/文件夹

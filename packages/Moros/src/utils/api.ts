@@ -125,6 +125,55 @@ export const filesApi = {
 		if (!result.success) throw new Error(result.error);
 	},
 
+	async setFolderCoverImage(folderPath: string, coverImagePath?: string): Promise<void> {
+		const response = await fetch(`${API_BASE}/files/folder-cover`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ folderPath, coverImagePath }),
+		});
+		const result = (await response.json()) as ApiResponse;
+		if (!result.success) throw new Error(result.error);
+	},
+
+	async getSkillPresets(): Promise<
+		Array<{
+			id: string;
+			name: string;
+			description?: string;
+			folderName?: string;
+			installed?: boolean;
+			path?: string;
+		}>
+	> {
+		const response = await fetch(`${API_BASE}/files/skill-presets`);
+		const result = (await response.json()) as ApiResponse;
+		if (!result.success) throw new Error(result.error);
+		return Array.isArray(result.data) ? result.data : [];
+	},
+
+	async installSkillPreset(skillId: string): Promise<{
+		id: string;
+		name?: string;
+		folderName?: string;
+		path?: string;
+		alreadyInstalled?: boolean;
+	}> {
+		const response = await fetch(`${API_BASE}/files/skill-presets/install`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ skillId }),
+		});
+		const result = (await response.json()) as ApiResponse;
+		if (!result.success) throw new Error(result.error);
+		return (result.data || {}) as {
+			id: string;
+			name?: string;
+			folderName?: string;
+			path?: string;
+			alreadyInstalled?: boolean;
+		};
+	},
+
 	async revealInFileExplorer(itemPath: string): Promise<void> {
 		const response = await fetch(`${API_BASE}/files/reveal`, {
 			method: "POST",

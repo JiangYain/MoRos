@@ -13,9 +13,14 @@ import {
   reorderItems,
   moveItem,
   setFolderColor,
+  setFolderCoverImage,
   revealInFileExplorer,
   getAbsoluteItemPath,
 } from '../utils/fileSystem.js'
+import {
+  installSkillPreset,
+  listSkillPresets,
+} from '../utils/skillPresets.js'
 
 export const filesRouter = express.Router()
 const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
@@ -196,6 +201,53 @@ filesRouter.post('/folder-color', async (req, res) => {
   } catch (error) {
     console.error('设置文件夹颜色失败:', error)
     res.status(500).json({ success: false, error: (error as Error).message || '设置颜色失败' })
+  }
+})
+
+// 设置文件夹封面图（用于 Skill 封面）
+filesRouter.post('/folder-cover', async (req, res) => {
+  try {
+    const { folderPath, coverImagePath } = req.body || {}
+
+    if (!folderPath) {
+      return res.status(400).json({ success: false, error: '文件夹路径不能为空' })
+    }
+
+    await setFolderCoverImage(
+      String(folderPath),
+      coverImagePath ? String(coverImagePath) : undefined,
+    )
+    res.json({ success: true, message: '文件夹封面设置成功' })
+  } catch (error) {
+    console.error('设置文件夹封面失败:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || '设置封面失败' })
+  }
+})
+
+// 获取内置 Skill 预设列表
+filesRouter.get('/skill-presets', async (_req, res) => {
+  try {
+    const items = await listSkillPresets()
+    res.json({ success: true, data: items })
+  } catch (error) {
+    console.error('获取 Skill 预设列表失败:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || '获取 Skill 预设失败' })
+  }
+})
+
+// 安装内置 Skill 预设
+filesRouter.post('/skill-presets/install', async (req, res) => {
+  try {
+    const { skillId } = req.body || {}
+    if (!skillId) {
+      return res.status(400).json({ success: false, error: 'skillId 不能为空' })
+    }
+
+    const result = await installSkillPreset(String(skillId))
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('安装 Skill 预设失败:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || '安装 Skill 预设失败' })
   }
 })
 

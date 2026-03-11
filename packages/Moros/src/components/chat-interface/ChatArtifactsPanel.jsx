@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Excalidraw } from '@excalidraw/excalidraw'
 import { filesApi } from '../../utils/api'
 import { isTextArtifactPath } from './artifacts'
 import FileTypeIcon from './FileTypeIcon'
+import '@excalidraw/excalidraw/index.css'
 
 function ArtifactPreviewPane({
   activeArtifact,
@@ -16,11 +18,13 @@ function ArtifactPreviewPane({
   const [textContent, setTextContent] = useState('')
   const [textLoading, setTextLoading] = useState(false)
   const [textError, setTextError] = useState('')
-  const [htmlPreviewMode, setHtmlPreviewMode] = useState('code')
+  const [textPreviewMode, setTextPreviewMode] = useState('code')
 
   const isUrlArtifact = activeArtifact?.artifactType === 'url'
   const normalizedExtension = String(activeArtifactExtension || '').toLowerCase()
   const isHtmlArtifact = normalizedExtension === '.html' || normalizedExtension === '.htm'
+  const isExcalidrawArtifact = normalizedExtension === '.excalidraw'
+  const supportsRichPreview = isHtmlArtifact || isExcalidrawArtifact
   const isTextPreview = useMemo(() => {
     if (!activeArtifact) return false
     if (isUrlArtifact) return false
@@ -29,8 +33,33 @@ function ArtifactPreviewPane({
   }, [activeArtifact, isUrlArtifact, activeArtifactIsImage, activeArtifactExtension])
 
   useEffect(() => {
-    setHtmlPreviewMode('code')
-  }, [activeArtifact?.id])
+    setTextPreviewMode(supportsRichPreview ? 'preview' : 'code')
+  }, [activeArtifact?.id, supportsRichPreview])
+
+  const excalidrawPreviewData = useMemo(() => {
+    if (!isExcalidrawArtifact || !textContent) return null
+    try {
+      const parsed = JSON.parse(String(textContent || '{}'))
+      const elements = Array.isArray(parsed?.elements) ? parsed.elements : []
+      const files = parsed?.files && typeof parsed.files === 'object' ? parsed.files : {}
+      const appState = parsed?.appState && typeof parsed.appState === 'object'
+        ? parsed.appState
+        : {}
+      return {
+        type: 'excalidraw',
+        version: 2,
+        elements,
+        files,
+        appState: {
+          ...appState,
+          collaborators: [],
+          viewModeEnabled: true,
+        },
+      }
+    } catch {
+      return null
+    }
+  }, [isExcalidrawArtifact, textContent])
 
   useEffect(() => {
     let disposed = false
@@ -130,7 +159,6 @@ function ArtifactPreviewPane({
           )}
         </div>
       </div>
-      <div className="chat-artifacts-content-path">{activeArtifact.path}</div>
       <div className="chat-artifacts-content-preview">
         {isUrlArtifact ? (
           activeArtifactUrl ? (
@@ -151,21 +179,21 @@ function ArtifactPreviewPane({
           <div className="chat-artifacts-text-preview-wrap">
             <div className="chat-artifacts-text-preview-toolbar">
               <span className="chat-artifacts-text-preview-label">
-                代码视图 {normalizedExtension ? `(${normalizedExtension})` : ''}
+                {textPreviewMode === 'preview' ? '预览视图' : '代码视图'} {normalizedExtension ? `(${normalizedExtension})` : ''}
               </span>
-              {isHtmlArtifact && (
+              {supportsRichPreview && (
                 <div className="chat-artifacts-html-toggle">
                   <button
                     type="button"
-                    className={`chat-artifacts-html-toggle-btn ${htmlPreviewMode === 'code' ? 'active' : ''}`}
-                    onClick={() => setHtmlPreviewMode('code')}
+                    className={`chat-artifacts-html-toggle-btn ${textPreviewMode === 'code' ? 'active' : ''}`}
+                    onClick={() => setTextPreviewMode('code')}
                   >
                     代码
                   </button>
                   <button
                     type="button"
-                    className={`chat-artifacts-html-toggle-btn ${htmlPreviewMode === 'preview' ? 'active' : ''}`}
-                    onClick={() => setHtmlPreviewMode('preview')}
+                    className={`chat-artifacts-html-toggle-btn ${textPreviewMode === 'preview' ? 'active' : ''}`}
+                    onClick={() => setTextPreviewMode('preview')}
                   >
                     预览
                   </button>
@@ -176,13 +204,35 @@ function ArtifactPreviewPane({
               <div className="chat-artifacts-content-empty">读取中…</div>
             ) : textError ? (
               <div className="chat-artifacts-placeholder error">{textError}</div>
-            ) : isHtmlArtifact && htmlPreviewMode === 'preview' && activeArtifactUrl ? (
+            ) : textPreviewMode === 'preview' && isHtmlArtifact && activeArtifactUrl ? (
               <iframe
                 className="chat-artifacts-iframe"
                 title={activeArtifact.name}
                 src={activeArtifactUrl}
                 sandbox="allow-same-origin allow-scripts"
               />
+            ) : textPreviewMode === 'preview' && isExcalidrawArtifact ? (
+              excalidrawPreviewData ? (
+                <div className="chat-artifacts-excalidraw-preview">
+                  <Excalidraw
+                    viewModeEnabled
+                    initialData={excalidrawPreviewData}
+                    UIOptions={{
+                      canvasActions: {
+                        changeViewBackgroundColor: false,
+                        clearCanvas: false,
+                        export: false,
+                        loadScene: false,
+                        saveAsImage: false,
+                        saveToActiveFile: false,
+                        toggleTheme: false,
+                      },
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="chat-artifacts-content-empty">Excalidraw 文件内容无效，无法预览</div>
+              )
             ) : (
               <textarea
                 className="chat-artifacts-code-viewer"

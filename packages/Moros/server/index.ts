@@ -9,6 +9,7 @@ import { proxyRouter } from './routes/proxy.js'
 import { agentRouter } from './routes/agent.js'
 import { settingsRouter } from './routes/settings.js'
 import { openaiCodexOauthRouter } from './routes/openaiCodexOauth.js'
+import { githubCopilotOauthRouter } from './routes/githubCopilotOauth.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -32,6 +33,7 @@ app.use('/api/proxy', proxyRouter)
 app.use('/api/agent', agentRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/openai-codex', openaiCodexOauthRouter)
+app.use('/api/github-copilot', githubCopilotOauthRouter)
 
 // 健康检查
 app.get('/api/health', (req, res) => {

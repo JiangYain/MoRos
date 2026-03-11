@@ -13,6 +13,17 @@ import {
 import { filesApi } from '../../utils/api'
 import { useI18n } from '../../utils/i18n'
 
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
+const VSCODE_ICONS_BASE = 'https://cdn.jsdelivr.net/gh/vscode-icons/vscode-icons/icons'
+const DEFAULT_SKILL_ICON_BY_NAME = {
+  'skill-creator': '/assets/model-icons/claude.png',
+  excalidraw: '/assets/file-icons/excaildrawlogo.png',
+  pdf: `${VSCODE_ICONS_BASE}/file_type_pdf.svg`,
+  pptx: `${VSCODE_ICONS_BASE}/file_type_powerpoint.svg`,
+  xlsx: `${VSCODE_ICONS_BASE}/file_type_excel.svg`,
+}
+
 function FileTreeItem({
   item,
   level = 0,
@@ -49,11 +60,23 @@ function FileTreeItem({
   const { t } = useI18n()
   const expanded = item.type === 'folder' ? expandedFolders.has(item.path) : undefined
   const [editName, setEditName] = useState(item.name)
+  const [folderCoverFailed, setFolderCoverFailed] = useState(false)
   const longPressTimerRef = React.useRef(null)
   const longPressTriggeredRef = React.useRef(false)
   const renameCommittedRef = React.useRef(false)
   const indentPx = collapsed ? 8 : (12 + level * 14)
   const childIndentPx = collapsed ? 8 : (12 + (level + 1) * 14)
+  const folderCoverPath = String(item?.coverImagePath || '').trim()
+  const folderCoverUrl = folderCoverPath
+    ? (isAbsolutePath(folderCoverPath)
+      ? filesApi.getRawAbsoluteFileUrl(folderCoverPath)
+      : filesApi.getRawFileUrl(folderCoverPath))
+    : ''
+  const defaultSkillIconUrl = item.type === 'folder'
+    ? (DEFAULT_SKILL_ICON_BY_NAME[String(item.name || '').trim().toLowerCase()] || '')
+    : ''
+  const resolvedIconUrl = (folderCoverUrl && !folderCoverFailed) ? folderCoverUrl : defaultSkillIconUrl
+  const showFolderIcon = item.type === 'folder' && Boolean(resolvedIconUrl)
 
   useEffect(() => {
     if (item.isEditing) {
@@ -62,6 +85,10 @@ function FileTreeItem({
       setEditName(nameWithoutExt)
     }
   }, [item.isEditing, item.name])
+
+  useEffect(() => {
+    setFolderCoverFailed(false)
+  }, [folderCoverUrl])
 
   const handleClick = () => {
     if (item.isEditing) return
@@ -192,7 +219,17 @@ function FileTreeItem({
             title={item.type === 'folder' ? t('sidebar.context.set_color') : undefined}
           >
             {item.type === 'folder'
-              ? (expanded ? <FolderOpen size={16} /> : <Folder size={16} />)
+              ? (showFolderIcon
+                  ? (
+                    <img
+                      src={resolvedIconUrl}
+                      alt=""
+                      className="folder-cover-thumbnail"
+                      loading="lazy"
+                      onError={() => setFolderCoverFailed(true)}
+                    />
+                  )
+                  : (expanded ? <FolderOpen size={16} /> : <Folder size={16} />))
               : (String(item.name || '').toLowerCase().endsWith('.excalidraw')
                   ? <Shapes size={16} />
                   : (String(item.name || '').toLowerCase().endsWith('.moros')

@@ -1,6 +1,6 @@
+import { API_BASE } from "./api";
 import { CHAT_MODEL_OPTIONS } from "./chatProvider";
 
-const GITHUB_CLIENT_ID = atob("SXYxLmI1MDdhMDhjODdlY2ZlOTg=");
 const LS_GITHUB_COPILOT_KEY = "moros-github-copilot-oauth";
 const LS_GITHUB_COPILOT_PROXY_ENABLED = "moros-github-copilot-proxy-enabled";
 const LS_GITHUB_COPILOT_PROXY_URL = "moros-github-copilot-proxy-url";
@@ -23,6 +23,11 @@ const COPILOT_HEADERS = {
 	"Editor-Plugin-Version": "copilot-chat/0.35.0",
 	"Copilot-Integration-Id": DEFAULT_COPILOT_INTEGRATION_ID,
 } as const;
+const PROXY_AUTH_HEADER = "x-moros-proxy-token";
+const PROXY_AUTH_ENDPOINT_SUFFIX = "/auth-token";
+const PROXY_AUTH_FALLBACK_TTL_MS = 5 * 60 * 1000;
+
+let proxyAuthCache: { proxyBaseUrl: string; token: string; expiresAt: number } | null = null;
 
 export type GitHubCopilotCredentials = {
 	refresh: string;
@@ -111,6 +116,7 @@ export const getGitHubCopilotProxyEnabled = (): boolean => {
 export const setGitHubCopilotProxyEnabled = (enabled: boolean) => {
 	try {
 		localStorage.setItem(LS_GITHUB_COPILOT_PROXY_ENABLED, enabled ? "true" : "false");
+		proxyAuthCache = null;
 	} catch {}
 };
 
@@ -127,13 +133,8 @@ export const setGitHubCopilotProxyUrl = (url: string) => {
 	try {
 		const normalized = String(url || "").trim();
 		localStorage.setItem(LS_GITHUB_COPILOT_PROXY_URL, normalized || DEFAULT_GITHUB_COPILOT_PROXY_URL);
+		proxyAuthCache = null;
 	} catch {}
-};
-
-const buildProxyRequestUrl = (targetUrl: string): string => {
-	if (!getGitHubCopilotProxyEnabled()) return targetUrl;
-	const proxyUrl = getGitHubCopilotProxyUrl().replace(/\/$/, "");
-	return `${proxyUrl}?url=${encodeURIComponent(targetUrl)}`;
 };
 
 const getStoredCopilotIntegrationId = (): string => {
@@ -180,6 +181,85 @@ const headersToRecord = (headers?: Record<string, string> | Headers | [string, s
 	return record;
 };
 
+const buildProxyBaseUrl = (): string => {
+	return getGitHubCopilotProxyUrl().replace(/\/$/, "");
+};
+
+const buildProxyAuthEndpoint = (proxyBaseUrl: string): string => {
+	return `${proxyBaseUrl}${PROXY_AUTH_ENDPOINT_SUFFIX}`;
+};
+
+const fetchBackendJson = async <T = any>(url: string, init?: RequestInit): Promise<T> => {
+	const response = await fetch(url, init);
+	const payload = await response.json().catch(() => ({}) as any);
+	if (!response.ok || payload?.success !== true) {
+		const message = String(
+			payload?.error || payload?.message || `${response.status} ${response.statusText}` || "",
+		).trim();
+		throw new Error(message || "Backend request failed");
+	}
+	return payload?.data as T;
+};
+
+const getProxyAuthToken = async (): Promise<string> => {
+	if (!getGitHubCopilotProxyEnabled()) return "";
+	const proxyBaseUrl = buildProxyBaseUrl();
+	const now = Date.now();
+	if (proxyAuthCache && proxyAuthCache.proxyBaseUrl === proxyBaseUrl && proxyAuthCache.expiresAt > now + 1_000) {
+		return proxyAuthCache.token;
+	}
+
+	const data = await fetchBackendJson<{ token?: string; expiresAt?: number }>(buildProxyAuthEndpoint(proxyBaseUrl), {
+		method: "GET",
+		headers: { Accept: "application/json" },
+	});
+	const token = String(data?.token || "").trim();
+	if (!token) {
+		throw new Error("Proxy auth token is missing");
+	}
+	const expiresAtRaw = Number(data?.expiresAt);
+	const expiresAt =
+		Number.isFinite(expiresAtRaw) && expiresAtRaw > now ? expiresAtRaw : now + PROXY_AUTH_FALLBACK_TTL_MS;
+	proxyAuthCache = {
+		proxyBaseUrl,
+		token,
+		expiresAt,
+	};
+	return token;
+};
+
+const proxyAwareFetch = async (targetUrl: string, init: RequestInit = {}): Promise<Response> => {
+	if (!getGitHubCopilotProxyEnabled()) {
+		return fetch(targetUrl, init);
+	}
+
+	const proxyBaseUrl = buildProxyBaseUrl();
+	let token = await getProxyAuthToken();
+	let headers = {
+		...headersToRecord(init.headers),
+		[PROXY_AUTH_HEADER]: token,
+	};
+	let response = await fetch(`${proxyBaseUrl}?url=${encodeURIComponent(targetUrl)}`, {
+		...init,
+		headers,
+	});
+
+	// Token may rotate on backend; refresh once on 401.
+	if (response.status === 401) {
+		proxyAuthCache = null;
+		token = await getProxyAuthToken();
+		headers = {
+			...headersToRecord(init.headers),
+			[PROXY_AUTH_HEADER]: token,
+		};
+		response = await fetch(`${proxyBaseUrl}?url=${encodeURIComponent(targetUrl)}`, {
+			...init,
+			headers,
+		});
+	}
+	return response;
+};
+
 const isUnknownCopilotIntegrationError = (status: number, bodyText: string): boolean => {
 	return status === 400 && UNKNOWN_COPILOT_INTEGRATION_PATTERN.test(String(bodyText || ""));
 };
@@ -198,7 +278,7 @@ const fetchCopilotWithIntegrationFallback = async (url: string, init: RequestIni
 			...headersToRecord(init.headers),
 			"Copilot-Integration-Id": integrationId,
 		};
-		const response = await fetch(buildProxyRequestUrl(url), {
+		const response = await proxyAwareFetch(url, {
 			...init,
 			headers,
 		});
@@ -352,7 +432,7 @@ const selectBestCopilotModel = (requestedModel: string, availableModels: string[
 };
 
 const fetchJson = async (url: string, init: RequestInit): Promise<any> => {
-	const response = await fetch(buildProxyRequestUrl(url), init);
+	const response = await proxyAwareFetch(url, init);
 	if (!response.ok) {
 		const text = await response.text().catch(() => "");
 		throw new Error(`${response.status} ${response.statusText} ${text}`.trim());
@@ -361,16 +441,14 @@ const fetchJson = async (url: string, init: RequestInit): Promise<any> => {
 };
 
 const startDeviceFlow = async (domain: string): Promise<DeviceCodeResponse> => {
-	const urls = getCopilotUrls(domain);
-	const raw = await fetchJson(urls.deviceCodeUrl, {
+	const raw = await fetchBackendJson<DeviceCodeResponse>(`${API_BASE}/github-copilot/oauth/device-code`, {
 		method: "POST",
 		headers: {
 			Accept: "application/json",
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
-			client_id: GITHUB_CLIENT_ID,
-			scope: "read:user",
+			enterpriseDomain: domain,
 		}),
 	});
 
@@ -437,23 +515,21 @@ const pollForGitHubAccessToken = async (
 	expiresInSeconds: number,
 	signal?: AbortSignal,
 ): Promise<string> => {
-	const urls = getCopilotUrls(domain);
 	const deadline = Date.now() + expiresInSeconds * 1000;
 	let pollMs = Math.max(1000, Math.floor(intervalSeconds * 1000));
 
 	while (Date.now() < deadline) {
 		if (signal?.aborted) throw new Error("Login cancelled");
 
-		const raw = await fetchJson(urls.accessTokenUrl, {
+		const raw = await fetchBackendJson<any>(`${API_BASE}/github-copilot/oauth/access-token`, {
 			method: "POST",
 			headers: {
 				Accept: "application/json",
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				client_id: GITHUB_CLIENT_ID,
-				device_code: deviceCode,
-				grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+				enterpriseDomain: domain,
+				deviceCode,
 			}),
 		});
 

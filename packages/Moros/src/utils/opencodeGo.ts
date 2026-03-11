@@ -2,6 +2,11 @@ const LS_OPENCODE_GO_API_KEY = "moros-opencode-go-api-key";
 const LS_OPENCODE_GO_BASE_URL = "moros-opencode-go-base-url";
 const DEFAULT_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 const LOCAL_PROXY_BASE = "http://localhost:53211/api/proxy";
+const PROXY_AUTH_HEADER = "x-moros-proxy-token";
+const PROXY_AUTH_ENDPOINT = `${LOCAL_PROXY_BASE}/auth-token`;
+const PROXY_AUTH_FALLBACK_TTL_MS = 5 * 60 * 1000;
+
+let proxyAuthCache: { token: string; expiresAt: number } | null = null;
 
 const normalizeBaseUrl = (value?: string): string => {
 	const normalized = String(value || "")
@@ -14,6 +19,31 @@ const resolveOpenCodeGoCompletionsUrl = (baseUrl: string): string => {
 	const normalizedBase = normalizeBaseUrl(baseUrl);
 	const openaiBase = normalizedBase.endsWith("/v1") ? normalizedBase : `${normalizedBase}/v1`;
 	return `${openaiBase}/chat/completions`;
+};
+
+const getProxyAuthToken = async (): Promise<string> => {
+	const now = Date.now();
+	if (proxyAuthCache && proxyAuthCache.expiresAt > now + 1_000) {
+		return proxyAuthCache.token;
+	}
+	const response = await fetch(PROXY_AUTH_ENDPOINT, {
+		method: "GET",
+		headers: { Accept: "application/json" },
+	});
+	const payload = await response.json().catch(() => ({}) as any);
+	if (!response.ok || payload?.success !== true) {
+		throw new Error(String(payload?.error || payload?.message || "Failed to get proxy auth token"));
+	}
+	const token = String(payload?.data?.token || "").trim();
+	if (!token) {
+		throw new Error("Proxy auth token is missing");
+	}
+	const expiresAtRaw = Number(payload?.data?.expiresAt);
+	proxyAuthCache = {
+		token,
+		expiresAt: Number.isFinite(expiresAtRaw) ? expiresAtRaw : now + PROXY_AUTH_FALLBACK_TTL_MS,
+	};
+	return token;
 };
 
 export const getOpenCodeGoApiKey = (): string => {
@@ -58,12 +88,14 @@ export async function testOpenCodeGoConnection(
 	const proxyUrl = `${LOCAL_PROXY_BASE}?url=${encodeURIComponent(targetUrl)}`;
 
 	try {
+		const proxyToken = await getProxyAuthToken();
 		const response = await fetch(proxyUrl, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${normalizedKey}`,
 				"Content-Type": "application/json",
 				Accept: "application/json",
+				[PROXY_AUTH_HEADER]: proxyToken,
 			},
 			body: JSON.stringify({
 				model: "kimi-k2.5",

@@ -137,6 +137,8 @@ function ChatInterface({
               id: String(node?.id || nodePath),
               name: nodeName,
               path: nodePath,
+              color: String(node?.color || '').trim() || undefined,
+              coverImagePath: String(node?.coverImagePath || '').trim() || undefined,
             })
             break
           }
@@ -153,9 +155,14 @@ function ChatInterface({
         }
       }
     }
+    const handleSkillsUpdated = () => {
+      void loadSkillItems()
+    }
     void loadSkillItems()
+    window.addEventListener('moros:skills-updated', handleSkillsUpdated)
     return () => {
       cancelled = true
+      window.removeEventListener('moros:skills-updated', handleSkillsUpdated)
     }
   }, [effectiveSkillRootPaths])
 

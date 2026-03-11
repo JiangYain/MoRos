@@ -20,6 +20,15 @@ const getDefaultModelForProvider = (provider: AgentProvider): string => {
   return DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER['github-copilot']
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+const BUSY_PROMPT_RETRY_MAX_ATTEMPTS = 6
+const BUSY_PROMPT_RETRY_BASE_DELAY_MS = 220
+
+const isBusyPromptError = (error: unknown): boolean => {
+  const message = String((error as any)?.message || '').toLowerCase()
+  return message.includes('busy processing another prompt')
+}
+
 type OpenAICodexCredentials = {
   access: string
   refresh: string
@@ -235,15 +244,38 @@ agentRouter.post('/chat/stream', async (req, res) => {
 
     console.log(`${reqTag} calling prompt()...`)
 
-    const promptResult = await session.prompt({
-      message,
-      images,
-      signal: streamAbortController.signal,
-      onEvent: (event) => {
-        sseEventCount++
-        writeSse(res, 'agent_event', event)
-      },
-    })
+    let promptResult: { assistantText: string } | null = null
+    let lastBusyError: unknown = null
+    for (let attempt = 1; attempt <= BUSY_PROMPT_RETRY_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        promptResult = await session.prompt({
+          message,
+          images,
+          signal: streamAbortController.signal,
+          onEvent: (event) => {
+            sseEventCount++
+            writeSse(res, 'agent_event', event)
+          },
+        })
+        break
+      } catch (error: any) {
+        if (streamAbortController.signal.aborted) {
+          throw error
+        }
+        if (!isBusyPromptError(error) || attempt >= BUSY_PROMPT_RETRY_MAX_ATTEMPTS) {
+          throw error
+        }
+        lastBusyError = error
+        const waitMs = BUSY_PROMPT_RETRY_BASE_DELAY_MS * attempt
+        console.warn(`${reqTag} prompt busy, retry attempt ${attempt}/${BUSY_PROMPT_RETRY_MAX_ATTEMPTS} after ${waitMs}ms`)
+        await session.abort().catch(() => {})
+        await sleep(waitMs)
+      }
+    }
+
+    if (!promptResult) {
+      throw (lastBusyError instanceof Error ? lastBusyError : new Error('Agent session is busy processing another prompt'))
+    }
 
     console.log(`${reqTag} prompt done, text_len=${promptResult.assistantText?.length || 0}, events=${sseEventCount}`)
 

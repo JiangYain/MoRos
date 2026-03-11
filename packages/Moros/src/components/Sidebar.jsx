@@ -23,6 +23,8 @@ import './Sidebar.css'
 const DELETE_CONFIRM_SUPPRESS_KEY = 'moros-delete-confirm-suppressed'
 const MULTI_SELECT_CLICK_GUARD_MS = 360
 const FILE_TREE_SESSION_CACHE_KEY = 'moros-sidebar-file-tree-cache-v1'
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
 
 function Sidebar({ 
   collapsed, 
@@ -66,7 +68,6 @@ function Sidebar({
   const [searchResults, setSearchResults] = useState([])
   const [showSearchPanel, setShowSearchPanel] = useState(false)
   const [searchLoading, setSearchLoading] = useState(false)
-  const [showColorPicker, setShowColorPicker] = useState(null) // { item, x, y }
   const fileTreeRef = React.useRef(null)
   const loadFileTreeRef = React.useRef(null)
   const initialFileTreeLoadedRef = React.useRef(fileTree.length > 0)
@@ -84,7 +85,6 @@ function Sidebar({
   const [createMenu, setCreateMenu] = useState(null) // 用于显示创建菜单 { x, y, type: 'new-actions', parentPath }
   const contextMenuRef = React.useRef(null)
   const createMenuRef = React.useRef(null)
-  const colorPickerRef = React.useRef(null)
   const { t } = useI18n()
   const legacyMigrationAttemptedRef = React.useRef(false)
   // 多选：模式与选中集合
@@ -1131,22 +1131,65 @@ function Sidebar({
     try {
       await filesApi.setFolderColor(item.path, color)
       await loadFileTree()
-      setShowColorPicker(null)
       setContextMenu(null)
+      if (isPathInSkillArea(item.path)) {
+        window.dispatchEvent(new CustomEvent('moros:skills-updated'))
+      }
     } catch (error) {
       alert('设置颜色失败: ' + error.message)
     }
   }
 
-  // 显示颜色选择器
+
+  const skillCoverInputRef = React.useRef(null)
+  const nativeColorInputRef = React.useRef(null)
+  const pendingColorItemRef = React.useRef(null)
+
   const handleShowColorPicker = (e, item) => {
     e.stopPropagation()
-    setShowColorPicker({
-      item,
-      x: e.clientX,
-      y: e.clientY
-    })
+    if (isPathInSkillArea(item.path)) {
+      pendingColorItemRef.current = item
+      if (skillCoverInputRef.current) {
+        skillCoverInputRef.current.value = ''
+        skillCoverInputRef.current.click()
+      }
+    } else {
+      pendingColorItemRef.current = item
+      if (nativeColorInputRef.current) {
+        nativeColorInputRef.current.value = String(item?.color || '#3b82f6')
+        nativeColorInputRef.current.click()
+      }
+    }
   }
+
+  const handleNativeColorChange = async (e) => {
+    const color = String(e?.target?.value || '').trim()
+    const item = pendingColorItemRef.current
+    if (!item) return
+    if (!color) return
+    try {
+      await filesApi.setFolderColor(item.path, color)
+      await loadFileTree()
+    } catch (error) {
+      console.warn('设置颜色失败:', error)
+    }
+  }
+
+  const handleSkillCoverFileChange = async (event) => {
+    const file = event?.target?.files?.[0]
+    if (event?.target) event.target.value = ''
+    const folderItem = pendingColorItemRef.current
+    if (!folderItem || !file) return
+    try {
+      const uploaded = await filesApi.uploadFile(file, folderItem.path, true)
+      await filesApi.setFolderCoverImage(folderItem.path, uploaded.path)
+      await loadFileTree({ showLoading: false })
+      window.dispatchEvent(new CustomEvent('moros:skills-updated'))
+    } catch (error) {
+      alert('上传 Skill 图标失败: ' + (error?.message || '未知错误'))
+    }
+  }
+
 
   const resolveCreateParentPath = (item) => {
     if (!item) return undefined
@@ -1252,21 +1295,10 @@ function Sidebar({
   }, [createMenu?.x, createMenu?.y, createMenu?.type, createMenu?.parentPath])
 
   useEffect(() => {
-    if (!showColorPicker || !colorPickerRef.current) return
-    const next = getSmartPopupPosition(showColorPicker.x, showColorPicker.y, colorPickerRef.current)
-    if (next.x !== showColorPicker.x || next.y !== showColorPicker.y) {
-      setShowColorPicker((prev) => (prev ? { ...prev, x: next.x, y: next.y } : prev))
-    }
-  }, [showColorPicker?.x, showColorPicker?.y, showColorPicker?.item?.path])
-
-  // 关闭右键菜单、颜色选择器、创建菜单，以及退出多选模式
-  useEffect(() => {
     const handleClickOutside = (e) => {
-      // 检查是否点击在文件项上（允许切换选择状态）
       const isFileItem = e.target.closest('.file-item')
       
       setContextMenu(null)
-      setShowColorPicker(null)
       setCreateMenu(null)
       
       // 如果不是点击文件项，且处于多选模式，则退出多选模式
@@ -1279,6 +1311,7 @@ function Sidebar({
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [multiSelectMode])
+
 
   return (
     <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -1916,30 +1949,20 @@ function Sidebar({
         </div>
       )}
 
-      {/* 设置模态已移除，统一在主内容页中展示设置 */}
-
-      {/* 颜色选择器 */}
-      {showColorPicker && (
-        <div 
-          className="color-picker"
-          ref={colorPickerRef}
-          style={{ left: showColorPicker.x, top: showColorPicker.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {[
-            '#94a3b8', '#ef4444', '#f97316', '#eab308', 
-            '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', 
-            '#ec4899', '#6b7280', '#84cc16', '#f59e0b'
-          ].map((color, index) => (
-            <button
-              key={`${color}-${index}`}
-              className="color-option"
-              style={{ backgroundColor: color }}
-              onClick={() => handleSetFolderColor(showColorPicker.item, index === 0 ? null : color)}
-            />
-          ))}
-        </div>
-      )}
+      {/* Skill 图标上传的隐藏 input */}
+      <input
+        ref={skillCoverInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleSkillCoverFileChange}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={nativeColorInputRef}
+        type="color"
+        onChange={handleNativeColorChange}
+        style={{ position: 'fixed', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
+      />
       
       
       {/* 悬浮预览 */}

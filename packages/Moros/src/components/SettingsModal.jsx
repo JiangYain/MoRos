@@ -4,9 +4,11 @@ import {
   CircleUserRound,
   SlidersHorizontal,
   PlugZap,
+  Puzzle,
   X,
 } from 'lucide-react'
 import { useI18n } from '../utils/i18n'
+import { filesApi } from '../utils/api'
 import { getDifyApiKey, getDifyBaseUrl, setDifyApiKey, setDifyBaseUrl, testDifyConnection } from '../utils/dify'
 import { getMorosBaseUrl, getMorosApiKey, setMorosBaseUrl, setMorosApiKey, testMorosConnection } from '../utils/markovImage'
 import {
@@ -35,6 +37,25 @@ import {
   testOpenAICodexConnection,
 } from '../utils/openaiCodex'
 import LanguageSelector from './LanguageSelector'
+
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
+const VSCODE_ICONS_BASE_URL = 'https://cdn.jsdelivr.net/gh/vscode-icons/vscode-icons/icons'
+const DEFAULT_SKILL_ICON_BY_NAME = {
+  'skill-creator': '/assets/model-icons/claude.png',
+  excalidraw: '/assets/file-icons/excaildrawlogo.png',
+  pdf: `${VSCODE_ICONS_BASE_URL}/file_type_pdf.svg`,
+  pptx: `${VSCODE_ICONS_BASE_URL}/file_type_powerpoint.svg`,
+  xlsx: `${VSCODE_ICONS_BASE_URL}/file_type_excel.svg`,
+}
+
+const normalizePath = (value) => String(value || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+const isAbsolutePath = (value) => ABSOLUTE_PATH_PATTERN.test(String(value || '').trim())
+const resolveDefaultSkillIconUrl = (skill) => {
+  const skillName = String(skill?.name || skill?.id || '')
+    .trim()
+    .toLowerCase()
+  return DEFAULT_SKILL_ICON_BY_NAME[skillName] || ''
+}
 
 const AccountSettings = ({ avatar, onAvatarChange, username, onUsernameChange }) => {
   const { t } = useI18n()
@@ -817,6 +838,219 @@ const IntegrationsSettings = () => {
   )
 }
 
+const SkillsSettings = () => {
+  const [presets, setPresets] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [installingId, setInstallingId] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+
+  const SkillPresetIcon = ({ preset }) => {
+    const [coverFailed, setCoverFailed] = useState(false)
+    const [defaultFailed, setDefaultFailed] = useState(false)
+    const coverPath = String(preset?.coverImagePath || '').trim()
+    const coverIconUrl = coverPath
+      ? (isAbsolutePath(coverPath) ? filesApi.getRawAbsoluteFileUrl(coverPath) : filesApi.getRawFileUrl(coverPath))
+      : ''
+    const fallbackIconUrl = resolveDefaultSkillIconUrl(preset)
+    const preferredCoverUrl = coverFailed ? '' : coverIconUrl
+    const fallbackUrl = defaultFailed ? '' : fallbackIconUrl
+    const iconUrl = preferredCoverUrl || fallbackUrl
+    const isUsingCoverIcon = Boolean(preferredCoverUrl)
+    const fallback = String(preset?.name || preset?.id || '?').trim().charAt(0).toUpperCase()
+    const iconAccentColor = String(preset?.color || '').trim()
+
+    useEffect(() => {
+      setCoverFailed(false)
+      setDefaultFailed(false)
+    }, [coverPath, fallbackIconUrl])
+
+    return (
+      <span
+        className="skill-preset-icon"
+        style={iconAccentColor ? { boxShadow: `inset 0 0 0 1px ${iconAccentColor}` } : undefined}
+        aria-hidden
+      >
+        {iconUrl ? (
+          <img
+            src={iconUrl}
+            alt=""
+            className="skill-preset-icon-image"
+            loading="lazy"
+            onError={() => {
+              if (isUsingCoverIcon) {
+                setCoverFailed(true)
+              } else {
+                setDefaultFailed(true)
+              }
+            }}
+          />
+        ) : (
+          <span className="skill-preset-icon-fallback">{fallback || '?'}</span>
+        )}
+      </span>
+    )
+  }
+
+  const loadPresets = useCallback(async () => {
+    try {
+      setLoading(true)
+      setErrorMessage('')
+      const [items, fileTree] = await Promise.all([
+        filesApi.getSkillPresets(),
+        filesApi.getFileTree(),
+      ])
+      const folderMap = new Map(
+        (Array.isArray(fileTree) ? fileTree : [])
+          .filter((node) => node?.type === 'folder')
+          .map((node) => [normalizePath(node?.path).toLowerCase(), node]),
+      )
+      const nextItems = (Array.isArray(items) ? items : []).map((preset) => {
+        const presetPath = normalizePath(preset?.path || `skills/${preset?.id || ''}`).toLowerCase()
+        const folderNode = folderMap.get(presetPath)
+        return {
+          ...preset,
+          color: String(folderNode?.color || '').trim() || undefined,
+          coverImagePath: String(folderNode?.coverImagePath || '').trim() || undefined,
+        }
+      })
+      setPresets(nextItems)
+    } catch (error) {
+      setErrorMessage(error?.message || '读取 Skills 列表失败')
+      setPresets([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadPresets()
+  }, [loadPresets])
+
+  const handleInstallPreset = async (presetId) => {
+    if (!presetId || installingId) return
+    try {
+      setInstallingId(presetId)
+      setErrorMessage('')
+      await filesApi.installSkillPreset(presetId)
+      await loadPresets()
+      window.dispatchEvent(new CustomEvent('moros:file-tree-refresh-request', {
+        detail: { source: 'settings-skill-install' },
+      }))
+      window.dispatchEvent(new CustomEvent('moros:skills-updated'))
+    } catch (error) {
+      setErrorMessage(error?.message || '安装 Skill 失败')
+    } finally {
+      setInstallingId('')
+    }
+  }
+
+  const handleUninstallPreset = async (preset) => {
+    const folderPath = String(preset?.path || `skills/${preset?.folderName || preset?.id || ''}`).trim()
+    if (!folderPath || installingId) return
+    try {
+      setInstallingId(String(preset?.id || ''))
+      await filesApi.deleteItem(folderPath)
+      await loadPresets()
+      window.dispatchEvent(new CustomEvent('moros:file-tree-refresh-request', {
+        detail: { source: 'settings-skill-uninstall' },
+      }))
+      window.dispatchEvent(new CustomEvent('moros:skills-updated'))
+    } catch (error) {
+      setErrorMessage(error?.message || '卸载 Skill 失败')
+    } finally {
+      setInstallingId('')
+    }
+  }
+
+  const installedPresets = presets.filter((p) => p?.installed)
+  const notInstalledPresets = presets.filter((p) => !p?.installed)
+
+  const renderRow = (preset) => {
+    const presetId = String(preset?.id || '')
+    const isInstalled = Boolean(preset?.installed)
+    const isBusy = installingId === presetId
+    return (
+      <div key={presetId} className="skill-row">
+        <SkillPresetIcon preset={preset} />
+        <div className="skill-row-meta">
+          <span className="skill-row-name">{preset?.name || presetId}</span>
+          <span className="skill-row-desc">{preset?.description || ''}</span>
+        </div>
+        <div className="skill-row-action">
+          {isInstalled ? (
+            <label className="skill-toggle">
+              <input
+                type="checkbox"
+                checked
+                disabled={isBusy}
+                onChange={() => handleUninstallPreset(preset)}
+              />
+              <span className="skill-toggle-track" />
+            </label>
+          ) : (
+            <button
+              type="button"
+              className="skill-row-install-btn"
+              disabled={isBusy}
+              onClick={() => handleInstallPreset(presetId)}
+              title="Install"
+            >
+              {isBusy ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spinnerRotate 0.8s linear infinite' }}>
+                  <circle cx="7" cy="7" r="5.5" stroke="var(--border-color)" strokeWidth="1" />
+                  <path d="M7 1.5a5.5 5.5 0 0 1 5.5 5.5" stroke="var(--text-primary)" strokeWidth="1" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 3v8M3 7h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="settings-view skills-view">
+      <h1 className="settings-view-title">Skills</h1>
+      <p className="settings-view-subtitle">Give MoRos superpowers</p>
+
+      {errorMessage && (
+        <div className="settings-card skills-error-card">
+          {errorMessage}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="skills-loading">Loading skills...</div>
+      ) : presets.length === 0 ? (
+        <div className="skills-loading">No skills available</div>
+      ) : (
+        <>
+          {installedPresets.length > 0 && (
+            <div className="skills-group">
+              <h3 className="skills-group-title">Installed</h3>
+              <div className="skills-grid">
+                {installedPresets.map((preset) => renderRow(preset))}
+              </div>
+            </div>
+          )}
+          {notInstalledPresets.length > 0 && (
+            <div className="skills-group">
+              <h3 className="skills-group-title">Available</h3>
+              <div className="skills-grid">
+                {notInstalledPresets.map((preset) => renderRow(preset))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 const SettingsModal = ({ isOpen, onClose, ...props }) => {
   const {
     avatar, onAvatarChange,
@@ -880,6 +1114,8 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
         )
       case 'integrations':
         return <IntegrationsSettings />
+      case 'skills':
+        return <SkillsSettings />
       default:
         return null
     }
@@ -922,6 +1158,13 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
           >
             <span className="settings-nav-item-icon" aria-hidden><PlugZap size={15} /></span>
             <span className="settings-nav-item-label">{t('settings.integrations') || 'Integrations'}</span>
+          </button>
+          <button
+            className={`settings-nav-item ${activeCategory === 'skills' ? 'active' : ''}`}
+            onClick={() => setActiveCategory('skills')}
+          >
+            <span className="settings-nav-item-icon" aria-hidden><Puzzle size={15} /></span>
+            <span className="settings-nav-item-label">Skills</span>
           </button>
         </aside>
 
