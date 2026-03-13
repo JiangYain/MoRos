@@ -46,7 +46,7 @@ jobs:
         run: npm ci
 
       - name: Run quality checks
-        run: npm run check
+        run: npm run check:ci
 
   workspace-tests:
     name: Workspace Tests
@@ -146,3 +146,35 @@ jobs:
             packages/Moros/dist
             packages/Moros/dist/server
           if-no-files-found: ignore
+
+  moros-e2e-smoke:
+    name: Moros E2E Smoke
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Moros
+        run: npm run build
+        working-directory: packages/Moros
+
+      - name: Run Moros E2E smoke tests
+        run: xvfb-run -a npm --prefix packages/Moros run test:e2e
