@@ -1708,6 +1708,7 @@ function ChatInterface({
           artifactsError={artifactsError}
           artifactSearchTerm={artifactSearchTerm}
           onArtifactSearchTermChange={setArtifactSearchTerm}
+          artifactEntries={artifactEntries}
           filteredArtifactEntries={filteredArtifactEntries}
           activeArtifactId={activeArtifactId}
           onSelectArtifact={(artifactId) => {

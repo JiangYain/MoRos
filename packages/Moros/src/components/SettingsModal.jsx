@@ -2,9 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import './SettingsModal.css'
 import {
   CircleUserRound,
-  SlidersHorizontal,
-  PlugZap,
-  Puzzle,
   X,
 } from 'lucide-react'
 import { useI18n } from '../utils/i18n'
@@ -1142,28 +1139,24 @@ const SettingsModal = ({ isOpen, onClose, ...props }) => {
             className={`settings-nav-item ${activeCategory === 'account' ? 'active' : ''}`}
             onClick={() => setActiveCategory('account')}
           >
-            <span className="settings-nav-item-icon" aria-hidden><CircleUserRound size={15} /></span>
             <span className="settings-nav-item-label">{t('settings.profile') || 'Account'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveCategory('settings')}
           >
-            <span className="settings-nav-item-icon" aria-hidden><SlidersHorizontal size={15} /></span>
             <span className="settings-nav-item-label">{t('settings.app_settings') || 'Settings'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'integrations' ? 'active' : ''}`}
             onClick={() => setActiveCategory('integrations')}
           >
-            <span className="settings-nav-item-icon" aria-hidden><PlugZap size={15} /></span>
             <span className="settings-nav-item-label">{t('settings.integrations') || 'Integrations'}</span>
           </button>
           <button
             className={`settings-nav-item ${activeCategory === 'skills' ? 'active' : ''}`}
             onClick={() => setActiveCategory('skills')}
           >
-            <span className="settings-nav-item-icon" aria-hidden><Puzzle size={15} /></span>
             <span className="settings-nav-item-label">Skills</span>
           </button>
         </aside>

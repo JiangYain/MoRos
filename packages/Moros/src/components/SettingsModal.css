@@ -88,7 +88,7 @@
   min-height: 36px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -117,10 +117,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: "Helvetica Neue", "Noto Sans SC", "Noto Sans", Helvetica, Arial, sans-serif;
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  font-family: "Cormorant Garamond", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 16px;
+  font-weight: 300;
+  letter-spacing: 0.5px;
 }
 
 .settings-nav-item:hover {
@@ -155,10 +156,11 @@
 .settings-view-title {
   margin: 0;
   font-size: 24px;
-  font-weight: 400;
+  font-weight: 300;
   color: var(--text-primary);
-  font-family: "Helvetica Neue", "Noto Sans SC", "Noto Sans", Helvetica, Arial, sans-serif;
-  letter-spacing: -0.01em;
+  font-family: "Cormorant Garamond", "Times New Roman", serif;
+  font-style: italic;
+  letter-spacing: 0.5px;
 }
 
 .settings-view-subtitle {

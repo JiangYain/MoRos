@@ -154,7 +154,8 @@
   }
 
   .chat-top-actions {
-    padding: 10px 20px 0;
+    padding: 0 20px;
+    min-height: 40px;
   }
 
   .chat-artifacts-panel {

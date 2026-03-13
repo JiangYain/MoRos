@@ -151,7 +151,7 @@ filesRouter.put('/rename/:path(*)', async (req, res) => {
     res.json({ success: true, data: updatedItem })
   } catch (error) {
     console.error('重命名失败:', error)
-    res.status(500).json({ success: false, error: '重命名失败' })
+    res.status(500).json({ success: false, error: (error as Error).message || '重命名失败' })
   }
 })
 

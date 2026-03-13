@@ -958,6 +958,91 @@ function Sidebar({
     })
   }
 
+  const normalizeTreePath = (value) => {
+    return String(value || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .trim()
+  }
+
+  const remapPrefixPath = (sourcePath, fromPrefix, toPrefix) => {
+    if (!sourcePath || !fromPrefix || !toPrefix) return sourcePath
+    if (sourcePath === fromPrefix) return toPrefix
+    if (sourcePath.startsWith(`${fromPrefix}/`)) {
+      return `${toPrefix}${sourcePath.slice(fromPrefix.length)}`
+    }
+    return sourcePath
+  }
+
+  const applyRenamePayloadToTree = (oldPath, newPath, renamed) => {
+    if (!oldPath) return
+    setFileTree((prevTree) => {
+      const mapNode = (node) => {
+        const originalPath = normalizeTreePath(node?.path)
+        const nextNode = { ...node }
+
+        if (originalPath === oldPath) {
+          nextNode.isEditing = false
+          if (renamed) {
+            nextNode.path = newPath
+            nextNode.id = newPath
+            const baseName = String(newPath || '').split('/').pop()
+            if (baseName) nextNode.name = baseName
+          }
+        } else if (renamed) {
+          if (originalPath && originalPath.startsWith(`${oldPath}/`)) {
+            const remappedPath = remapPrefixPath(originalPath, oldPath, newPath)
+            nextNode.path = remappedPath
+            nextNode.id = remappedPath
+          }
+          const parentPath = normalizeTreePath(nextNode?.parentId)
+          if (parentPath) {
+            nextNode.parentId = remapPrefixPath(parentPath, oldPath, newPath)
+          }
+        }
+
+        if (Array.isArray(node?.children) && node.children.length > 0) {
+          nextNode.children = node.children.map((child) => mapNode(child))
+        }
+        return nextNode
+      }
+
+      const nextTree = prevTree.map((node) => mapNode(node))
+      persistFileTreeSnapshot(nextTree)
+      return nextTree
+    })
+  }
+
+  const handleFileTreeItemRenamed = async (payload = {}) => {
+    const oldPath = normalizeTreePath(payload?.oldPath)
+    const newPath = normalizeTreePath(payload?.newPath)
+    const renamed = Boolean(payload?.renamed && oldPath && newPath && oldPath !== newPath)
+
+    // 立即在前端更新显示，避免等待全量树刷新导致 rename 体感变慢
+    applyRenamePayloadToTree(oldPath, newPath || oldPath, renamed)
+
+    if (renamed) {
+      const currentWorkspacePaths = getWorkspacePaths()
+        .map((p) => normalizeTreePath(p))
+        .filter(Boolean)
+      const remappedWorkspacePaths = currentWorkspacePaths.map((workspacePath) => {
+        return remapPrefixPath(workspacePath, oldPath, newPath)
+      })
+      const workspaceChanged = remappedWorkspacePaths.some((value, index) => value !== currentWorkspacePaths[index])
+      if (workspaceChanged) {
+        try {
+          await saveWorkspacePaths(remappedWorkspacePaths)
+        } catch (error) {
+          console.warn('更新 Workspace 路径映射失败:', error)
+        }
+      }
+    }
+
+    if (renamed) {
+      void loadFileTree({ showLoading: false, preserveScroll: true, fresh: false })
+    }
+  }
+
   // 自定义删除确认模态
   const [deleteConfirmSuppressed, setDeleteConfirmSuppressed] = useState(() => {
     try {
@@ -1170,9 +1255,10 @@ function Sidebar({
     return { x, y }
   }, [])
 
-  const commitNativeColor = React.useCallback(async (rawColor) => {
+  const commitNativeColor = React.useCallback(async (rawColor, snapshotItem) => {
     const color = String(rawColor || '').trim()
-    const item = pendingColorItemRef.current
+    // 优先使用快照的 item（避免 blur 事件中 ref 已被切换到另一个文件夹）
+    const item = snapshotItem || pendingColorItemRef.current
     if (!item || !color) return
 
     const commitKey = `${String(item.path || '').trim().toLowerCase()}|${color.toLowerCase()}`
@@ -1187,6 +1273,9 @@ function Sidebar({
     }
   }, [loadFileTree])
 
+  // 记录打开颜色选择器时对应的 item，防止 blur/change 触发时 ref 已被切换
+  const colorPickerBoundItemRef = React.useRef(null)
+
   const handleShowColorPicker = (e, item) => {
     e.stopPropagation()
     if (isPathInSkillArea(item.path)) {
@@ -1197,6 +1286,7 @@ function Sidebar({
       }
     } else {
       pendingColorItemRef.current = item
+      colorPickerBoundItemRef.current = item
       if (nativeColorInputRef.current) {
         const nextColor = String(item?.color || '#3b82f6')
         const iconRect = e?.currentTarget?.getBoundingClientRect?.()
@@ -1206,7 +1296,6 @@ function Sidebar({
         nativeColorValueRef.current = nextColor
         nativeColorCommitKeyRef.current = ''
 
-        // Delay click to ensure updated anchor style is applied first.
         requestAnimationFrame(() => {
           if (!nativeColorInputRef.current) return
           nativeColorInputRef.current.value = nextColor
@@ -1224,7 +1313,7 @@ function Sidebar({
   const handleNativeColorChange = (e) => {
     const color = String(e?.target?.value || '').trim()
     nativeColorValueRef.current = color || nativeColorValueRef.current
-    void commitNativeColor(color || nativeColorValueRef.current)
+    void commitNativeColor(color || nativeColorValueRef.current, colorPickerBoundItemRef.current)
   }
 
   const handleNativeColorKeyDown = (e) => {
@@ -1232,15 +1321,16 @@ function Sidebar({
       e.preventDefault()
       const current = String(nativeColorInputRef.current?.value || nativeColorValueRef.current || '').trim()
       nativeColorValueRef.current = current || nativeColorValueRef.current
-      void commitNativeColor(current || nativeColorValueRef.current)
+      void commitNativeColor(current || nativeColorValueRef.current, colorPickerBoundItemRef.current)
     }
   }
 
   const handleNativeColorBlur = () => {
     const current = String(nativeColorInputRef.current?.value || nativeColorValueRef.current || '').trim()
+    const boundItem = colorPickerBoundItemRef.current
     nativeColorValueRef.current = current || nativeColorValueRef.current
-    if (current) {
-      void commitNativeColor(current)
+    if (current && boundItem) {
+      void commitNativeColor(current, boundItem)
     }
   }
 
@@ -1525,7 +1615,7 @@ function Sidebar({
                     item={item}
                     onFileClick={onFileClick}
                     onContextMenu={handleContextMenu}
-                    onRename={loadFileTree}
+                    onRename={handleFileTreeItemRenamed}
                     creatingItem={creatingItem}
                     onFinishCreating={handleFinishCreating}
                     onCancelCreating={handleCancelCreating}
@@ -1608,7 +1698,7 @@ function Sidebar({
                           item={item}
                           onFileClick={onFileClick}
                           onContextMenu={handleContextMenu}
-                          onRename={loadFileTree}
+                          onRename={handleFileTreeItemRenamed}
                           creatingItem={creatingItem}
                           onFinishCreating={handleFinishCreating}
                           onCancelCreating={handleCancelCreating}
@@ -1691,7 +1781,7 @@ function Sidebar({
                           item={item}
                           onFileClick={onFileClick}
                           onContextMenu={handleContextMenu}
-                          onRename={loadFileTree}
+                          onRename={handleFileTreeItemRenamed}
                           creatingItem={creatingItem}
                           onFinishCreating={handleFinishCreating}
                           onCancelCreating={handleCancelCreating}
@@ -1782,7 +1872,7 @@ function Sidebar({
                             item={item}
                             onFileClick={onFileClick}
                             onContextMenu={handleContextMenu}
-                            onRename={loadFileTree}
+                            onRename={handleFileTreeItemRenamed}
                             creatingItem={creatingItem}
                             onFinishCreating={handleFinishCreating}
                             onCancelCreating={handleCancelCreating}
@@ -1874,7 +1964,7 @@ function Sidebar({
                             item={item}
                             onFileClick={onFileClick}
                             onContextMenu={handleContextMenu}
-                            onRename={loadFileTree}
+                            onRename={handleFileTreeItemRenamed}
                             creatingItem={creatingItem}
                             onFinishCreating={handleFinishCreating}
                             onCancelCreating={handleCancelCreating}

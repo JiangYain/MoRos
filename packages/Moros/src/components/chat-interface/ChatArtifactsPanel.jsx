@@ -7,11 +7,14 @@ import '@excalidraw/excalidraw/index.css'
 
 function ArtifactPreviewPane({
   activeArtifact,
+  activeArtifactId,
+  previewTabs,
   activeArtifactUrl,
   activeArtifactRawUrl,
   activeArtifactExtension,
   activeArtifactIsImage,
-  onClosePreview,
+  onSelectPreviewTab,
+  onClosePreviewTab,
   onRevealArtifact,
   showRevealAction = false,
 }) {
@@ -115,15 +118,54 @@ function ArtifactPreviewPane({
   return (
     <>
       <div className="chat-artifacts-content-header">
-        <div className="chat-artifacts-content-tab">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
-          <span>{activeArtifact.name}</span>
-          <button
-            type="button"
-            className="chat-artifacts-tab-close"
-            onClick={onClosePreview}
-            aria-label="关闭预览"
-          >×</button>
+        <div className="chat-artifacts-content-tabs">
+          {previewTabs.map((tab) => {
+            const isActive = tab.id === activeArtifactId
+            const tabPathValue = tab.relativePath || tab.path
+            return (
+              <div
+                key={tab.id}
+                className={`chat-artifacts-content-tab ${isActive ? 'active' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectPreviewTab?.(tab.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelectPreviewTab?.(tab.id)
+                  }
+                }}
+                title={tab.name}
+              >
+                <span className="chat-artifacts-content-tab-icon">
+                  <FileTypeIcon
+                    pathValue={tabPathValue}
+                    nameValue={tab.name}
+                    isFolder={false}
+                    isUrl={tab.artifactType === 'url'}
+                    className="chat-artifact-file-icon-image"
+                  />
+                </span>
+                <span className="chat-artifacts-content-tab-name">{tab.name}</span>
+                <button
+                  type="button"
+                  className="chat-artifacts-tab-close"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onClosePreviewTab?.(tab.id)
+                  }}
+                  aria-label={`关闭 ${tab.name}`}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+          {previewTabs.length === 0 && (
+            <div className="chat-artifacts-content-tab empty">
+              <span className="chat-artifacts-content-tab-name">未打开预览标签</span>
+            </div>
+          )}
         </div>
         <div className="chat-artifacts-content-actions">
           {showRevealAction && activeArtifact.relativePath && (
@@ -267,6 +309,7 @@ function ChatArtifactsPanel({
   artifactsError,
   artifactSearchTerm,
   onArtifactSearchTermChange,
+  artifactEntries,
   filteredArtifactEntries,
   activeArtifactId,
   onSelectArtifact,
@@ -279,6 +322,50 @@ function ChatArtifactsPanel({
   onClosePreview,
   onRevealArtifact,
 }) {
+  const [previewTabIds, setPreviewTabIds] = useState([])
+
+  useEffect(() => {
+    if (!activeArtifactId) return
+    setPreviewTabIds((prev) => (prev.includes(activeArtifactId) ? prev : [...prev, activeArtifactId]))
+  }, [activeArtifactId])
+
+  useEffect(() => {
+    const validIds = new Set((artifactEntries || []).map((entry) => entry.id))
+    setPreviewTabIds((prev) => prev.filter((id) => validIds.has(id)))
+  }, [artifactEntries])
+
+  const previewTabs = useMemo(() => {
+    const entryMap = new Map((artifactEntries || []).map((entry) => [entry.id, entry]))
+    return previewTabIds
+      .map((tabId) => entryMap.get(tabId))
+      .filter(Boolean)
+  }, [artifactEntries, previewTabIds])
+
+  const handleSelectPreviewTab = (artifactId) => {
+    if (!artifactId) return
+    onSelectArtifact?.(artifactId)
+    onTabChange?.('preview')
+  }
+
+  const handleClosePreviewTab = (artifactId) => {
+    if (!artifactId) return
+    setPreviewTabIds((prev) => {
+      const currentIndex = prev.indexOf(artifactId)
+      if (currentIndex < 0) return prev
+      const next = prev.filter((id) => id !== artifactId)
+      if (artifactId === activeArtifactId) {
+        const fallbackId = next[currentIndex] || next[currentIndex - 1] || ''
+        if (fallbackId) {
+          onSelectArtifact?.(fallbackId)
+          onTabChange?.('preview')
+        } else {
+          onClosePreview?.()
+        }
+      }
+      return next
+    })
+  }
+
   if (!open) return null
 
   return (
@@ -372,11 +459,14 @@ function ChatArtifactsPanel({
           <div className="chat-artifacts-content">
             <ArtifactPreviewPane
               activeArtifact={activeArtifact}
+              activeArtifactId={activeArtifactId}
+              previewTabs={previewTabs}
               activeArtifactUrl={activeArtifactUrl}
               activeArtifactRawUrl={activeArtifactRawUrl}
               activeArtifactExtension={activeArtifactExtension}
               activeArtifactIsImage={activeArtifactIsImage}
-              onClosePreview={onClosePreview}
+              onSelectPreviewTab={handleSelectPreviewTab}
+              onClosePreviewTab={handleClosePreviewTab}
               onRevealArtifact={onRevealArtifact}
             />
           </div>
@@ -388,11 +478,14 @@ function ChatArtifactsPanel({
           <div className="chat-artifacts-content" style={{ flex: 1 }}>
             <ArtifactPreviewPane
               activeArtifact={activeArtifact}
+              activeArtifactId={activeArtifactId}
+              previewTabs={previewTabs}
               activeArtifactUrl={activeArtifactUrl}
               activeArtifactRawUrl={activeArtifactRawUrl}
               activeArtifactExtension={activeArtifactExtension}
               activeArtifactIsImage={activeArtifactIsImage}
-              onClosePreview={onClosePreview}
+              onSelectPreviewTab={handleSelectPreviewTab}
+              onClosePreviewTab={handleClosePreviewTab}
               onRevealArtifact={onRevealArtifact}
               showRevealAction
             />

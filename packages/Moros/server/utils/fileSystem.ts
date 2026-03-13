@@ -11,6 +11,9 @@ const METADATA_FILE = '.metadata.json'
 const LEGACY_WORKSPACE_CONFIG_FILE = '.moros-workspaces.json'
 const GLOBAL_SETTINGS_FILE = '.moros-settings.json'
 const FILE_TREE_CACHE_TTL_MS = 3000
+const RENAME_RETRY_MAX_ATTEMPTS = 6
+const RENAME_RETRY_BASE_DELAY_MS = 60
+const REMOVE_RETRY_MAX_ATTEMPTS = 10
 
 type DirectoryMetadataEntry = {
   color?: string
@@ -36,6 +39,101 @@ function resolveDataPath(targetPath: string): string {
     return fullPath
   }
   throw new Error('非法路径')
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath)
+    return true
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+function isSameFileSystemPath(leftPath: string, rightPath: string): boolean {
+  const left = path.resolve(leftPath)
+  const right = path.resolve(rightPath)
+  if (process.platform === 'win32') {
+    return left.toLowerCase() === right.toLowerCase()
+  }
+  return left === right
+}
+
+function isRetryableRenameError(error: any): boolean {
+  const code = String(error?.code || '')
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
+}
+
+async function removePathWithRetry(
+  targetPath: string,
+  options: { recursive?: boolean; force?: boolean } = {},
+): Promise<void> {
+  const recursive = Boolean(options.recursive)
+  const force = options.force ?? true
+  for (let attempt = 1; attempt <= REMOVE_RETRY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await fs.rm(targetPath, { recursive, force })
+      return
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return
+      const retryable = isRetryableRenameError(error) || error?.code === 'ENOTEMPTY'
+      if (!retryable || attempt >= REMOVE_RETRY_MAX_ATTEMPTS) {
+        throw error
+      }
+      const waitMs = Math.min(RENAME_RETRY_BASE_DELAY_MS * Math.pow(1.5, attempt - 1), 2000)
+      await sleep(waitMs)
+    }
+  }
+}
+
+async function tryRenameWithCopyFallback(oldFullPath: string, newFullPath: string): Promise<boolean> {
+  let sourceStats
+  try {
+    sourceStats = await fs.stat(oldFullPath)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return await pathExists(newFullPath)
+    }
+    return false
+  }
+
+  const sourceIsDirectory = sourceStats.isDirectory()
+  try {
+    if (sourceIsDirectory) {
+      await fs.cp(oldFullPath, newFullPath, { recursive: true, force: false, errorOnExist: true })
+    } else {
+      await fs.copyFile(oldFullPath, newFullPath)
+    }
+  } catch {
+    return false
+  }
+
+  try {
+    await removePathWithRetry(oldFullPath, { recursive: sourceIsDirectory, force: true })
+    return true
+  } catch {
+    // 回滚：复制后删除失败时，尽量删除目标副本，避免出现双份目录
+    try {
+      await removePathWithRetry(newFullPath, { recursive: sourceIsDirectory, force: true })
+    } catch {}
+    return false
+  }
+}
+
+async function shouldUseCopyFallback(sourcePath: string): Promise<boolean> {
+  try {
+    const stats = await fs.stat(sourcePath)
+    if (stats.isFile()) return true
+    if (!stats.isDirectory()) return false
+    // 目录体量过大时，copy+remove 可能显著拖慢操作，优先快速失败并提示重试
+    const entries = await fs.readdir(sourcePath, { withFileTypes: true })
+    return entries.length <= 64
+  } catch {
+    return false
+  }
 }
 
 function normalizeStoredRelativePath(inputPath: string): string {
@@ -291,7 +389,36 @@ export async function deleteItem(itemPath: string): Promise<void> {
   } else {
     await fs.unlink(fullPath)
   }
+
+  // 清理父目录 .metadata.json 中该项的条目
+  try {
+    const parentDir = path.dirname(fullPath)
+    const itemName = path.basename(fullPath)
+    const metadata = await readDirectoryMetadata(parentDir)
+    if (metadata[itemName]) {
+      delete metadata[itemName]
+      await writeDirectoryMetadata(parentDir, metadata)
+    }
+  } catch {
+    // 元数据清理失败不应阻塞删除
+  }
+
   invalidateFileTreeCache()
+}
+
+// 迁移父目录 .metadata.json 中旧名字的条目到新名字
+async function migrateDirectoryMetadataKey(parentDir: string, oldName: string, newName: string): Promise<void> {
+  if (!oldName || !newName || oldName === newName) return
+  try {
+    const metadata = await readDirectoryMetadata(parentDir)
+    const entry = metadata[oldName]
+    if (!entry) return
+    delete metadata[oldName]
+    metadata[newName] = entry
+    await writeDirectoryMetadata(parentDir, metadata)
+  } catch {
+    // 元数据迁移失败不应阻塞重命名
+  }
 }
 
 // 重命名文件或文件夹
@@ -301,19 +428,95 @@ export async function renameItem(oldPath: string, newName: string): Promise<File
     throw new Error('非法名称')
   }
   const parentDir = path.dirname(oldFullPath)
+  const oldName = path.basename(oldFullPath)
   const newFullPath = path.join(parentDir, newName)
 
-  try {
-    await fs.rename(oldFullPath, newFullPath)
-  } catch (error: any) {
-    // 当同一次重命名被重复触发时，可能第一次已成功，第二次 oldPath 不存在
-    if (error?.code !== 'ENOENT') throw error
-    try {
-      await fs.stat(newFullPath)
-    } catch {
-      throw error
+  if (isSameFileSystemPath(oldFullPath, newFullPath)) {
+    const sameStats = await fs.stat(oldFullPath)
+    const sameRelativePath = toRelativePath(oldFullPath)
+    return {
+      id: sameRelativePath,
+      name: path.basename(oldFullPath),
+      type: sameStats.isDirectory() ? 'folder' : 'file',
+      path: sameRelativePath,
+      createdAt: sameStats.birthtime.toISOString(),
+      updatedAt: sameStats.mtime.toISOString(),
+      size: sameStats.isFile() ? sameStats.size : undefined,
     }
   }
+
+  const targetAlreadyExists = await pathExists(newFullPath)
+  if (targetAlreadyExists) {
+    throw new Error(`目标位置已存在同名项目: ${newName}`)
+  }
+
+  // 在重命名前先使缓存失效，避免并发 getFileTree 扫描锁住目录句柄
+  invalidateFileTreeCache()
+
+  let renamed = false
+  let lastRenameError: any = null
+  let waitedTreeInFlight = false
+
+  for (let attempt = 1; attempt <= RENAME_RETRY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await fs.rename(oldFullPath, newFullPath)
+      renamed = true
+      break
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        if (await pathExists(newFullPath)) {
+          renamed = true
+          break
+        }
+        throw error
+      }
+
+      if (error?.code === 'EEXIST' || error?.code === 'ENOTEMPTY') {
+        throw new Error(`目标位置已存在同名项目: ${newName}`)
+      }
+
+      if (!isRetryableRenameError(error)) {
+        throw error
+      }
+
+      lastRenameError = error
+      // 仅在首次可重试失败后，短暂等待正在进行中的文件树扫描
+      if (!waitedTreeInFlight && fileTreeInFlight) {
+        waitedTreeInFlight = true
+        try {
+          await Promise.race([fileTreeInFlight, sleep(180)])
+        } catch {}
+      }
+      if (attempt >= RENAME_RETRY_MAX_ATTEMPTS) {
+        break
+      }
+      // 指数退避: 60, 90, 135, 202, 303（上限 400ms）
+      const waitMs = Math.min(RENAME_RETRY_BASE_DELAY_MS * Math.pow(1.5, attempt - 1), 400)
+      await sleep(waitMs)
+    }
+  }
+
+  // 在 Windows 上，某些环境中 fs.rename 会持续 EPERM；回退到 copy + remove 兜底
+  if (
+    !renamed &&
+    isRetryableRenameError(lastRenameError) &&
+    await shouldUseCopyFallback(oldFullPath)
+  ) {
+    renamed = await tryRenameWithCopyFallback(oldFullPath, newFullPath)
+  }
+
+  if (!renamed) {
+    if (lastRenameError?.code === 'EPERM' || lastRenameError?.code === 'EACCES') {
+      throw new Error(
+        `重命名失败，目标可能被系统或其他程序占用: ${path.basename(oldFullPath)} -> ${newName}`
+      )
+    }
+    throw new Error('重命名失败')
+  }
+
+  // 迁移父目录元数据中旧名字 -> 新名字（保留 color / coverImagePath 等）
+  await migrateDirectoryMetadataKey(parentDir, oldName, newName)
+
   invalidateFileTreeCache()
   
   const stats = await fs.stat(newFullPath)
@@ -352,6 +555,7 @@ export async function moveItem(sourcePath: string, targetParentPath?: string): P
 
   const sourceFullPath = resolveDataPath(sourcePath)
   const itemName = path.basename(sourceFullPath)
+  const sourceParentDir = path.dirname(sourceFullPath)
 
   // 目标目录
   const targetDirPath = resolveDataPath(targetParentPath || '')
@@ -368,9 +572,83 @@ export async function moveItem(sourcePath: string, targetParentPath?: string): P
   } catch (error: any) {
     if (error.code !== 'ENOENT') throw error
   }
+
+  // 读取源父目录的元数据（移动前仅读取，不立刻修改，避免移动失败导致元数据丢失）
+  let itemMetadataEntry: DirectoryMetadataEntry | undefined
+  let sourceMetadataSnapshot: DirectoryMetadata | null = null
+  try {
+    sourceMetadataSnapshot = await readDirectoryMetadata(sourceParentDir)
+    itemMetadataEntry = sourceMetadataSnapshot[itemName]
+  } catch {
+    sourceMetadataSnapshot = null
+  }
+
+  invalidateFileTreeCache()
   
-  // 移动文件/文件夹
-  await fs.rename(sourceFullPath, targetFullPath)
+  // 移动文件/文件夹（带重试，Windows 上同样可能遇到短暂锁）
+  let moved = false
+  let lastMoveError: any = null
+  let waitedTreeInFlight = false
+  for (let attempt = 1; attempt <= RENAME_RETRY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await fs.rename(sourceFullPath, targetFullPath)
+      moved = true
+      break
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        if (await pathExists(targetFullPath)) { moved = true; break }
+        throw error
+      }
+      if (error?.code === 'EEXIST' || error?.code === 'ENOTEMPTY') {
+        throw new Error(`目标位置已存在同名项目: ${itemName}`)
+      }
+      if (!isRetryableRenameError(error)) {
+        throw error
+      }
+      lastMoveError = error
+      if (!waitedTreeInFlight && fileTreeInFlight) {
+        waitedTreeInFlight = true
+        try {
+          await Promise.race([fileTreeInFlight, sleep(180)])
+        } catch {}
+      }
+      if (attempt >= RENAME_RETRY_MAX_ATTEMPTS) {
+        break
+      }
+      await sleep(Math.min(RENAME_RETRY_BASE_DELAY_MS * Math.pow(1.5, attempt - 1), 400))
+    }
+  }
+
+  if (
+    !moved &&
+    isRetryableRenameError(lastMoveError) &&
+    await shouldUseCopyFallback(sourceFullPath)
+  ) {
+    moved = await tryRenameWithCopyFallback(sourceFullPath, targetFullPath)
+  }
+
+  if (!moved) {
+    throw lastMoveError || new Error('移动失败')
+  }
+
+  // 将元数据从源父目录迁移到目标父目录
+  if (itemMetadataEntry) {
+    try {
+      if (sourceParentDir !== targetDirPath) {
+        const sourceMetadata = sourceMetadataSnapshot || await readDirectoryMetadata(sourceParentDir)
+        if (sourceMetadata[itemName]) {
+          delete sourceMetadata[itemName]
+          await writeDirectoryMetadata(sourceParentDir, sourceMetadata)
+        }
+        const targetMetadata = await readDirectoryMetadata(targetDirPath)
+        targetMetadata[itemName] = itemMetadataEntry
+        await writeDirectoryMetadata(targetDirPath, targetMetadata)
+      }
+    } catch {
+      // 元数据写入失败不应阻塞
+    }
+  }
+
   invalidateFileTreeCache()
   
   const stats = await fs.stat(targetFullPath)

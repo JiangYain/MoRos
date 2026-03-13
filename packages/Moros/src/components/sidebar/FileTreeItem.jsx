@@ -56,6 +56,7 @@ function FileTreeItem({
   onEnterMultiSelect,
   onOpenCreateMenu,
   onFolderColorPick,
+  inheritedSkillIconUrl = '',
 }) {
   const { t } = useI18n()
   const expanded = item.type === 'folder' ? expandedFolders.has(item.path) : undefined
@@ -66,17 +67,40 @@ function FileTreeItem({
   const renameCommittedRef = React.useRef(false)
   const indentPx = collapsed ? 8 : (12 + level * 14)
   const childIndentPx = collapsed ? 8 : (12 + (level + 1) * 14)
+  const normalizedItemPath = String(item?.path || '').replace(/\\/g, '/').trim()
+  const pathSegments = normalizedItemPath.split('/').filter(Boolean)
+  const isInSkillTree = item.type === 'folder' && pathSegments[0] === 'skills' && pathSegments.length >= 2
+  const skillRootName = isInSkillTree ? String(pathSegments[1] || '').trim().toLowerCase() : ''
+  const isSkillRootFolder = isInSkillTree && pathSegments.length === 2
+  const isSkillSubFolder = isInSkillTree && pathSegments.length > 2
   const folderCoverPath = String(item?.coverImagePath || '').trim()
   const folderCoverUrl = folderCoverPath
     ? (isAbsolutePath(folderCoverPath)
       ? filesApi.getRawAbsoluteFileUrl(folderCoverPath)
       : filesApi.getRawFileUrl(folderCoverPath))
     : ''
-  const defaultSkillIconUrl = item.type === 'folder'
+  const ownDefaultSkillIconUrl = item.type === 'folder'
     ? (DEFAULT_SKILL_ICON_BY_NAME[String(item.name || '').trim().toLowerCase()] || '')
     : ''
-  const resolvedIconUrl = (folderCoverUrl && !folderCoverFailed) ? folderCoverUrl : defaultSkillIconUrl
+  const rootSkillDefaultIconUrl = skillRootName ? (DEFAULT_SKILL_ICON_BY_NAME[skillRootName] || '') : ''
+  const ownFolderIconUrl = (folderCoverUrl && !folderCoverFailed) ? folderCoverUrl : ownDefaultSkillIconUrl
+  const preferredFolderIconUrl = item.type !== 'folder'
+    ? ''
+    : (isSkillSubFolder
+        ? (inheritedSkillIconUrl || rootSkillDefaultIconUrl || ownFolderIconUrl)
+        : (ownFolderIconUrl || (isSkillRootFolder ? rootSkillDefaultIconUrl : '')))
+  const fallbackFolderIconUrl = isInSkillTree
+    ? (rootSkillDefaultIconUrl || ownDefaultSkillIconUrl)
+    : ownDefaultSkillIconUrl
+  const resolvedIconUrl = item.type !== 'folder'
+    ? ''
+    : ((folderCoverFailed ? '' : preferredFolderIconUrl) || fallbackFolderIconUrl)
   const showFolderIcon = item.type === 'folder' && Boolean(resolvedIconUrl)
+  const childInheritedSkillIconUrl = isInSkillTree
+    ? (isSkillRootFolder
+        ? (resolvedIconUrl || rootSkillDefaultIconUrl)
+        : (inheritedSkillIconUrl || rootSkillDefaultIconUrl || resolvedIconUrl))
+    : ''
 
   useEffect(() => {
     if (item.isEditing) {
@@ -134,6 +158,8 @@ function FileTreeItem({
     renameCommittedRef.current = true
     const raw = editName.trim()
     const nameWithoutExt = (item.name || '').replace(/\.(md|excalidraw|moros)$/i, '')
+    let renamed = false
+    let renamedPath = String(item?.path || '').trim()
     if (raw && raw !== nameWithoutExt) {
       try {
         const hasUserExt = /\.[^\s.]+$/i.test(raw)
@@ -143,13 +169,21 @@ function FileTreeItem({
           else if (/\.excalidraw$/i.test(item.name)) finalName = `${raw}.excalidraw`
           else if (/\.moros$/i.test(item.name)) finalName = `${raw}.MoRos`
         }
-        await filesApi.renameItem(item.path, finalName)
+        const renamedItem = await filesApi.renameItem(item.path, finalName)
+        renamed = true
+        renamedPath = String(renamedItem?.path || '').trim() || renamedPath
       } catch (error) {
         console.error('重命名失败:', error)
+        alert(`重命名失败: ${error?.message || '未知错误'}`)
         setEditName(nameWithoutExt)
       }
     }
-    onRename?.()
+    onRename?.({
+      oldPath: String(item?.path || '').trim(),
+      newPath: renamedPath,
+      renamed,
+      itemType: item?.type,
+    })
   }
 
   const handleKeyDown = (e) => {
@@ -159,7 +193,12 @@ function FileTreeItem({
     } else if (e.key === 'Escape') {
       e.preventDefault()
       renameCommittedRef.current = true
-      onRename?.()
+      onRename?.({
+        oldPath: String(item?.path || '').trim(),
+        newPath: String(item?.path || '').trim(),
+        renamed: false,
+        itemType: item?.type,
+      })
     }
   }
 
@@ -343,6 +382,7 @@ function FileTreeItem({
               onEnterMultiSelect={onEnterMultiSelect}
               onOpenCreateMenu={onOpenCreateMenu}
               onFolderColorPick={onFolderColorPick}
+              inheritedSkillIconUrl={childInheritedSkillIconUrl}
             />
           ))}
         </div>

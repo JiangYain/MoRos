@@ -9,6 +9,7 @@
     "client": "vite",
     "server": "tsx watch server/index.ts",
     "build": "vite build && tsc -p server/tsconfig.json",
+    "test": "node --test --import tsx \"server/tests/*.test.ts\"",
     "preview": "vite preview",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:53210 && electron .\"",
     "build-electron": "npm run build && electron-builder",

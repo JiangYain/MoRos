@@ -44,10 +44,118 @@ const isMarkdownFile = (filePath) => {
   return value.endsWith('.md') || value.endsWith('.markdown')
 }
 
+const isCsvFile = (filePath) => {
+  const value = String(filePath || '').toLowerCase()
+  return value.endsWith('.csv') || value.endsWith('.tsv')
+}
+
+const countSeparatorOutsideQuotes = (line, separator) => {
+  let inQuotes = false
+  let count = 0
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        i += 1
+        continue
+      }
+      inQuotes = !inQuotes
+      continue
+    }
+    if (!inQuotes && ch === separator) {
+      count += 1
+    }
+  }
+  return count
+}
+
+const detectDelimitedSeparator = (rawText, preferTab = false) => {
+  if (preferTab) return '\t'
+  const sampleLines = String(rawText || '')
+    .split(/\r?\n/)
+    .slice(0, 25)
+    .filter((line) => line.trim().length > 0)
+  if (sampleLines.length === 0) return ','
+
+  const candidates = [',', ';', '\t', '|']
+  const scores = candidates.map((separator) => {
+    const counts = sampleLines.map((line) => countSeparatorOutsideQuotes(line, separator))
+    const linesWithSeparator = counts.filter((count) => count > 0).length
+    const total = counts.reduce((sum, current) => sum + current, 0)
+    const average = total / Math.max(sampleLines.length, 1)
+    return {
+      separator,
+      score: linesWithSeparator * 10 + average,
+    }
+  })
+  scores.sort((left, right) => right.score - left.score)
+  return scores[0]?.score > 0 ? scores[0].separator : ','
+}
+
+const parseDelimitedPreview = (rawText, separator, maxRows = 600, maxColumns = 120) => {
+  const text = String(rawText || '')
+  const rows = []
+  let row = []
+  let cell = ''
+  let inQuotes = false
+  let truncated = false
+
+  const pushCell = () => {
+    row.push(cell.replace(/\r/g, ''))
+    cell = ''
+  }
+  const pushRow = () => {
+    pushCell()
+    rows.push(row.slice(0, maxColumns))
+    row = []
+    if (rows.length >= maxRows) {
+      truncated = true
+      return true
+    }
+    return false
+  }
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        cell += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (!inQuotes && ch === separator) {
+      pushCell()
+      continue
+    }
+
+    if (!inQuotes && (ch === '\n' || ch === '\r')) {
+      if (ch === '\r' && text[i + 1] === '\n') i += 1
+      if (pushRow()) break
+      continue
+    }
+
+    cell += ch
+  }
+
+  if (!truncated && (cell.length > 0 || row.length > 0)) {
+    pushCell()
+    rows.push(row.slice(0, maxColumns))
+  }
+
+  const columnCount = rows.reduce((max, current) => Math.max(max, current.length), 0)
+  return { rows, columnCount, truncated }
+}
+
 const isPlainEditorOnlyFile = (filePath) => {
   const value = String(filePath || '').trim()
   if (!value) return false
   if (isMarkdownFile(value)) return false
+  if (isCsvFile(value)) return false
   if (isImageFile(value)) return false
   if (isWhiteboardFile(value)) return false
   if (isChatFile(value)) return false
@@ -224,6 +332,17 @@ function MainContent({
     clearCurrentContext,
   } = useAiStreaming({ getConversationId, setConversationId, clearConversationId, currentFile, language })
   const parentDirName = React.useMemo(() => getParentDirName(currentFile), [currentFile?.path])
+  const csvPreview = useMemo(() => {
+    if (!isCsvFile(currentFile?.path)) return null
+    const preferTab = String(currentFile?.path || '').toLowerCase().endsWith('.tsv')
+    const separator = detectDelimitedSeparator(content, preferTab)
+    const parsed = parseDelimitedPreview(content, separator)
+    return {
+      ...parsed,
+      separator,
+      separatorLabel: separator === '\t' ? 'TAB' : separator,
+    }
+  }, [content, currentFile?.path])
 
   // 仅保留 preview 与 split 两种模式，isEditing 等价于 split
   const isEditing = viewMode === 'split'
@@ -1292,6 +1411,69 @@ function MainContent({
             onArtifactsVisibilityChange={onChatArtifactsVisibilityChange}
             artifactsCloseRequestSeq={artifactsCloseRequestSeq}
           />
+        </div>
+      </main>
+    )
+  }
+
+  if (isCsvFile(currentFile.path)) {
+    const preview = csvPreview || { rows: [], columnCount: 0, truncated: false, separatorLabel: ',', separator: ',' }
+    const rows = Array.isArray(preview.rows) ? preview.rows : []
+    const columnCount = Math.max(0, Number(preview.columnCount || 0))
+    const headerRow = rows[0] || []
+    const bodyRows = rows.slice(1)
+    const normalizedHeader = Array.from({ length: columnCount }, (_, index) => {
+      const raw = String(headerRow[index] ?? '').trim()
+      return raw || `Column ${index + 1}`
+    })
+    const normalizedBody = bodyRows.map((row) =>
+      Array.from({ length: columnCount }, (_, index) => String(row[index] ?? ''))
+    )
+
+    return (
+      <main className="main-content">
+        <div className="content-toolbar">
+          <div className="file-info">
+            {parentDirName && <span className="folder-name">{parentDirName}</span>}
+            {parentDirName && <span className="breadcrumb-sep">›</span>}
+            <span className="file-name">{currentFile.name}</span>
+          </div>
+          <div className="toolbar-meta csv-toolbar-meta">
+            {`CSV · 分隔符 ${preview.separatorLabel} · ${rows.length}${preview.truncated ? '+' : ''} 行 · ${columnCount} 列`}
+          </div>
+        </div>
+        <div className="content-wrapper plain-editor-wrapper csv-view-wrapper">
+          <div className="csv-viewer">
+            {columnCount === 0 ? (
+              <div className="csv-empty-state">CSV 文件为空或无法解析。</div>
+            ) : (
+              <div className="csv-table-scroll">
+                <table className="csv-table">
+                  <thead>
+                    <tr>
+                      <th className="csv-index-cell">#</th>
+                      {normalizedHeader.map((header, index) => (
+                        <th key={`csv-header-${index}`} title={header}>{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {normalizedBody.map((row, rowIndex) => (
+                      <tr key={`csv-row-${rowIndex}`}>
+                        <td className="csv-index-cell">{rowIndex + 1}</td>
+                        {row.map((cell, cellIndex) => (
+                          <td key={`csv-cell-${rowIndex}-${cellIndex}`} title={cell}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {preview.truncated && (
+                  <div className="csv-truncated-hint">仅显示前 600 行，更多内容请在外部表格工具中查看。</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </main>
     )

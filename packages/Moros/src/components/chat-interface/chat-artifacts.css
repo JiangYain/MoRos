@@ -1,6 +1,8 @@
 .chat-top-actions {
-  padding: 12px 32px 0;
+  padding: 0 32px;
+  min-height: 40px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
 }
 
@@ -337,35 +339,85 @@
 .chat-artifacts-content-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 0 10px;
   height: 36px;
   border-bottom: 0.5px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
-.chat-artifacts-content-tab {
+.chat-artifacts-content-tabs {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-primary);
-  font-weight: 450;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
-.chat-artifacts-content-tab svg {
+.chat-artifacts-content-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 220px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  border: 0.5px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 12px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.chat-artifacts-content-tab:hover {
+  background: var(--hover-bg);
+}
+
+.chat-artifacts-content-tab.active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-color: var(--border-subtle);
+}
+
+.chat-artifacts-content-tab.empty {
+  cursor: default;
   color: var(--text-tertiary);
+}
+
+.chat-artifacts-content-tab.empty:hover {
+  background: transparent;
+}
+
+.chat-artifacts-content-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-artifacts-content-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-artifacts-tab-close {
   border: none;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  padding: 0 2px;
-  margin-left: 4px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: 2px;
   transition: color 0.15s ease;
 }
 
@@ -377,6 +429,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .chat-artifacts-action-btn {
