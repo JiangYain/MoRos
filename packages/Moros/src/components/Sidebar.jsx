@@ -1144,6 +1144,48 @@ function Sidebar({
   const skillCoverInputRef = React.useRef(null)
   const nativeColorInputRef = React.useRef(null)
   const pendingColorItemRef = React.useRef(null)
+  const nativeColorValueRef = React.useRef('#3b82f6')
+  const nativeColorCommitKeyRef = React.useRef('')
+  const [nativeColorAnchor, setNativeColorAnchor] = useState({ x: 16, y: 16 })
+
+  const getNativeColorPickerAnchor = React.useCallback((anchorX, anchorY) => {
+    // Native color picker size is controlled by OS/browser; use a conservative estimate
+    // so the hidden input anchor stays close to the clicked folder while avoiding viewport clipping.
+    const estimatedPickerWidth = 360
+    const estimatedPickerHeight = 440
+    const margin = 8
+
+    let x = Math.round(anchorX)
+    let y = Math.round(anchorY)
+
+    if (x + estimatedPickerWidth + margin > window.innerWidth) {
+      x = Math.max(margin, window.innerWidth - estimatedPickerWidth - margin)
+    }
+    if (y + estimatedPickerHeight + margin > window.innerHeight) {
+      y = Math.max(margin, y - estimatedPickerHeight + 36)
+    }
+
+    if (x < margin) x = margin
+    if (y < margin) y = margin
+    return { x, y }
+  }, [])
+
+  const commitNativeColor = React.useCallback(async (rawColor) => {
+    const color = String(rawColor || '').trim()
+    const item = pendingColorItemRef.current
+    if (!item || !color) return
+
+    const commitKey = `${String(item.path || '').trim().toLowerCase()}|${color.toLowerCase()}`
+    if (nativeColorCommitKeyRef.current === commitKey) return
+    nativeColorCommitKeyRef.current = commitKey
+
+    try {
+      await filesApi.setFolderColor(item.path, color)
+      await loadFileTree()
+    } catch (error) {
+      console.warn('设置颜色失败:', error)
+    }
+  }, [loadFileTree])
 
   const handleShowColorPicker = (e, item) => {
     e.stopPropagation()
@@ -1156,22 +1198,49 @@ function Sidebar({
     } else {
       pendingColorItemRef.current = item
       if (nativeColorInputRef.current) {
-        nativeColorInputRef.current.value = String(item?.color || '#3b82f6')
-        nativeColorInputRef.current.click()
+        const nextColor = String(item?.color || '#3b82f6')
+        const iconRect = e?.currentTarget?.getBoundingClientRect?.()
+        const rawAnchorX = iconRect ? (iconRect.left + iconRect.width + 8) : e.clientX
+        const rawAnchorY = iconRect ? (iconRect.top + iconRect.height * 0.5) : e.clientY
+        setNativeColorAnchor(getNativeColorPickerAnchor(rawAnchorX, rawAnchorY))
+        nativeColorValueRef.current = nextColor
+        nativeColorCommitKeyRef.current = ''
+
+        // Delay click to ensure updated anchor style is applied first.
+        requestAnimationFrame(() => {
+          if (!nativeColorInputRef.current) return
+          nativeColorInputRef.current.value = nextColor
+          nativeColorInputRef.current.focus({ preventScroll: true })
+          nativeColorInputRef.current.click()
+        })
       }
     }
   }
 
-  const handleNativeColorChange = async (e) => {
+  const handleNativeColorInput = (e) => {
+    nativeColorValueRef.current = String(e?.target?.value || '').trim() || nativeColorValueRef.current
+  }
+
+  const handleNativeColorChange = (e) => {
     const color = String(e?.target?.value || '').trim()
-    const item = pendingColorItemRef.current
-    if (!item) return
-    if (!color) return
-    try {
-      await filesApi.setFolderColor(item.path, color)
-      await loadFileTree()
-    } catch (error) {
-      console.warn('设置颜色失败:', error)
+    nativeColorValueRef.current = color || nativeColorValueRef.current
+    void commitNativeColor(color || nativeColorValueRef.current)
+  }
+
+  const handleNativeColorKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const current = String(nativeColorInputRef.current?.value || nativeColorValueRef.current || '').trim()
+      nativeColorValueRef.current = current || nativeColorValueRef.current
+      void commitNativeColor(current || nativeColorValueRef.current)
+    }
+  }
+
+  const handleNativeColorBlur = () => {
+    const current = String(nativeColorInputRef.current?.value || nativeColorValueRef.current || '').trim()
+    nativeColorValueRef.current = current || nativeColorValueRef.current
+    if (current) {
+      void commitNativeColor(current)
     }
   }
 
@@ -1960,8 +2029,19 @@ function Sidebar({
       <input
         ref={nativeColorInputRef}
         type="color"
+        onInput={handleNativeColorInput}
         onChange={handleNativeColorChange}
-        style={{ position: 'fixed', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
+        onKeyDown={handleNativeColorKeyDown}
+        onBlur={handleNativeColorBlur}
+        style={{
+          position: 'fixed',
+          left: `${nativeColorAnchor.x}px`,
+          top: `${nativeColorAnchor.y}px`,
+          width: 18,
+          height: 18,
+          opacity: 0,
+          pointerEvents: 'none',
+        }}
       />
       
       
