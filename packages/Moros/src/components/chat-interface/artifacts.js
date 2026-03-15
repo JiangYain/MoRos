@@ -276,6 +276,55 @@ export const resolveArtifactFileReference = (entryLike, options = {}) => {
   applyAbsoluteCandidate(relativeCandidate)
   applyAbsoluteCandidate(pathCandidate)
 
+  const applyChatDirectoryBasenameFallback = () => {
+    if (relativePath || !absolutePath) return
+
+    const absoluteName = String(absolutePath || '')
+      .split(/[/\\]/)
+      .pop()
+      .trim()
+    if (!absoluteName || !hasArtifactLikeExtension(absoluteName)) return
+
+    const normalizedChatDirectory = normalizeRelativeArtifactPath(chatDirectoryRelative)
+    const workspaceMap = workspaceLookup?.relativePathsByLower instanceof Map
+      ? workspaceLookup.relativePathsByLower
+      : null
+
+    if (normalizedChatDirectory) {
+      const candidateInChatDir = normalizeRelativeArtifactPath(`${normalizedChatDirectory}/${absoluteName}`)
+      if (candidateInChatDir) {
+        if (workspaceMap) {
+          const matched = workspaceMap.get(candidateInChatDir.toLowerCase())
+          if (matched) {
+            relativePath = matched
+            return
+          }
+        } else {
+          relativePath = candidateInChatDir
+          return
+        }
+      }
+    }
+
+    if (!workspaceMap || workspaceMap.size === 0) return
+    const basenameLower = absoluteName.toLowerCase()
+    const suffix = `/${basenameLower}`
+    let uniqueMatch = ''
+    for (const [relativeLower, relativeOriginal] of workspaceMap.entries()) {
+      if (relativeLower !== basenameLower && !relativeLower.endsWith(suffix)) continue
+      if (uniqueMatch && uniqueMatch !== relativeOriginal) {
+        uniqueMatch = ''
+        break
+      }
+      uniqueMatch = relativeOriginal
+    }
+    if (uniqueMatch) {
+      relativePath = uniqueMatch
+    }
+  }
+
+  applyChatDirectoryBasenameFallback()
+
   if (absolutePath && !relativePath && isWorkspaceScopedArtifactPath(absolutePath)) {
     return {
       relativePath: '',

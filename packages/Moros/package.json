@@ -5,7 +5,8 @@
   "type": "module",
   "main": "electron.config.cjs",
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",
+    "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\" \"npm run electron\"",
+    "dev:web": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",
     "client": "vite",
     "server": "tsx watch server/index.ts",
     "build": "vite build && tsc -p server/tsconfig.json",
@@ -14,7 +15,8 @@
     "test:node": "node --test --import tsx \"server/tests/*.test.ts\"",
     "test:e2e": "playwright test",
     "preview": "vite preview",
-    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:53210 && electron .\"",
+    "electron": "wait-on tcp:53210 http://localhost:53211/api/health && electron .",
+    "electron-dev": "npm run dev",
     "build-electron": "npm run build && electron-builder",
     "dist": "npm run build && electron-builder --publish=never"
   },
