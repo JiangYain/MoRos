@@ -5,6 +5,107 @@ import { isTextArtifactPath } from './artifacts'
 import FileTypeIcon from './FileTypeIcon'
 import '@excalidraw/excalidraw/index.css'
 
+const CSV_PREVIEW_MAX_ROWS = 200
+const CSV_PREVIEW_MAX_COLUMNS = 40
+const CSV_DELIMITER_CANDIDATES = [',', '\t', ';', '|']
+
+const countDelimiterOutsideQuotes = (line, delimiter) => {
+  let inQuotes = false
+  let count = 0
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i]
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+    if (!inQuotes && char === delimiter) {
+      count += 1
+    }
+  }
+
+  return count
+}
+
+const detectCsvDelimiter = (content) => {
+  const source = String(content || '').replace(/^\uFEFF/, '')
+  const sampleLines = source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+
+  if (sampleLines.length === 0) return ','
+
+  let bestDelimiter = ','
+  let bestScore = -1
+
+  for (const delimiter of CSV_DELIMITER_CANDIDATES) {
+    const counts = sampleLines.map((line) => countDelimiterOutsideQuotes(line, delimiter))
+    const scoredLines = counts.filter((value) => value > 0)
+    const score = scoredLines.reduce((sum, value) => sum + value, 0)
+    if (score > bestScore && scoredLines.length > 0) {
+      bestScore = score
+      bestDelimiter = delimiter
+    }
+  }
+
+  return bestDelimiter
+}
+
+const parseDelimitedText = (content, delimiter) => {
+  const source = String(content || '').replace(/^\uFEFF/, '')
+  const rows = []
+  let row = []
+  let field = ''
+  let inQuotes = false
+
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i]
+
+    if (char === '"') {
+      if (inQuotes && source[i + 1] === '"') {
+        field += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (!inQuotes && char === delimiter) {
+      row.push(field)
+      field = ''
+      continue
+    }
+
+    if (!inQuotes && (char === '\n' || char === '\r')) {
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+      if (char === '\r' && source[i + 1] === '\n') {
+        i += 1
+      }
+      continue
+    }
+
+    field += char
+  }
+
+  row.push(field)
+  const hasOnlyEmptyRow = rows.length === 0 && row.length === 1 && row[0] === ''
+  if (!hasOnlyEmptyRow) {
+    rows.push(row)
+  }
+
+  return rows
+}
+
 function ArtifactPreviewPane({
   activeArtifact,
   activeArtifactId,
@@ -27,7 +128,8 @@ function ArtifactPreviewPane({
   const normalizedExtension = String(activeArtifactExtension || '').toLowerCase()
   const isHtmlArtifact = normalizedExtension === '.html' || normalizedExtension === '.htm'
   const isExcalidrawArtifact = normalizedExtension === '.excalidraw'
-  const supportsRichPreview = isHtmlArtifact || isExcalidrawArtifact
+  const isCsvArtifact = normalizedExtension === '.csv'
+  const supportsRichPreview = isHtmlArtifact || isExcalidrawArtifact || isCsvArtifact
   const isTextPreview = useMemo(() => {
     if (!activeArtifact) return false
     if (isUrlArtifact) return false
@@ -63,6 +165,41 @@ function ArtifactPreviewPane({
       return null
     }
   }, [isExcalidrawArtifact, textContent])
+
+  const csvPreviewData = useMemo(() => {
+    if (!isCsvArtifact || !textContent) return null
+
+    const delimiter = detectCsvDelimiter(textContent)
+    const parsedRows = parseDelimitedText(textContent, delimiter)
+    while (parsedRows.length > 0 && parsedRows[parsedRows.length - 1]?.every((cell) => String(cell || '').trim() === '')) {
+      parsedRows.pop()
+    }
+    if (parsedRows.length === 0) return null
+
+    const widestColumnCount = parsedRows.reduce((maxCount, row) => Math.max(maxCount, row.length), 0)
+    const shownColumnCount = Math.min(Math.max(widestColumnCount, 1), CSV_PREVIEW_MAX_COLUMNS)
+    const normalizeRow = (row = []) => {
+      const safeRow = Array.isArray(row) ? row : []
+      return Array.from({ length: shownColumnCount }, (_, index) => String(safeRow[index] ?? ''))
+    }
+
+    const headerRow = normalizeRow(parsedRows[0])
+    const dataRows = parsedRows.slice(1).map((row) => normalizeRow(row))
+    const visibleDataRows = dataRows.slice(0, CSV_PREVIEW_MAX_ROWS)
+
+    return {
+      delimiterLabel: delimiter === '\t' ? 'Tab' : delimiter,
+      headerRow,
+      bodyRows: visibleDataRows,
+      totalRows: parsedRows.length,
+      totalDataRows: dataRows.length,
+      shownDataRows: visibleDataRows.length,
+      totalColumns: widestColumnCount,
+      shownColumns: shownColumnCount,
+      truncatedRows: dataRows.length > visibleDataRows.length,
+      truncatedColumns: widestColumnCount > shownColumnCount,
+    }
+  }, [isCsvArtifact, textContent])
 
   useEffect(() => {
     let disposed = false
@@ -274,6 +411,45 @@ function ArtifactPreviewPane({
                 </div>
               ) : (
                 <div className="chat-artifacts-content-empty">Excalidraw 文件内容无效，无法预览</div>
+              )
+            ) : textPreviewMode === 'preview' && isCsvArtifact ? (
+              csvPreviewData ? (
+                <div className="chat-artifacts-csv-preview">
+                  <div className="chat-artifacts-csv-meta">
+                    <span>CSV 预览：{csvPreviewData.totalRows} 行 · {csvPreviewData.totalColumns} 列 · 分隔符 {csvPreviewData.delimiterLabel}</span>
+                    {(csvPreviewData.truncatedRows || csvPreviewData.truncatedColumns) && (
+                      <span>
+                        已显示前 {csvPreviewData.shownDataRows + 1} 行和 {csvPreviewData.shownColumns} 列
+                      </span>
+                    )}
+                  </div>
+                  <div className="chat-artifacts-csv-table-wrap">
+                    <table className="chat-artifacts-csv-table">
+                      <thead>
+                        <tr>
+                          {csvPreviewData.headerRow.map((headerCell, index) => (
+                            <th key={`csv-header-${index}`} title={headerCell || `列 ${index + 1}`}>
+                              {headerCell || `列 ${index + 1}`}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvPreviewData.bodyRows.map((row, rowIndex) => (
+                          <tr key={`csv-row-${rowIndex}`}>
+                            {row.map((cellValue, columnIndex) => (
+                              <td key={`csv-cell-${rowIndex}-${columnIndex}`} title={cellValue}>
+                                {cellValue}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="chat-artifacts-content-empty">CSV 文件内容为空，无法预览</div>
               )
             ) : (
               <textarea

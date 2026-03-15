@@ -5,7 +5,8 @@
   "type": "module",
   "main": "electron.config.cjs",
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\" \"npm run electron\"",
+    "dev": "node ./scripts/dev-with-port-guard.mjs",
+    "dev:stack": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\" \"npm run electron\"",
     "dev:web": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",
     "client": "vite",
     "server": "tsx watch server/index.ts",

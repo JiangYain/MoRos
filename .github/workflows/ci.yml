@@ -48,6 +48,9 @@ jobs:
       - name: Fix cross-platform optional binaries
         run: npm i --no-save @typescript/native-preview-linux-x64@7.0.0-dev.20260120.1
 
+      - name: Fix Linux Biome optional binary
+        run: npm i --no-save @biomejs/cli-linux-x64@2.3.5
+
       - name: Run quality checks
         run: npm run check:ci
 
