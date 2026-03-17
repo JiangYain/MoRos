@@ -2,6 +2,8 @@
 	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
 		"noEmit": true,
+		"target": "ES2024",
+		"lib": ["ES2024"],
 		"paths": {
 			"*": ["./*"],
 			"@mariozechner/pi-ai": ["./packages/ai/src/index.ts"],
