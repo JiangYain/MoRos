@@ -252,11 +252,58 @@
   padding: 0 !important;
 }
 
+.content-wrapper.pdf-view-wrapper {
+  overflow: auto;
+}
+
+.content-wrapper.pdf-view-wrapper > * {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 .csv-viewer {
   height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+}
+
+.pdf-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+}
+
+.pdf-preview-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.pdf-preview-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.pdf-preview-hint a {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+
+.pdf-preview-hint a:hover {
+  text-decoration: underline;
 }
 
 .csv-toolbar-meta {
@@ -523,6 +570,154 @@
 
 .markdown-editor::placeholder {
   color: var(--text-muted);
+}
+
+.plain-editor-mode .editor-highlight .hljs {
+  display: block;
+  background: transparent;
+  padding: 0;
+  color: var(--text-primary);
+  font-style: normal;
+  font-weight: inherit;
+}
+
+.plain-editor-mode .editor-highlight .hljs-comment,
+.plain-editor-mode .editor-highlight .hljs-quote {
+  color: rgba(17, 17, 17, 0.42);
+  font-style: normal;
+}
+
+.plain-editor-mode .editor-highlight .hljs-keyword,
+.plain-editor-mode .editor-highlight .hljs-doctag,
+.plain-editor-mode .editor-highlight .hljs-meta {
+  color: #7a4a2d;
+}
+
+.plain-editor-mode .editor-highlight .hljs-built_in,
+.plain-editor-mode .editor-highlight .hljs-title,
+.plain-editor-mode .editor-highlight .hljs-function,
+.plain-editor-mode .editor-highlight .hljs-section {
+  color: #8d1f1f;
+}
+
+.plain-editor-mode .editor-highlight .hljs-string,
+.plain-editor-mode .editor-highlight .hljs-regexp,
+.plain-editor-mode .editor-highlight .hljs-addition,
+.plain-editor-mode .editor-highlight .hljs-meta-string {
+  color: #2f6b3c;
+}
+
+.plain-editor-mode .editor-highlight .hljs-number,
+.plain-editor-mode .editor-highlight .hljs-literal,
+.plain-editor-mode .editor-highlight .hljs-symbol,
+.plain-editor-mode .editor-highlight .hljs-bullet {
+  color: #5d49a7;
+}
+
+.plain-editor-mode .editor-highlight .hljs-type,
+.plain-editor-mode .editor-highlight .hljs-class,
+.plain-editor-mode .editor-highlight .hljs-params,
+.plain-editor-mode .editor-highlight .hljs-variable,
+.plain-editor-mode .editor-highlight .hljs-template-variable {
+  color: #1f4f86;
+}
+
+.plain-editor-mode .editor-highlight,
+.plain-editor-mode .markdown-editor {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.75;
+  tab-size: 2;
+}
+
+.content-wrapper.code-preview-wrapper,
+.content-wrapper.code-preview-wrapper > * {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.content-wrapper.code-preview-wrapper {
+  overflow: auto;
+  background: linear-gradient(180deg, #fbfbfa 0%, #f7f7f4 100%);
+}
+
+.code-preview-meta {
+  font-size: 12px;
+}
+
+.code-preview-article {
+  min-height: 100%;
+  padding: 24px 28px 40px;
+  box-sizing: border-box;
+}
+
+.code-preview-pre {
+  margin: 0;
+  min-height: 100%;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.03);
+  overflow: auto;
+}
+
+.code-preview-code {
+  display: block;
+  padding: 22px 24px 28px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+  color: var(--text-primary);
+}
+
+.code-preview-code .hljs {
+  display: block;
+  background: transparent;
+  padding: 0;
+}
+
+.code-preview-code .hljs-comment,
+.code-preview-code .hljs-quote {
+  color: rgba(17, 17, 17, 0.42);
+}
+
+.code-preview-code .hljs-keyword,
+.code-preview-code .hljs-doctag,
+.code-preview-code .hljs-meta {
+  color: #7a4a2d;
+}
+
+.code-preview-code .hljs-built_in,
+.code-preview-code .hljs-title,
+.code-preview-code .hljs-function,
+.code-preview-code .hljs-section {
+  color: #8d1f1f;
+}
+
+.code-preview-code .hljs-string,
+.code-preview-code .hljs-regexp,
+.code-preview-code .hljs-addition,
+.code-preview-code .hljs-meta-string {
+  color: #2f6b3c;
+}
+
+.code-preview-code .hljs-number,
+.code-preview-code .hljs-literal,
+.code-preview-code .hljs-symbol,
+.code-preview-code .hljs-bullet {
+  color: #5d49a7;
+}
+
+.code-preview-code .hljs-type,
+.code-preview-code .hljs-class,
+.code-preview-code .hljs-params,
+.code-preview-code .hljs-variable,
+.code-preview-code .hljs-template-variable {
+  color: #1f4f86;
 }
 
 /* Landing Chat */

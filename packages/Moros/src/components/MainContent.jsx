@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import hljs from 'highlight.js'
 import { filesApi } from '../utils/api'
 import './MainContent.css'
 import Whiteboard, { isWhiteboardFile } from './Whiteboard'
@@ -9,6 +10,8 @@ import Toolbar from './Toolbar'
 import MarkdownPreview from './MarkdownPreview'
 import MarkdownEditor from './MarkdownEditor'
 import EditorOverlay from './EditorOverlay'
+import PdfPreview from './PdfPreview'
+import HtmlPreview from './HtmlPreview'
 // 移除StyleEditor导入，改为使用StyleSidebar
 import { buildMarkdownComponents } from './markdownComponents.jsx'
 import { useAiStreaming } from './utils/useAiStreaming'
@@ -47,6 +50,64 @@ const isMarkdownFile = (filePath) => {
 const isCsvFile = (filePath) => {
   const value = String(filePath || '').toLowerCase()
   return value.endsWith('.csv') || value.endsWith('.tsv')
+}
+
+const isPdfFile = (filePath) => {
+  const value = String(filePath || '').toLowerCase()
+  return value.endsWith('.pdf')
+}
+
+const isHtmlFile = (filePath) => {
+  const value = String(filePath || '').toLowerCase()
+  return value.endsWith('.html') || value.endsWith('.htm')
+}
+
+const HIGHLIGHT_LANGUAGE_BY_EXTENSION = {
+  py: 'python',
+  pyw: 'python',
+  js: 'javascript',
+  jsx: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  json: 'json',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  html: 'xml',
+  htm: 'xml',
+  xml: 'xml',
+  svg: 'xml',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  ps1: 'powershell',
+  java: 'java',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cxx: 'cpp',
+  cc: 'cpp',
+  hpp: 'cpp',
+  rs: 'rust',
+  go: 'go',
+  rb: 'ruby',
+  php: 'php',
+  sql: 'sql',
+  yml: 'yaml',
+  yaml: 'yaml',
+  toml: 'toml',
+  ini: 'ini',
+  md: 'markdown',
+  dockerfile: 'dockerfile',
+}
+
+const getHighlightLanguage = (filePath) => {
+  const value = String(filePath || '').trim()
+  if (!value) return ''
+  const fileName = value.split(/[\\/]/).pop()?.toLowerCase() || ''
+  if (fileName === 'dockerfile') return 'dockerfile'
+  const extension = fileName.includes('.') ? fileName.split('.').pop() : ''
+  return HIGHLIGHT_LANGUAGE_BY_EXTENSION[extension] || ''
 }
 
 const countSeparatorOutsideQuotes = (line, separator) => {
@@ -156,6 +217,8 @@ const isPlainEditorOnlyFile = (filePath) => {
   if (!value) return false
   if (isMarkdownFile(value)) return false
   if (isCsvFile(value)) return false
+  if (isPdfFile(value)) return false
+  if (isHtmlFile(value)) return false
   if (isImageFile(value)) return false
   if (isWhiteboardFile(value)) return false
   if (isChatFile(value)) return false
@@ -375,13 +438,19 @@ function MainContent({
           setViewMode('preview')
           return
         }
+        if (isPdfFile(currentFile.path)) {
+          setContent('')
+          setOriginalContent('')
+          setViewMode('preview')
+          return
+        }
 
         try {
           const fileContent = await filesApi.readFile(currentFile.path)
           setContent(fileContent)
           setOriginalContent(fileContent)
           // Markdown 默认进入预览模式，其它文本文件保持分屏
-          if (isMarkdownFile(currentFile.path)) {
+          if (isMarkdownFile(currentFile.path) || isPlainEditorOnlyFile(currentFile.path)) {
             setViewMode('preview')
           } else {
             setViewMode('split')
@@ -619,8 +688,21 @@ function MainContent({
   }
 
   const renderHighlighted = useMemo(() => {
-    return escapeHtml(content)
-  }, [content])
+    const source = String(content || '')
+    if (!source) return ''
+
+    if (currentFile?.path && isPlainEditorOnlyFile(currentFile.path)) {
+      const language = getHighlightLanguage(currentFile.path)
+      if (language) {
+        try {
+          const highlighted = hljs.highlight(source, { language, ignoreIllegals: true }).value
+          return `<span class="hljs">${highlighted}</span>`
+        } catch {}
+      }
+    }
+
+    return escapeHtml(source)
+  }, [content, currentFile?.path])
 
   // 计算编辑器当前行在高亮层中的 Y 位置
    const getEditorLineY = () => {
@@ -1385,6 +1467,11 @@ function MainContent({
     )
   }
 
+  // PDF 文件走原始流预览，避免按文本读取导致乱码/卡顿
+  if (isPdfFile(currentFile.path)) {
+    return <PdfPreview currentFile={currentFile} parentDirName={parentDirName} />
+  }
+
   // 如果是白板文件，使用 Excalidraw 渲染
   if (isWhiteboardFile(currentFile.path)) {
     return (
@@ -1479,30 +1566,44 @@ function MainContent({
     )
   }
 
+  if (isHtmlFile(currentFile.path)) {
+    return (
+      <HtmlPreview
+        currentFile={currentFile}
+        parentDirName={parentDirName}
+        content={content}
+        textareaRef={textareaRef}
+        onChange={handleEditorChange}
+        onKeyDown={handleEditorKeyDown}
+        onClick={handleEditorClick}
+        onDrop={handleEditorDrop}
+        onDragOver={handleEditorDragOver}
+        onScroll={handleEditorScroll}
+      />
+    )
+  }
+
   if (isPlainEditorOnlyFile(currentFile.path)) {
     return (
       <main className="main-content">
-        <div className="content-wrapper plain-editor-wrapper" ref={contentRef}>
-          <div className="editor-container plain-editor-mode">
-            <EditorOverlay
-              layerRef={layerRef}
-              highlightRef={highlightRef}
-              renderHtml={renderHighlighted}
-              aiStatus={aiStatus}
-              aiPos={aiPos}
-            />
-            <MarkdownEditor
-              textareaRef={textareaRef}
-              value={content}
-              onChange={handleEditorChange}
-              placeholder="Start writing..."
-              onKeyDown={handleEditorKeyDown}
-              onClick={handleEditorClick}
-              onDrop={handleEditorDrop}
-              onDragOver={handleEditorDragOver}
-              onScroll={handleEditorScroll}
-            />
+        <div className="content-toolbar">
+          <div className="file-info">
+            {parentDirName && <span className="folder-name">{parentDirName}</span>}
+            {parentDirName && <span className="breadcrumb-sep">/</span>}
+            <span className="file-name">{currentFile.name}</span>
           </div>
+          <div className="toolbar-meta code-preview-meta">Preview only</div>
+        </div>
+
+        <div className="content-wrapper code-preview-wrapper" ref={contentRef}>
+          <article className="code-preview-article">
+            <pre className="code-preview-pre">
+              <code
+                className="code-preview-code"
+                dangerouslySetInnerHTML={{ __html: renderHighlighted }}
+              />
+            </pre>
+          </article>
         </div>
       </main>
     )
@@ -1568,4 +1669,3 @@ function MainContent({
 }
 
 export default MainContent
-

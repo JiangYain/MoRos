@@ -1,0 +1,236 @@
+.content-wrapper.html-refined-wrapper,
+.content-wrapper.html-refined-wrapper > * {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.content-wrapper.html-refined-wrapper {
+  overflow: hidden;
+}
+
+.html-refined-wrapper {
+  --html-ink: #111111;
+  --html-ink-soft: rgba(17, 17, 17, 0.62);
+  --html-ink-faint: rgba(17, 17, 17, 0.38);
+  --html-line: rgba(17, 17, 17, 0.08);
+  --html-line-strong: rgba(17, 17, 17, 0.14);
+  --html-surface: #ffffff;
+  --html-stage: #f7f7f4;
+  --html-shadow-soft: 0 14px 30px rgba(17, 17, 17, 0.035);
+}
+
+.html-refined-toolbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.html-refined-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--html-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.html-refined-mode-btn {
+  height: 28px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  color: var(--html-ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.html-refined-mode-btn.active {
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--html-ink);
+}
+
+.html-refined-open-link {
+  color: var(--html-ink-soft);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.html-refined-open-link:hover {
+  color: var(--html-ink);
+}
+
+.html-refined-shell {
+  height: 100%;
+  display: grid;
+  gap: 0;
+  background: var(--html-surface);
+}
+
+.html-refined-shell.mode-split {
+  grid-template-columns: minmax(360px, 0.96fr) minmax(0, 1.54fr);
+}
+
+.html-refined-shell.mode-code,
+.html-refined-shell.mode-preview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.html-refined-pane {
+  min-width: 0;
+  min-height: 0;
+  background: var(--html-surface);
+}
+
+.html-refined-preview-pane {
+  border-left: 1px solid var(--html-line);
+}
+
+.html-refined-code-surface,
+.html-refined-preview-surface {
+  height: 100%;
+  background: linear-gradient(180deg, #fcfcfb 0%, var(--html-stage) 100%);
+}
+
+.html-refined-code-surface {
+  background: #ffffff;
+}
+
+.html-refined-editor-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.html-refined-editor-container .editor-layer {
+  z-index: 2;
+}
+
+.html-refined-editor-container .editor-highlight {
+  padding: 22px 24px 26px;
+  color: var(--html-ink);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.html-refined-editor-container .editor-highlight .hljs {
+  display: block;
+  background: transparent;
+  padding: 0;
+  color: var(--html-ink);
+}
+
+.html-refined-editor-container .editor-highlight .hljs-comment,
+.html-refined-editor-container .editor-highlight .hljs-quote {
+  color: rgba(17, 17, 17, 0.4);
+  font-style: italic;
+}
+
+.html-refined-editor-container .editor-highlight .hljs-doctag,
+.html-refined-editor-container .editor-highlight .hljs-meta,
+.html-refined-editor-container .editor-highlight .hljs-keyword,
+.html-refined-editor-container .editor-highlight .hljs-selector-tag {
+  color: #7c4f2f;
+}
+
+.html-refined-editor-container .editor-highlight .hljs-name,
+.html-refined-editor-container .editor-highlight .hljs-tag,
+.html-refined-editor-container .editor-highlight .hljs-section {
+  color: #8d1f1f;
+}
+
+.html-refined-editor-container .editor-highlight .hljs-attr,
+.html-refined-editor-container .editor-highlight .hljs-attribute,
+.html-refined-editor-container .editor-highlight .hljs-selector-attr {
+  color: #244f8f;
+}
+
+.html-refined-editor-container .editor-highlight .hljs-string,
+.html-refined-editor-container .editor-highlight .hljs-meta-string,
+.html-refined-editor-container .editor-highlight .hljs-template-variable {
+  color: #356a3f;
+}
+
+.html-refined-editor-container .editor-highlight .hljs-number,
+.html-refined-editor-container .editor-highlight .hljs-literal,
+.html-refined-editor-container .editor-highlight .hljs-symbol {
+  color: #5f4aa8;
+}
+
+.html-refined-code-editor {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--html-ink);
+  box-sizing: border-box;
+  padding: 22px 24px 26px;
+  resize: none;
+  outline: none;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  tab-size: 2;
+}
+
+.html-refined-code-editor::placeholder {
+  color: var(--html-ink-faint);
+}
+
+.html-refined-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+}
+
+.html-refined-preview-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--html-ink-soft);
+  font-size: 13px;
+}
+
+@media (max-width: 960px) {
+  .html-refined-shell.mode-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(280px, 0.94fr) minmax(320px, 1.06fr);
+  }
+
+  .html-refined-preview-pane {
+    border-left: none;
+    border-top: 1px solid var(--html-line);
+  }
+}
+
+@media (max-width: 768px) {
+  .html-refined-toolbar-meta {
+    gap: 8px;
+  }
+
+  .html-refined-mode-btn {
+    padding: 0 12px;
+  }
+
+  .html-refined-code-surface {
+    padding: 0;
+  }
+
+  .html-refined-code-editor {
+    padding: 16px;
+    font-size: 12px;
+  }
+
+  .html-refined-editor-container .editor-highlight {
+    padding: 16px;
+    font-size: 12px;
+  }
+}

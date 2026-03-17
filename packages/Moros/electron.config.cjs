@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Menu } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const { pathToFileURL } = require('url')
 const isDev = !app.isPackaged
 const BACKEND_PORT = process.env.PORT || 53211
@@ -75,16 +76,19 @@ async function createWindow() {
     minWidth: 1000,
     minHeight: 700,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      webSecurity: false // 开发时允许本地文件访问
+      webSecurity: false
     },
     icon: WINDOW_ICON_PATH,
     titleBarStyle: 'default',
     autoHideMenuBar: true,
-    show: false // 先隐藏，加载完成后显示
+    show: false
   })
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'allow' }))
 
   // 加载应用
   if (isDev) {
@@ -148,4 +152,39 @@ app.on('activate', () => {
 
 Menu.setApplicationMenu(null)
 
+ipcMain.handle('save-pdf', async (_event, html, defaultFileName) => {
+  let printWin = null
+  try {
+    printWin = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+      webPreferences: { offscreen: true, webSecurity: false },
+    })
 
+    const base64 = Buffer.from(html, 'utf-8').toString('base64')
+    await printWin.loadURL(`data:text/html;base64,${base64}`)
+    await new Promise((r) => setTimeout(r, 600))
+
+    const pdfBuffer = await printWin.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+    })
+
+    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: `${defaultFileName || 'export'}.pdf`,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    })
+
+    if (filePath) {
+      await fs.promises.writeFile(filePath, pdfBuffer)
+      return { success: true, path: filePath }
+    }
+    return { success: false, cancelled: true }
+  } catch (err) {
+    console.error('PDF generation failed:', err)
+    return { success: false, error: err.message }
+  } finally {
+    printWin?.destroy()
+  }
+})

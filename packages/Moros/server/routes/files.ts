@@ -479,7 +479,16 @@ filesRouter.get('/raw/:path(*)', async (req, res) => {
     }
     const DATA_DIR = path.join(process.cwd(), 'markov-data')
     const fullPath = path.join(DATA_DIR, targetPath)
-    res.sendFile(fullPath)
+    res.sendFile(fullPath, (err) => {
+      if (err && !res.headersSent) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') {
+          res.status(404).json({ success: false, error: '文件不存在' })
+        } else {
+          res.status(500).json({ success: false, error: '读取原始文件失败' })
+        }
+      }
+    })
   } catch (error) {
     console.error('读取原始文件失败:', error)
     res.status(500).json({ success: false, error: '读取原始文件失败' })

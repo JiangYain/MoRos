@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
-import { Download, Copy, Loader2, Eye, X, Settings, Check, Edit3, Monitor, FileText, Image } from 'lucide-react'
+import { Download, Copy, Settings, Check, Monitor, FileText, Image } from 'lucide-react'
 import html2canvas from 'html2canvas'
-import jsPDF from 'jspdf'
 import { saveAs } from 'file-saver'
 import './ExportToolbar.css'
 import juice from 'juice'
 import { useI18n } from '../utils/i18n'
 // mdnice theme CSS strings
-import { basicCss, markdownThemes } from '../utils/mdnice/themes'
+import { basicCss } from '../utils/mdnice/themes'
 // 移除主题选择器的导入，使用统一主题
 
 // 自定义PDF图标组件 - 更清晰地表示PDF
@@ -22,42 +21,9 @@ const PDFIcon = ({ size = 16 }) => (
 function ExportToolbar({ currentFile, previewPaneRef, previewMode = 'markdown', onChangePreviewMode, onEditStyles }) {
   const { t } = useI18n()
   const [isExporting, setIsExporting] = useState(false)
-  const [exportType, setExportType] = useState(null)
-  const [showPDFPreview, setShowPDFPreview] = useState(false)
-  const [previewCanvas, setPreviewCanvas] = useState(null)
-  const [previewPages, setPreviewPages] = useState([])
-  const [previewZoom, setPreviewZoom] = useState(1)
   const [copySuccess, setCopySuccess] = useState(false)
   const [copyRichSuccess, setCopyRichSuccess] = useState(false)
-  const [pdfOptions, setPdfOptions] = useState({
-    format: 'a4',
-    orientation: 'portrait',
-    margin: 20,
-    scale: Math.max(2, Math.ceil(window.devicePixelRatio || 1))
-  })
-  const [marginInput, setMarginInput] = useState('20')
   // 移除主题选择状态，使用统一主题
-
-  const MM_TO_PX = 96 / 25.4
-  const getPageSizeMM = (format, orientation) => {
-    const sizes = {
-      a4: { w: 210, h: 297 },
-      letter: { w: 216, h: 279 }
-    }
-    const base = sizes[format] || sizes.a4
-    return orientation === 'landscape' ? { w: base.h, h: base.w } : base
-  }
-
-  const computeFitPreviewZoom = () => {
-    try {
-      const viewport = document.querySelector('.preview-viewport')
-      if (!viewport) return
-      const pageWidthPx = getPageSizeMM(pdfOptions.format, pdfOptions.orientation).w * MM_TO_PX
-      const available = Math.max(200, viewport.clientWidth - 48)
-      const fitZoom = Math.max(0.5, Math.min(1.2, available / pageWidthPx)) // 限制最大缩放为1.2，提供更好的预览体验
-      setPreviewZoom(fitZoom)
-    } catch {}
-  }
 
   // 获取当前文件名（不包含扩展名）
   const getFileName = () => {
@@ -65,159 +31,14 @@ function ExportToolbar({ currentFile, previewPaneRef, previewMode = 'markdown', 
     return currentFile.name.replace(/\.[^/.]+$/, '')
   }
 
-  // 生成预览页面
-  const generatePreviewPages = async (options) => {
-    if (!previewPaneRef?.current) return []
-
-    try {
-      const previewElement = previewPaneRef.current.querySelector('.markdown-content')
-      if (!previewElement) return []
-
-      // 创建高分辨率canvas（使用设备像素比）
-      const h2cScale = Math.max(1.5, window.devicePixelRatio || 1)
-      const canvas = await html2canvas(previewElement, {
-        scale: h2cScale,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        scrollX: 0,
-        scrollY: 0,
-        width: previewElement.scrollWidth,
-        height: previewElement.scrollHeight
-      })
-
-      // 计算页面尺寸（毫米 → 像素）
-      const { w: pageWmm, h: pageHmm } = getPageSizeMM(options.format, options.orientation)
-      const pageWidthPx = pageWmm * MM_TO_PX
-      const pageHeightPx = pageHmm * MM_TO_PX
-      const marginPx = options.margin * MM_TO_PX
-      const contentWidthPx = pageWidthPx - 2 * marginPx
-      const contentHeightPx = pageHeightPx - 2 * marginPx
-
-      // 预览分页：按目标页内容宽度计算源切片高度，确保目标高度恰好填满内容区域
-      const pages = []
-
-      for (let i = 0, y = 0; y < canvas.height; i++) {
-        const pageCanvas = document.createElement('canvas')
-        const ctx = pageCanvas.getContext('2d')
-        const dprOut = Math.max(1, window.devicePixelRatio || 1)
-
-        // 输出画布使用设备像素比，保证预览清晰
-        pageCanvas.width = Math.round(pageWidthPx * dprOut)
-        pageCanvas.height = Math.round(pageHeightPx * dprOut)
-
-        const marginOut = marginPx * dprOut
-        const contentWidthOut = contentWidthPx * dprOut
-        const contentHeightOut = pageCanvas.height - 2 * marginOut
-
-        // 源->目标的宽度缩放比，以及匹配目标内容高度所需的源切片高度
-        const widthScale = contentWidthOut / canvas.width
-        const sliceHeightSourcePx = Math.max(1, Math.floor(contentHeightOut / widthScale))
-        // 以目标空间约 6px 的重叠量，换算回源空间，避免边界文字被切断
-        const overlapDestPx = Math.round(6 * dprOut)
-        const overlapSourcePx = Math.max(2, Math.round(overlapDestPx / widthScale))
-
-        const sourceY = y
-        const sourceHeight = Math.min(sliceHeightSourcePx, canvas.height - sourceY)
-
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height)
-        ctx.imageSmoothingEnabled = true
-        ctx.imageSmoothingQuality = 'high'
-
-        if (sourceHeight > 0) {
-          const destHeight = Math.min(
-            contentHeightOut,
-            Math.round((sourceHeight * contentWidthOut) / canvas.width)
-          )
-          ctx.drawImage(
-            canvas,
-            0,
-            sourceY,
-            canvas.width,
-            sourceHeight,
-            marginOut,
-            marginOut,
-            contentWidthOut,
-            destHeight
-          )
-        }
-
-        pages.push({
-          pageNumber: i + 1,
-          dataUrl: pageCanvas.toDataURL('image/png')
-        })
-
-        // 前进到下一页（源坐标系），加入重叠
-        y = Math.min(canvas.height, y + sliceHeightSourcePx - overlapSourcePx)
-      }
-
-      return pages
-    } catch (error) {
-      console.error('生成预览页面失败:', error)
-      return []
-    }
-  }
-
-  // 显示PDF预览
+  // 简化方案：直接打开系统打印流程导出 PDF（更快、更稳定）
   const showPDFPreviewModal = async () => {
     if (!previewPaneRef?.current) {
       alert('预览内容不可用，请先选择一个Markdown文件')
       return
     }
-    
-    setShowPDFPreview(true)
-    // 同步边距输入框显示值
-    setMarginInput(pdfOptions.margin.toString())
-    // 初次打开时计算最佳预览缩放并生成预览页面
-    setTimeout(async () => {
-      computeFitPreviewZoom()
-      const pages = await generatePreviewPages(pdfOptions)
-      setPreviewPages(pages)
-    }, 100)
+    await exportToPDF()
   }
-
-  // 当PDF选项改变时重新生成预览
-  const handlePdfOptionsChange = async (newOptions) => {
-    setPdfOptions(newOptions)
-    if (showPDFPreview) {
-      const pages = await generatePreviewPages(newOptions)
-      setPreviewPages(pages)
-    }
-  }
-
-  // 处理边距输入
-  const handleMarginChange = (e) => {
-    const value = e.target.value
-    setMarginInput(value)
-    
-    // 只有在输入有效数字时才更新pdfOptions
-    const numValue = parseFloat(value)
-    if (!isNaN(numValue) && numValue >= 0) {
-      // 限制最大边距，确保内容区域至少有50mm宽度和高度
-      const { w: pageW, h: pageH } = getPageSizeMM(pdfOptions.format, pdfOptions.orientation)
-      const maxMargin = Math.min((pageW - 50) / 2, (pageH - 50) / 2, 50)
-      const clampedMargin = Math.min(numValue, maxMargin)
-      
-      if (clampedMargin !== pdfOptions.margin) {
-        handlePdfOptionsChange({...pdfOptions, margin: clampedMargin})
-      }
-    }
-  }
-
-  // 处理边距输入失焦
-  const handleMarginBlur = () => {
-    const numValue = parseFloat(marginInput)
-    if (isNaN(numValue) || numValue < 0) {
-      // 如果输入无效，恢复为当前有效值
-      setMarginInput(pdfOptions.margin.toString())
-    } else {
-      // 确保输入框显示实际使用的值
-      setMarginInput(pdfOptions.margin.toString())
-    }
-  }
-
-  // 移除预览区域的滚轮缩放功能
 
   // 实际导出PDF
   const exportToPDF = async () => {
@@ -226,86 +47,132 @@ function ExportToolbar({ currentFile, previewPaneRef, previewMode = 'markdown', 
     }
 
     setIsExporting(true)
-    setExportType('pdf')
 
     try {
-      // 获取预览内容元素
-      const previewElement = previewPaneRef.current.querySelector('.markdown-content')
-      if (!previewElement) {
-        throw new Error('找不到预览内容')
+      const targetNode = previewMode === 'rich-html'
+        ? previewPaneRef.current.querySelector('#nice')
+        : previewPaneRef.current.querySelector('.markdown-content')
+
+      if (!targetNode) {
+        throw new Error('找不到可导出的预览内容')
       }
 
-      // 生成高分辨率源画布
-      const scale = Math.max(2, Number(pdfOptions.scale) || 2)
-      const canvas = await html2canvas(previewElement, {
-        scale,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        scrollX: 0,
-        scrollY: 0,
-        width: previewElement.scrollWidth,
-        height: previewElement.scrollHeight
+      const clonedNode = targetNode.cloneNode(true)
+      clonedNode.querySelectorAll?.('.copy-code-btn, .toolbar-btn, .editor-btn, script').forEach((node) => {
+        node.remove()
       })
 
-      // 初始化 PDF
-      const pdf = new jsPDF({
-        orientation: pdfOptions.orientation,
-        unit: 'mm',
-        format: pdfOptions.format
-      })
+      const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+        .map((link) => {
+          const href = link.getAttribute('href')
+          return href ? `<link rel="stylesheet" href="${href}">` : ''
+        })
+        .filter(Boolean)
+        .join('\n')
 
-      // 计算页面与内容尺寸（mm）
-      const { w: pageWmm, h: pageHmm } = getPageSizeMM(pdfOptions.format, pdfOptions.orientation)
-      const marginMm = pdfOptions.margin
-      const contentWmm = pageWmm - 2 * marginMm
-      const contentHmm = pageHmm - 2 * marginMm
+      const inlineStyles = Array.from(document.querySelectorAll('style'))
+        .map((style) => `<style>${style.textContent || ''}</style>`)
+        .join('\n')
 
-      // 逐页裁切并写入 PDF：按目标内容宽度换算源切片高度，避免底部丢字
-      for (let i = 0, y = 0; y < canvas.height; i++) {
-        // 使目标高度正好为 contentHmm（毫米）所对应的源切片高度（像素）
-        const sliceHeightSourcePx = Math.max(1, Math.floor((contentHmm * canvas.width) / contentWmm))
-        // 以目标空间约 1mm 的重叠量，换算回源像素
-        const overlapMm = 1
-        const overlapSourcePx = Math.max(2, Math.round((overlapMm * canvas.width) / contentWmm))
+      const safeTitle = getFileName()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
 
-        const sourceY = y
-        const sliceHeight = Math.min(sliceHeightSourcePx, canvas.height - sourceY)
+      const printableHtml = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  ${styleLinks}
+  ${inlineStyles}
+  <style>
+    :root { color-scheme: light; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #101114;
+    }
+    @page {
+      size: A4;
+      margin: 14mm 12mm;
+    }
+    .print-pdf-root {
+      max-width: 186mm;
+      margin: 0 auto;
+    }
+    .print-pdf-root #nice,
+    .print-pdf-root .markdown-content {
+      max-width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .print-pdf-root .copy-code-btn,
+    .print-pdf-root .export-toolbar,
+    .print-pdf-root .toolbar-btn,
+    .print-pdf-root .editor-btn {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <main class="print-pdf-root">${clonedNode.outerHTML}</main>
+</body>
+</html>`
 
-        // 创建一个切片画布
-        const sliceCanvas = document.createElement('canvas')
-        sliceCanvas.width = canvas.width
-        sliceCanvas.height = sliceHeight
-        const sctx = sliceCanvas.getContext('2d')
-        sctx.imageSmoothingEnabled = true
-        sctx.imageSmoothingQuality = 'high'
-        sctx.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight)
-
-        const sliceImg = sliceCanvas.toDataURL('image/png')
-
-        if (i > 0) pdf.addPage()
-        pdf.addImage(
-          sliceImg,
-          'PNG',
-          marginMm,
-          marginMm,
-          contentWmm,
-          (sliceHeight / canvas.width) * contentWmm
-        )
-
-        // 前进到下一页（源坐标系），加入重叠
-        y = Math.min(canvas.height, y + sliceHeightSourcePx - overlapSourcePx)
+      if (window.electronAPI?.savePDF) {
+        const result = await window.electronAPI.savePDF(printableHtml, getFileName())
+        if (result.error) throw new Error(result.error)
+      } else {
+        const printWindow = window.open('', '_blank', 'width=1100,height=820')
+        if (printWindow) {
+          printWindow.document.open()
+          printWindow.document.write(printableHtml)
+          printWindow.document.close()
+          const doPrint = () => {
+            setTimeout(() => {
+              try { printWindow.focus() } catch (_) {}
+              printWindow.print()
+            }, 200)
+          }
+          if (printWindow.document.readyState === 'complete') {
+            doPrint()
+          } else {
+            printWindow.addEventListener('load', doPrint, { once: true })
+          }
+          printWindow.addEventListener('afterprint', () => { printWindow.close() }, { once: true })
+        } else {
+          const iframe = document.createElement('iframe')
+          iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
+          document.body.appendChild(iframe)
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document
+          iframeDoc.open()
+          iframeDoc.write(printableHtml)
+          iframeDoc.close()
+          const triggerPrint = () => {
+            setTimeout(() => {
+              try { iframe.contentWindow.focus() } catch (_) {}
+              iframe.contentWindow.print()
+              setTimeout(() => { document.body.removeChild(iframe) }, 1000)
+            }, 200)
+          }
+          if (iframeDoc.readyState === 'complete') {
+            triggerPrint()
+          } else {
+            iframe.addEventListener('load', triggerPrint, { once: true })
+          }
+        }
       }
-
-      // 保存PDF
-      pdf.save(`${getFileName()}.pdf`)
-      setShowPDFPreview(false)
     } catch (error) {
       console.error('PDF导出失败:', error)
-      alert('PDF导出失败，请重试')
+      alert(`PDF 导出失败：${error?.message || '未知错误'}`)
     } finally {
       setIsExporting(false)
-      setExportType(null)
     }
   }
 
@@ -846,123 +713,6 @@ function ExportToolbar({ currentFile, previewPaneRef, previewMode = 'markdown', 
           )}
         </div>
       </div>
-
-      {/* PDF预览模态框 */}
-      {showPDFPreview && (
-        <div className="pdf-preview-modal" onClick={(e) => e.stopPropagation()}>
-          <div className="pdf-modal-overlay" onClick={() => setShowPDFPreview(false)} />
-          <div className="pdf-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="pdf-modal-body">
-              <div className="preview-area">
-                <div className="preview-viewport">
-                  {previewPages.length > 0 ? (
-                    <div className="pages-zoom" style={{ transform: `scale(${previewZoom})` }}>
-                      <div className="pages-stack">
-                        {previewPages.map((p, idx) => (
-                          <div
-                            key={idx}
-                            className={`print-page ${pdfOptions.orientation === 'landscape' ? 'landscape' : ''}`}
-                            style={{
-                              width: `${getPageSizeMM(pdfOptions.format, pdfOptions.orientation).w}mm`,
-                              minHeight: `${getPageSizeMM(pdfOptions.format, pdfOptions.orientation).h}mm`
-                            }}
-                          >
-                            <div className="page-shadow"></div>
-                            <img src={p.dataUrl} alt={`Page ${idx + 1}`} className="page-content-image" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="preview-loading">
-                      <Loader2 size={24} className="export-loading" />
-                      <p>正在生成预览...</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="pdf-options">
-                
-                <div className="option-group">
-                  <label>页面格式</label>
-                  <select 
-                    value={pdfOptions.format}
-                    onChange={(e) => handlePdfOptionsChange({...pdfOptions, format: e.target.value})}
-                  >
-                    <option value="a4">A4</option>
-                    <option value="letter">Letter</option>
-                  </select>
-                </div>
-                
-                <div className="option-group">
-                  <label>方向</label>
-                  <select 
-                    value={pdfOptions.orientation}
-                    onChange={(e) => handlePdfOptionsChange({...pdfOptions, orientation: e.target.value})}
-                  >
-                    <option value="portrait">纵向</option>
-                    <option value="landscape">横向</option>
-                  </select>
-                </div>
-                
-                <div className="option-group">
-                   <label>边距 (mm)</label>
-                   <input 
-                     type="number"
-                     min="0"
-                     max="50"
-                     value={marginInput}
-                     onChange={handleMarginChange}
-                     onBlur={handleMarginBlur}
-                     placeholder="边距"
-                   />
-                 </div>
-                
-                <div className="option-group">
-                  <label>清晰度（导出）</label>
-                  <select 
-                    value={pdfOptions.scale}
-                    onChange={(e) => handlePdfOptionsChange({...pdfOptions, scale: parseInt(e.target.value) || 2})}
-                  >
-                    <option value="1">标准</option>
-                    <option value="2">高清</option>
-                    <option value="3">超清</option>
-                  </select>
-                </div>
-
-
-                
-                <div className="pdf-modal-footer">
-                  <button 
-                    className="btn-secondary"
-                    onClick={() => setShowPDFPreview(false)}
-                  >
-                    取消
-                  </button>
-                  <button 
-                    className="btn-primary"
-                    onClick={exportToPDF}
-                    disabled={isExporting}
-                  >
-                    {isExporting ? (
-                      <>
-                        <Loader2 size={16} className="export-loading" />
-                        导出中...
-                      </>
-                    ) : (
-                      <>
-                        <Download size={16} />
-                        导出PDF
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
