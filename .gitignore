@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Logs and smoke-test output
+*.log
+start-logs/
+smoke-out/
+smoke-out-*/
+
+# Local environment and editor state
+.env
+.env.*
+*.local
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local Codex/agent scratch state
+.codex/
+.agents/
+
+# Temporary files
+~$*
+_compass_intro_trunc.txt
