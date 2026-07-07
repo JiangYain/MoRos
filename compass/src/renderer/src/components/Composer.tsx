@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../store";
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+const NO_MODEL_ERROR = "请先在设置中配置 API Key，或切换到已配置的模型。";
 
 const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "关闭",
@@ -91,6 +92,10 @@ export function Composer(): React.JSX.Element {
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
 
+  const contextPercent = stats?.contextPercent ?? null;
+  const noModel = !stats?.model || !stats.modelAuthConfigured;
+  const supportsThinking = Boolean(stats?.model?.reasoning);
+
   const applySlash = (command: string): void => {
     setText(`${command} `);
     textareaRef.current?.focus();
@@ -99,6 +104,11 @@ export function Composer(): React.JSX.Element {
   const doSend = (): void => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (noModel) {
+      setError(NO_MODEL_ERROR);
+      return;
+    }
+    setError(null);
     setText("");
     void send(trimmed);
   };
@@ -136,10 +146,6 @@ export function Composer(): React.JSX.Element {
       void abort();
     }
   };
-
-  const contextPercent = stats?.contextPercent ?? null;
-  const noModel = !stats?.model || !stats.modelAuthConfigured;
-  const supportsThinking = Boolean(stats?.model?.reasoning);
 
   return (
     <div className="composer-zone">
@@ -359,7 +365,7 @@ export function Composer(): React.JSX.Element {
               <button
                 className="send-btn"
                 aria-label="发送"
-                disabled={!text.trim()}
+                disabled={!text.trim() || noModel}
                 onClick={doSend}
               >
                 <svg width="11" height="12" viewBox="0 0 11 12">
