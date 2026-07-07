@@ -346,6 +346,29 @@ function summarizeEndpoint(endpoint) {
   return `ERR ${endpoint.probe.error} ${endpoint.url}`;
 }
 
+function summarizeLiveProbe(liveProbe) {
+  if (liveProbe.status === "not_run") {
+    return "not_run";
+  }
+
+  const target = liveProbe.model ? `${liveProbe.model}: ` : "";
+
+  if (liveProbe.status === "passed") {
+    const elapsed = liveProbe.ms !== undefined ? `, ${liveProbe.ms}ms` : "";
+    return `passed(${liveProbe.model}${elapsed})`;
+  }
+
+  if (liveProbe.status === "skipped") {
+    return `skipped(${target}${liveProbe.reason ?? "no reason"})`;
+  }
+
+  if (liveProbe.status === "failed") {
+    return `failed(${target}${liveProbe.error ?? "unknown error"})`;
+  }
+
+  return String(liveProbe.status);
+}
+
 function hasStaticFailure(result) {
   return (
     result.models === 0 ||
@@ -395,7 +418,7 @@ for (const provider of providers) {
       `available=${result.availableModels}`,
       `apis=${result.apis.join(",")}`,
       `endpoints=${result.endpoints.map(summarizeEndpoint).join(" | ")}`,
-      live ? `live=${result.liveProbe.status}` : undefined,
+      live ? `live=${summarizeLiveProbe(result.liveProbe)}` : undefined,
     ]
       .filter(Boolean)
       .join(" | "),
