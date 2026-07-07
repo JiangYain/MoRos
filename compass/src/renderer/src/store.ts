@@ -62,6 +62,12 @@ interface CompassState {
 }
 
 const streamingBlocks = new Map<string, StreamingAssistant>();
+const NO_MODEL_ERROR = "请先在设置中配置 API Key，或切换到已配置的模型。";
+
+function sanitizeErrorMessage(message: string): string {
+  if (/No API key found/i.test(message)) return NO_MODEL_ERROR;
+  return message.replace(/[A-Za-z]:\\[^\s"'<>`]+/g, "[local path]");
+}
 
 function blocksToArray(streaming: StreamingAssistant): UiBlock[] {
   return [...streaming.blocks.entries()]
@@ -246,9 +252,14 @@ export const useCompass = create<CompassState>((set, get) => ({
   },
 
   send: async (text) => {
+    const state = get();
+    if (!state.stats?.model || !state.stats.modelAuthConfigured) {
+      set({ lastError: NO_MODEL_ERROR });
+      return;
+    }
     const result = await api.prompt(text);
     if (!result.ok && result.error) {
-      set({ lastError: result.error });
+      set({ lastError: sanitizeErrorMessage(result.error) });
     }
   },
 
@@ -273,7 +284,7 @@ export const useCompass = create<CompassState>((set, get) => ({
 
   setModel: async (provider, id) => {
     const result = await api.setModel(provider, id);
-    if (!result.ok && result.error) set({ lastError: result.error });
+    if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
   },
 
   setThinkingLevel: async (level) => {
