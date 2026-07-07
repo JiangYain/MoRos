@@ -20,6 +20,10 @@ export interface UiProviderStatus {
   configured: boolean;
   /** where the credential comes from: stored | runtime | environment | ... */
   source?: string;
+  /** optional credential source detail, such as the environment variable name */
+  sourceLabel?: string;
+  /** missing provider-specific configuration that prevents reliable requests */
+  configurationIssue?: string;
   /** whether at least one model of this provider exists in the registry */
   hasModels: boolean;
 }

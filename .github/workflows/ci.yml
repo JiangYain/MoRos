@@ -45,6 +45,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Provider registry audit
+        run: npm run audit:providers:static
+
       - name: Build
         run: npm run build
 

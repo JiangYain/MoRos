@@ -1549,6 +1549,12 @@ textarea {
   color: var(--color-text-tertiary);
 }
 
+.provider-row .p-issue {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--color-text-tertiary);
+}
+
 .key-input-row {
   display: flex;
   gap: 0.5rem;

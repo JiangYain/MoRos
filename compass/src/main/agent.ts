@@ -8,6 +8,7 @@ import {
   ModelRegistry,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import type {
   AgentStats,
   AgentUiEvent,
@@ -144,7 +145,7 @@ export class AgentService {
       ? this.modelRegistry.find(this.settings.defaultModel.provider, this.settings.defaultModel.id)
       : undefined;
     const model =
-      preferred && this.modelRegistry.hasConfiguredAuth(preferred)
+      preferred && this.isModelConnectable(preferred)
         ? preferred
         : undefined;
 
@@ -362,7 +363,7 @@ export class AgentService {
     let modelAuthConfigured = false;
     if (model) {
       try {
-        modelAuthConfigured = this.modelRegistry.hasConfiguredAuth(model);
+        modelAuthConfigured = this.isModelConnectable(model);
       } catch {
         modelAuthConfigured = false;
       }
@@ -479,27 +480,38 @@ export class AgentService {
   }
 
   getModels(): UiModel[] {
-    return this.modelRegistry.getAvailable().map((model) => ({
-      provider: String(model.provider),
-      providerName: this.modelRegistry.getProviderDisplayName(String(model.provider)),
-      id: model.id,
-      name: model.name ?? model.id,
-      reasoning: Boolean(model.reasoning),
-      contextWindow: model.contextWindow ?? 0,
-    }));
+    return this.modelRegistry
+      .getAvailable()
+      .filter((model) => this.isModelConnectable(model))
+      .map((model) => ({
+        provider: String(model.provider),
+        providerName: this.modelRegistry.getProviderDisplayName(String(model.provider)),
+        id: model.id,
+        name: model.name ?? model.id,
+        reasoning: Boolean(model.reasoning),
+        contextWindow: model.contextWindow ?? 0,
+      }));
   }
 
   getProviders(): UiProviderStatus[] {
     const providers = new Map<string, UiProviderStatus>();
-    for (const model of this.modelRegistry.getAll()) {
+    const allModels = this.modelRegistry.getAll();
+    for (const model of allModels) {
       const id = String(model.provider);
       if (!providers.has(id)) {
         const status = this.modelRegistry.getProviderAuthStatus(id);
+        const providerModels = allModels.filter((candidate) => String(candidate.provider) === id);
+        const credentialConfigured = providerModels.some((candidate) =>
+          this.modelRegistry.hasConfiguredAuth(candidate),
+        );
+        const configurationIssue = this.getProviderConfigurationIssue(id, providerModels);
         providers.set(id, {
           id,
           name: this.modelRegistry.getProviderDisplayName(id),
-          configured: status.configured,
-          source: status.source,
+          configured: credentialConfigured && !configurationIssue,
+          source: status.source ?? (credentialConfigured ? "configured" : undefined),
+          sourceLabel: status.label,
+          configurationIssue,
           hasModels: true,
         });
       }
@@ -508,6 +520,44 @@ export class AgentService {
       if (a.configured !== b.configured) return a.configured ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+  }
+
+  private isModelConnectable(model: Model<Api>): boolean {
+    return (
+      this.modelRegistry.hasConfiguredAuth(model) &&
+      !this.getProviderConfigurationIssue(String(model.provider), [model])
+    );
+  }
+
+  private getProviderConfigurationIssue(
+    provider: string,
+    models: Array<{ baseUrl?: string }>,
+  ): string | undefined {
+    const baseUrls = models.map((model) => model.baseUrl ?? "");
+
+    if (
+      provider === "azure-openai-responses" &&
+      baseUrls.some((baseUrl) => baseUrl.trim().length === 0) &&
+      !process.env.AZURE_OPENAI_BASE_URL?.trim() &&
+      !process.env.AZURE_OPENAI_RESOURCE_NAME?.trim()
+    ) {
+      return "Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME.";
+    }
+
+    if (baseUrls.some((baseUrl) => baseUrl.includes("{CLOUDFLARE_ACCOUNT_ID}"))) {
+      const missing = ["CLOUDFLARE_ACCOUNT_ID"].filter((name) => !process.env[name]?.trim());
+      if (
+        baseUrls.some((baseUrl) => baseUrl.includes("{CLOUDFLARE_GATEWAY_ID}")) &&
+        !process.env.CLOUDFLARE_GATEWAY_ID?.trim()
+      ) {
+        missing.push("CLOUDFLARE_GATEWAY_ID");
+      }
+      if (missing.length > 0) {
+        return `Set ${missing.join(" and ")}.`;
+      }
+    }
+
+    return undefined;
   }
 
   async listSessions(): Promise<UiSessionInfo[]> {
@@ -617,7 +667,7 @@ export class AgentService {
     if (this.session && !this.session.model) {
       const candidate = this.modelRegistry
         .getAvailable()
-        .find((model) => String(model.provider) === provider);
+        .find((model) => String(model.provider) === provider && this.isModelConnectable(model));
       if (candidate) {
         try {
           await this.session.setModel(candidate);

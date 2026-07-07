@@ -135,11 +135,13 @@ function SkillsPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
 
 /* ============================================================== settings */
 
-function ProviderRow({ id, name, configured, source }: {
+function ProviderRow({ id, name, configured, source, sourceLabel, configurationIssue }: {
   id: string;
   name: string;
   configured: boolean;
   source?: string;
+  sourceLabel?: string;
+  configurationIssue?: string;
 }): React.JSX.Element {
   const setApiKey = useCompass((s) => s.setApiKey);
   const removeApiKey = useCompass((s) => s.removeApiKey);
@@ -164,16 +166,17 @@ function ProviderRow({ id, name, configured, source }: {
       <div className="row-1">
         <span className={`p-dot${configured ? " ok" : ""}`} />
         <span className="p-name">{name}</span>
-        {configured && <span className="p-src">{source ?? "configured"}</span>}
+        {(sourceLabel || source) && <span className="p-src">{sourceLabel ?? source}</span>}
         <button className="link-btn" onClick={() => setEditing(!editing)}>
           {configured ? "更换" : "配置"}
         </button>
-        {configured && source === "stored" && (
+        {source === "stored" && (
           <button className="link-btn" onClick={() => void removeApiKey(id)}>
             移除
           </button>
         )}
       </div>
+      {configurationIssue && <div className="p-issue">{configurationIssue}</div>}
       {editing && (
         <div className="key-input-row">
           <input
@@ -234,6 +237,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.Element 
             name={provider.name}
             configured={provider.configured}
             source={provider.source}
+            sourceLabel={provider.sourceLabel}
+            configurationIssue={provider.configurationIssue}
           />
         ))}
       </div>
