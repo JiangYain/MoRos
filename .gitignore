@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
 
+# Package manager: the repo standardizes on npm (package-lock.json).
+# Ignore local pnpm leftovers so conflicting lockfiles never get committed.
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # Build outputs
 out/
 dist/
