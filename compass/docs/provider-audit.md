@@ -43,14 +43,14 @@ Pi resolves credentials in this order:
 | Provider | Environment variables |
 | --- | --- |
 | `amazon-bedrock` | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`, or `AWS_BEARER_TOKEN_BEDROCK`, or ECS/IRSA credential vars |
-| `anthropic` | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
+| `anthropic` | Pi OAuth login, `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `azure-openai-responses` | `AZURE_OPENAI_API_KEY` |
 | `cerebras` | `CEREBRAS_API_KEY` |
 | `cloudflare-ai-gateway` | `CLOUDFLARE_API_KEY` |
 | `cloudflare-workers-ai` | `CLOUDFLARE_API_KEY` |
 | `deepseek` | `DEEPSEEK_API_KEY` |
 | `fireworks` | `FIREWORKS_API_KEY` |
-| `github-copilot` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
+| `github-copilot` | Pi OAuth login, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
 | `google` | `GEMINI_API_KEY` |
 | `google-vertex` | `GOOGLE_CLOUD_API_KEY`, or Google ADC |
 | `groq` | `GROQ_API_KEY` |

@@ -17,6 +17,7 @@ import {
   getModels,
   getProviders,
 } from "@mariozechner/pi-ai";
+import { getOAuthProviders } from "@mariozechner/pi-ai/oauth";
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -39,18 +40,19 @@ const registry = ModelRegistry.create(authStorage);
 const registeredApis = new Set(getApiProviders().map((provider) => provider.api));
 const allRegistryModels = registry.getAll();
 const availableModels = registry.getAvailable();
+const oauthProviderIds = new Set(getOAuthProviders().map((provider) => provider.id));
 
 const providerAuthHints = {
   "amazon-bedrock":
     "AWS_PROFILE, AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS container/web identity credentials",
-  anthropic: "ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY",
+  anthropic: "Pi OAuth login, ANTHROPIC_OAUTH_TOKEN, or ANTHROPIC_API_KEY",
   "azure-openai-responses": "AZURE_OPENAI_API_KEY",
   cerebras: "CEREBRAS_API_KEY",
   "cloudflare-ai-gateway": "CLOUDFLARE_API_KEY",
   "cloudflare-workers-ai": "CLOUDFLARE_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
-  "github-copilot": "COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN",
+  "github-copilot": "Pi OAuth login, COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN",
   google: "GEMINI_API_KEY",
   "google-vertex":
     "GOOGLE_CLOUD_API_KEY, or ADC with GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT and GOOGLE_CLOUD_LOCATION",
@@ -100,6 +102,10 @@ function getProviderAuthHint(provider) {
 
 function hasProviderAuthHint(provider) {
   return Object.hasOwn(providerAuthHints, provider);
+}
+
+function hasOAuthAuthHint(provider) {
+  return !oauthProviderIds.has(provider) || /\bOAuth\b/.test(getProviderAuthHint(provider));
 }
 
 function getStaleAuthHints(providers) {
@@ -339,6 +345,7 @@ async function auditProvider(provider) {
   const placeholders = baseUrls.filter((url) => /\{[^}]+\}/.test(url));
   const authStatus = registry.getProviderAuthStatus(provider);
   const missingAuthHint = !hasProviderAuthHint(provider);
+  const missingOAuthHint = !hasOAuthAuthHint(provider);
   const missingMetadata = getMissingMetadata(provider, models);
   const endpoints = [];
 
@@ -383,8 +390,10 @@ async function auditProvider(provider) {
       configured: authStatus.configured === true || availableCount > 0,
       source: authStatus.source,
       envKeysConfigured: findEnvKeys(provider) ?? [],
+      supportsOAuth: oauthProviderIds.has(provider),
       hint: getProviderAuthHint(provider),
       missingHint: missingAuthHint,
+      missingOAuthHint,
     },
     missingMetadata,
     endpoints,
@@ -434,7 +443,8 @@ function hasStaticFailure(result) {
     result.registryModels !== result.models ||
     !result.apiRegistered ||
     result.missingMetadata.length > 0 ||
-    result.auth.missingHint
+    result.auth.missingHint ||
+    result.auth.missingOAuthHint
   );
 }
 
@@ -488,6 +498,7 @@ for (const provider of providers) {
       `apis=${result.apis.join(",")}`,
       `endpoints=${result.endpoints.map(summarizeEndpoint).join(" | ")}`,
       result.auth.missingHint ? "authHint=missing" : undefined,
+      result.auth.missingOAuthHint ? "oauthHint=missing" : undefined,
       live ? `live=${summarizeLiveProbe(result.liveProbe)}` : undefined,
     ]
       .filter(Boolean)
