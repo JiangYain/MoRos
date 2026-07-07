@@ -40,6 +40,42 @@ const registeredApis = new Set(getApiProviders().map((provider) => provider.api)
 const allRegistryModels = registry.getAll();
 const availableModels = registry.getAvailable();
 
+const providerAuthHints = {
+  "amazon-bedrock":
+    "AWS_PROFILE, AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS container/web identity credentials",
+  anthropic: "ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY",
+  "azure-openai-responses": "AZURE_OPENAI_API_KEY",
+  cerebras: "CEREBRAS_API_KEY",
+  "cloudflare-ai-gateway": "CLOUDFLARE_API_KEY",
+  "cloudflare-workers-ai": "CLOUDFLARE_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  "github-copilot": "COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN",
+  google: "GEMINI_API_KEY",
+  "google-vertex":
+    "GOOGLE_CLOUD_API_KEY, or ADC with GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT and GOOGLE_CLOUD_LOCATION",
+  groq: "GROQ_API_KEY",
+  huggingface: "HF_TOKEN",
+  "kimi-coding": "KIMI_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  "minimax-cn": "MINIMAX_CN_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  moonshotai: "MOONSHOT_API_KEY",
+  "moonshotai-cn": "MOONSHOT_API_KEY",
+  openai: "OPENAI_API_KEY",
+  "openai-codex": "Pi OAuth login for ChatGPT/Codex subscription",
+  opencode: "OPENCODE_API_KEY",
+  "opencode-go": "OPENCODE_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  "vercel-ai-gateway": "AI_GATEWAY_API_KEY",
+  xai: "XAI_API_KEY",
+  xiaomi: "XIAOMI_API_KEY",
+  "xiaomi-token-plan-ams": "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+  "xiaomi-token-plan-cn": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+  "xiaomi-token-plan-sgp": "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+  zai: "ZAI_API_KEY",
+};
+
 function log(message = "") {
   if (!jsonOnly) {
     console.log(message);
@@ -52,6 +88,14 @@ function getEnvValue(name) {
 
 function getUniqueValues(values) {
   return [...new Set(values.filter(Boolean))].sort();
+}
+
+function getProviderAuthHint(provider) {
+  const hint = providerAuthHints[provider];
+  if (hint) {
+    return `set ${hint} or store credentials in ~/.pi/auth.json`;
+  }
+  return "store credentials in ~/.pi/auth.json or configure the provider in ~/.pi/agent/models.json";
 }
 
 function replacePlaceholders(url) {
@@ -309,7 +353,10 @@ async function auditProvider(provider) {
   const liveProbe = live
     ? liveModel
       ? await runLiveProbe(liveModel)
-      : { status: "skipped", reason: "no configured auth for provider" }
+      : {
+          status: "skipped",
+          reason: `no configured auth for provider; ${getProviderAuthHint(provider)}`,
+        }
     : { status: "not_run" };
 
   return {

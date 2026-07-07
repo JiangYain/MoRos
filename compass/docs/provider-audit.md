@@ -23,6 +23,8 @@ npm run audit:providers -- --timeout-ms=15000
   provider quota and is skipped when no credential is configured.
 - `audit:providers:strict-live` is the final proof command for provider
   readiness. It fails unless every selected provider has a passing live request.
+  When a provider is skipped, the console output includes the expected
+  credential source to configure next.
 
 ## Credential sources
 
