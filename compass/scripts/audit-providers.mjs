@@ -98,6 +98,10 @@ function getProviderAuthHint(provider) {
   return "store credentials in ~/.pi/auth.json or configure the provider in ~/.pi/agent/models.json";
 }
 
+function hasProviderAuthHint(provider) {
+  return Object.hasOwn(providerAuthHints, provider);
+}
+
 function replacePlaceholders(url) {
   const missing = new Set();
   const resolved = url.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name) => {
@@ -329,6 +333,7 @@ async function auditProvider(provider) {
   const baseUrls = getUniqueValues(models.map((model) => model.baseUrl));
   const placeholders = baseUrls.filter((url) => /\{[^}]+\}/.test(url));
   const authStatus = registry.getProviderAuthStatus(provider);
+  const missingAuthHint = !hasProviderAuthHint(provider);
   const missingMetadata = getMissingMetadata(provider, models);
   const endpoints = [];
 
@@ -373,6 +378,8 @@ async function auditProvider(provider) {
       configured: authStatus.configured === true || availableCount > 0,
       source: authStatus.source,
       envKeysConfigured: findEnvKeys(provider) ?? [],
+      hint: getProviderAuthHint(provider),
+      missingHint: missingAuthHint,
     },
     missingMetadata,
     endpoints,
@@ -421,7 +428,8 @@ function hasStaticFailure(result) {
     result.models === 0 ||
     result.registryModels !== result.models ||
     !result.apiRegistered ||
-    result.missingMetadata.length > 0
+    result.missingMetadata.length > 0 ||
+    result.auth.missingHint
   );
 }
 
@@ -465,6 +473,7 @@ for (const provider of providers) {
       `available=${result.availableModels}`,
       `apis=${result.apis.join(",")}`,
       `endpoints=${result.endpoints.map(summarizeEndpoint).join(" | ")}`,
+      result.auth.missingHint ? "authHint=missing" : undefined,
       live ? `live=${summarizeLiveProbe(result.liveProbe)}` : undefined,
     ]
       .filter(Boolean)
