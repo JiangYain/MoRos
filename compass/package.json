@@ -10,7 +10,8 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "audit:providers": "node scripts/audit-providers.mjs",
-    "audit:providers:static": "node scripts/audit-providers.mjs --static"
+    "audit:providers:static": "node scripts/audit-providers.mjs --static",
+    "audit:providers:strict-live": "node scripts/audit-providers.mjs --strict-live"
   },
   "keywords": [],
   "author": "",

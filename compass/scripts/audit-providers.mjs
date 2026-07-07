@@ -6,6 +6,9 @@
  *
  * Use --live to send one tiny request per configured provider. Live mode may
  * consume provider quota and only runs for providers with configured auth.
+ *
+ * Use --strict-live when proving every provider is really connectable. It
+ * enables --live and fails when any provider is skipped or needs config.
  */
 import {
   findEnvKeys,
@@ -20,7 +23,8 @@ const DEFAULT_TIMEOUT_MS = 8000;
 const args = new Set(process.argv.slice(2));
 const argList = process.argv.slice(2);
 const jsonOnly = args.has("--json");
-const live = args.has("--live");
+const strictLive = args.has("--strict-live");
+const live = args.has("--live") || strictLive;
 const probeEndpoints = !args.has("--static") && !args.has("--no-probe");
 const timeoutMs =
   Number(argList.find((arg) => arg.startsWith("--timeout-ms="))?.split("=")[1]) ||
@@ -364,13 +368,17 @@ function hasLiveFailure(result) {
   return live && result.liveProbe.status === "failed";
 }
 
+function hasStrictLiveFailure(result) {
+  return strictLive && result.liveProbe.status !== "passed";
+}
+
 const providers = getProviders().filter(
   (provider) => providerFilter.length === 0 || providerFilter.includes(provider),
 );
 const results = [];
 
 log(
-  `Provider audit: ${providers.length} provider(s), live=${live}, ` +
+  `Provider audit: ${providers.length} provider(s), live=${live}, strictLive=${strictLive}, ` +
     `probe=${probeEndpoints}, timeout=${timeoutMs}ms`,
 );
 if (registry.getError()) {
@@ -397,6 +405,7 @@ for (const provider of providers) {
 const staticFailures = results.filter(hasStaticFailure);
 const endpointFailures = results.filter(hasEndpointFailure);
 const liveFailures = results.filter(hasLiveFailure);
+const strictLiveFailures = results.filter(hasStrictLiveFailure);
 const configRequired = results.filter((result) =>
   result.endpoints.some((endpoint) => endpoint.kind === "config_required"),
 );
@@ -404,6 +413,7 @@ const configRequired = results.filter((result) =>
 const report = {
   generatedAt: new Date().toISOString(),
   live,
+  strictLive,
   probeEndpoints,
   timeoutMs,
   totals: {
@@ -413,6 +423,7 @@ const report = {
     staticFailures: staticFailures.length,
     endpointFailures: endpointFailures.length,
     liveFailures: liveFailures.length,
+    strictLiveFailures: strictLiveFailures.length,
     configRequired: configRequired.length,
   },
   registeredApis: [...registeredApis].sort(),
@@ -428,10 +439,16 @@ if (jsonOnly) {
     `Summary: providers=${report.totals.providers}, models=${report.totals.models}, ` +
       `available=${report.totals.availableModels}, staticFailures=${report.totals.staticFailures}, ` +
       `endpointFailures=${report.totals.endpointFailures}, liveFailures=${report.totals.liveFailures}, ` +
+      `strictLiveFailures=${report.totals.strictLiveFailures}, ` +
       `configRequired=${report.totals.configRequired}`,
   );
 }
 
-if (staticFailures.length > 0 || endpointFailures.length > 0 || liveFailures.length > 0) {
+if (
+  staticFailures.length > 0 ||
+  endpointFailures.length > 0 ||
+  liveFailures.length > 0 ||
+  strictLiveFailures.length > 0
+) {
   process.exitCode = 1;
 }

@@ -9,6 +9,7 @@ resolution layer from `@mariozechner/pi-coding-agent`.
 npm run audit:providers:static
 npm run audit:providers
 npm run audit:providers -- --live
+npm run audit:providers:strict-live
 npm run audit:providers -- --provider=openai
 npm run audit:providers -- --timeout-ms=15000
 ```
@@ -20,6 +21,8 @@ npm run audit:providers -- --timeout-ms=15000
   endpoint is reachable.
 - `--live` sends one tiny request per configured provider. This may consume
   provider quota and is skipped when no credential is configured.
+- `audit:providers:strict-live` is the final proof command for provider
+  readiness. It fails unless every selected provider has a passing live request.
 
 ## Credential sources
 
