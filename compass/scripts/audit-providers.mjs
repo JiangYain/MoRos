@@ -102,6 +102,11 @@ function hasProviderAuthHint(provider) {
   return Object.hasOwn(providerAuthHints, provider);
 }
 
+function getStaleAuthHints(providers) {
+  const knownProviders = new Set(providers);
+  return Object.keys(providerAuthHints).filter((provider) => !knownProviders.has(provider));
+}
+
 function replacePlaceholders(url) {
   const missing = new Set();
   const resolved = url.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name) => {
@@ -450,10 +455,19 @@ function hasStrictLiveFailure(result) {
   return strictLive && result.liveProbe.status !== "passed";
 }
 
-const providers = getProviders().filter(
+const allProviders = getProviders();
+const unknownProviderFilters = providerFilter.filter((provider) => !allProviders.includes(provider));
+if (unknownProviderFilters.length > 0) {
+  log(`Unknown provider filter(s): ${unknownProviderFilters.join(", ")}`);
+  log(`Known providers: ${allProviders.join(", ")}`);
+  process.exit(1);
+}
+
+const providers = allProviders.filter(
   (provider) => providerFilter.length === 0 || providerFilter.includes(provider),
 );
 const results = [];
+const staleAuthHints = getStaleAuthHints(allProviders);
 
 log(
   `Provider audit: ${providers.length} provider(s), live=${live}, strictLive=${strictLive}, ` +
@@ -482,6 +496,7 @@ for (const provider of providers) {
 }
 
 const staticFailures = results.filter(hasStaticFailure);
+const hasStaticAuthHintFailure = staleAuthHints.length > 0;
 const endpointFailures = results.filter(hasEndpointFailure);
 const liveFailures = results.filter(hasLiveFailure);
 const strictLiveFailures = results.filter(hasStrictLiveFailure);
@@ -500,12 +515,14 @@ const report = {
     models: results.reduce((sum, result) => sum + result.models, 0),
     availableModels: results.reduce((sum, result) => sum + result.availableModels, 0),
     staticFailures: staticFailures.length,
+    staleAuthHints: staleAuthHints.length,
     endpointFailures: endpointFailures.length,
     liveFailures: liveFailures.length,
     strictLiveFailures: strictLiveFailures.length,
     configRequired: configRequired.length,
   },
   registeredApis: [...registeredApis].sort(),
+  staleAuthHints,
   registryLoadError: registry.getError(),
   results,
 };
@@ -517,6 +534,7 @@ if (jsonOnly) {
   log(
     `Summary: providers=${report.totals.providers}, models=${report.totals.models}, ` +
       `available=${report.totals.availableModels}, staticFailures=${report.totals.staticFailures}, ` +
+      `staleAuthHints=${report.totals.staleAuthHints}, ` +
       `endpointFailures=${report.totals.endpointFailures}, liveFailures=${report.totals.liveFailures}, ` +
       `strictLiveFailures=${report.totals.strictLiveFailures}, ` +
       `configRequired=${report.totals.configRequired}`,
@@ -525,6 +543,7 @@ if (jsonOnly) {
 
 if (
   staticFailures.length > 0 ||
+  hasStaticAuthHintFailure ||
   endpointFailures.length > 0 ||
   liveFailures.length > 0 ||
   strictLiveFailures.length > 0

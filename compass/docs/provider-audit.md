@@ -16,6 +16,8 @@ npm run audit:providers -- --timeout-ms=15000
 
 - `audit:providers:static` checks model metadata and API registration only. It
   does not call external endpoints and is safe for CI.
+  It also fails if Pi exposes a provider without a matching Compass credential
+  hint, or if Compass keeps a stale hint for a provider Pi no longer exposes.
 - `audit:providers` also probes concrete HTTPS base URLs without credentials.
   HTTP `401`, `403`, `404`, `405`, and redirects still prove that the service
   endpoint is reachable.
@@ -60,6 +62,7 @@ Pi resolves credentials in this order:
 | `moonshotai` | `MOONSHOT_API_KEY` |
 | `moonshotai-cn` | `MOONSHOT_API_KEY` |
 | `openai` | `OPENAI_API_KEY` |
+| `openai-codex` | Pi OAuth login for ChatGPT/Codex subscription |
 | `opencode` | `OPENCODE_API_KEY` |
 | `opencode-go` | `OPENCODE_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
