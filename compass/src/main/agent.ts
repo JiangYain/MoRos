@@ -8,7 +8,7 @@ import {
   ModelRegistry,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
-import type { Api, Model } from "@mariozechner/pi-ai";
+import type { Api, Model, OAuthLoginCallbacks } from "@mariozechner/pi-ai";
 import type {
   AgentStats,
   AgentUiEvent,
@@ -27,6 +27,7 @@ import { app } from "electron";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMPASS_CONTEXT } from "./compass-context";
+import { getProviderAuthInfo } from "./provider-auth";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
 
@@ -496,23 +497,41 @@ export class AgentService {
   getProviders(): UiProviderStatus[] {
     const providers = new Map<string, UiProviderStatus>();
     const allModels = this.modelRegistry.getAll();
+    const oauthIds = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id));
     for (const model of allModels) {
       const id = String(model.provider);
       if (!providers.has(id)) {
         const status = this.modelRegistry.getProviderAuthStatus(id);
         const providerModels = allModels.filter((candidate) => String(candidate.provider) === id);
-        const credentialConfigured = providerModels.some((candidate) =>
-          this.modelRegistry.hasConfiguredAuth(candidate),
-        );
+        const credentialConfigured = providerModels.some((candidate) => {
+          try {
+            return this.modelRegistry.hasConfiguredAuth(candidate);
+          } catch {
+            return false;
+          }
+        });
         const configurationIssue = this.getProviderConfigurationIssue(id, providerModels);
+        const authInfo = getProviderAuthInfo(id, oauthIds.has(id));
         providers.set(id, {
           id,
           name: this.modelRegistry.getProviderDisplayName(id),
           configured: credentialConfigured && !configurationIssue,
-          source: status.source ?? (credentialConfigured ? "configured" : undefined),
-          sourceLabel: status.label,
+          source:
+            status.source ??
+            (credentialConfigured
+              ? id === "amazon-bedrock"
+                ? "environment"
+                : "configured"
+              : undefined),
+          sourceLabel:
+            status.label ?? (credentialConfigured && id === "amazon-bedrock" ? "AWS credential chain" : undefined),
           configurationIssue,
           hasModels: true,
+          supportsApiKey: authInfo.supportsApiKey,
+          supportsOAuth: Boolean(authInfo.supportsOAuth),
+          envVars: authInfo.envVars,
+          requiredEnv: authInfo.requiredEnv,
+          authNote: authInfo.authNote,
         });
       }
     }
@@ -662,22 +681,14 @@ export class AgentService {
   async setApiKey(provider: string, key: string): Promise<void> {
     this.authStorage.set(provider, { type: "api_key", key });
     this.modelRegistry.refresh();
-    // If the current session has no model yet, adopt the first model of
-    // this provider so the user can start chatting immediately.
-    if (this.session && !this.session.model) {
-      const candidate = this.modelRegistry
-        .getAvailable()
-        .find((model) => String(model.provider) === provider && this.isModelConnectable(model));
-      if (candidate) {
-        try {
-          await this.session.setModel(candidate);
-          this.settings.defaultModel = { provider, id: candidate.id };
-          saveSettings(this.settings);
-        } catch {
-          /* stay modelless; user can pick manually */
-        }
-      }
-    }
+    await this.syncSessionModelAfterAuth(provider);
+    this.emitStats();
+  }
+
+  async loginProvider(provider: string, callbacks: OAuthLoginCallbacks): Promise<void> {
+    await this.authStorage.login(provider, callbacks);
+    this.modelRegistry.refresh();
+    await this.syncSessionModelAfterAuth(provider);
     this.emitStats();
   }
 
@@ -719,6 +730,28 @@ export class AgentService {
   private async restartPreservingSession(): Promise<void> {
     const sessionPath = this.session?.sessionFile;
     await this.start(sessionPath ? { sessionPath } : undefined);
+  }
+
+  private async syncSessionModelAfterAuth(provider: string): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    const current = session.model;
+    const candidate =
+      current && String(current.provider) === provider
+          ? this.modelRegistry.find(provider, current.id)
+        : !current
+          ? this.modelRegistry
+              .getAvailable()
+              .find((model) => String(model.provider) === provider && this.isModelConnectable(model))
+          : undefined;
+    if (!candidate || !this.isModelConnectable(candidate)) return;
+    try {
+      await session.setModel(candidate);
+      this.settings.defaultModel = { provider, id: candidate.id };
+      saveSettings(this.settings);
+    } catch {
+      /* stay on the current model; user can pick manually */
+    }
   }
 
   get currentSessionFile(): string | undefined {

@@ -54,6 +54,7 @@ interface CompassState {
   setModel(provider: string, id: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
+  loginProvider(provider: string): Promise<void>;
   removeApiKey(provider: string): Promise<void>;
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
   addSkillDir(): Promise<void>;
@@ -295,6 +296,15 @@ export const useCompass = create<CompassState>((set, get) => ({
   setApiKey: async (provider, key) => {
     const payload = await api.setApiKey(provider, key);
     // keep current thread; only refresh config-ish slices
+    set({
+      models: payload.models,
+      providers: payload.providers,
+      stats: payload.stats,
+    });
+  },
+
+  loginProvider: async (provider) => {
+    const payload = await api.loginProvider(provider);
     set({
       models: payload.models,
       providers: payload.providers,
