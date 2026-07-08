@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import type { UiProviderStatus } from "@shared/types";
 import { api } from "../ipc";
 import { useCompass } from "../store";
 
@@ -135,17 +136,18 @@ function SkillsPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
 
 /* ============================================================== settings */
 
-function ProviderRow({ id, name, configured, source }: {
-  id: string;
-  name: string;
-  configured: boolean;
-  source?: string;
-}): React.JSX.Element {
+function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.Element {
   const setApiKey = useCompass((s) => s.setApiKey);
+  const loginProvider = useCompass((s) => s.loginProvider);
   const removeApiKey = useCompass((s) => s.removeApiKey);
+  const setError = useCompass((s) => s.setError);
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loginBusy, setLoginBusy] = useState(false);
+
+  const { id, name, configured, source, sourceLabel, supportsApiKey, supportsOAuth } = provider;
+  const sourceText = [source, sourceLabel].filter(Boolean).join(": ");
 
   const save = async (): Promise<void> => {
     if (!key.trim()) return;
@@ -159,22 +161,56 @@ function ProviderRow({ id, name, configured, source }: {
     }
   };
 
+  const login = async (): Promise<void> => {
+    setLoginBusy(true);
+    try {
+      await loginProvider(id);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
   return (
     <div className="provider-row">
       <div className="row-1">
         <span className={`p-dot${configured ? " ok" : ""}`} />
         <span className="p-name">{name}</span>
-        {configured && <span className="p-src">{source ?? "configured"}</span>}
-        <button className="link-btn" onClick={() => setEditing(!editing)}>
-          {configured ? "更换" : "配置"}
-        </button>
+        {configured && <span className="p-src">{sourceText || "configured"}</span>}
+        {supportsOAuth && (
+          <button className="link-btn" disabled={loginBusy} onClick={() => void login()}>
+            {loginBusy ? "登录中" : configured ? "重新登录" : "OAuth 登录"}
+          </button>
+        )}
+        {supportsApiKey && (
+          <button className="link-btn" onClick={() => setEditing(!editing)}>
+            {configured ? "更换 Key" : "配置 Key"}
+          </button>
+        )}
         {configured && source === "stored" && (
           <button className="link-btn" onClick={() => void removeApiKey(id)}>
-            移除
+            {supportsOAuth && !supportsApiKey ? "退出" : "移除"}
           </button>
         )}
       </div>
-      {editing && (
+      {provider.configurationIssue && <div className="p-issue">{provider.configurationIssue}</div>}
+      {(provider.envVars.length > 0 || provider.requiredEnv.length > 0 || provider.authNote) && (
+        <div className="provider-hints">
+          {provider.envVars.length > 0 && (
+            <div>
+              Env: <span>{provider.envVars.join(" / ")}</span>
+            </div>
+          )}
+          {provider.requiredEnv.length > 0 && (
+            <div>
+              Required: <span>{provider.requiredEnv.join(" + ")}</span>
+            </div>
+          )}
+          {provider.authNote && <div>{provider.authNote}</div>}
+        </div>
+      )}
+      {editing && supportsApiKey && (
         <div className="key-input-row">
           <input
             type="password"
@@ -228,13 +264,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.Element 
           </button>
         </div>
         {visible.map((provider) => (
-          <ProviderRow
-            key={provider.id}
-            id={provider.id}
-            name={provider.name}
-            configured={provider.configured}
-            source={provider.source}
-          />
+          <ProviderRow key={provider.id} provider={provider} />
         ))}
       </div>
 

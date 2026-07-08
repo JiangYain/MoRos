@@ -11,6 +11,7 @@ const api: CompassApi = {
   setModel: (provider, id) => ipcRenderer.invoke("models:set", provider, id),
   setThinkingLevel: (level: ThinkingLevel) => ipcRenderer.invoke("thinking:set", level),
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),
+  loginProvider: (provider) => ipcRenderer.invoke("auth:login-provider", provider),
   removeApiKey: (provider) => ipcRenderer.invoke("auth:remove", provider),
   setSkillEnabled: (name, enabled) => ipcRenderer.invoke("skills:set-enabled", name, enabled),
   addSkillDir: () => ipcRenderer.invoke("skills:add-dir"),

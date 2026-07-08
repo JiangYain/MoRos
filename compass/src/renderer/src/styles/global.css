@@ -173,6 +173,23 @@ textarea {
   white-space: nowrap;
 }
 
+.titlebar-meta > span {
+  flex: 0 0 auto;
+}
+
+.titlebar-model {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titlebar-model-auth {
+  color: var(--color-accent) !important;
+}
+
 .titlebar-meta b {
   color: var(--color-text-primary);
   font-weight: 500;
@@ -1152,16 +1169,19 @@ textarea {
    HERO (empty state)
    ============================================================ */
 .hero {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
 }
 
 .hero-inner {
   width: 100%;
   max-width: 640px;
-  padding: 0 3rem 6vh;
+  margin: auto 0;
+  padding: 2.2rem 3rem;
 }
 
 .hero-mark-row {
@@ -1473,6 +1493,11 @@ textarea {
   border-color: var(--color-accent);
 }
 
+.link-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 /* toggle */
 .toggle {
   position: relative;
@@ -1547,6 +1572,31 @@ textarea {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-text-tertiary);
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--color-text-tertiary);
+}
+
+.provider-hints span {
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  word-break: break-word;
+}
+
+.provider-row .p-issue {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--color-text-tertiary);
 }
 
 .key-input-row {
@@ -1605,5 +1655,23 @@ textarea {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .titlebar-meta {
+    gap: 1.1rem;
+    padding: 0 1rem;
+    letter-spacing: 0.1em;
+  }
+
+  .titlebar-engine {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .titlebar-model-auth {
+    display: none;
   }
 }

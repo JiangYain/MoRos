@@ -26,21 +26,21 @@ export function TitleBar(): React.JSX.Element {
           <span className={`state-dot${streaming ? " running" : ""}`} />
           {streaming ? "Running" : "Ready"}
         </span>
-        <span>
+        <span className="titlebar-engine">
           Engine：<b>Pi Agent Runtime</b>
         </span>
-        <span>
+        <span className="titlebar-skills">
           Skills：<b>{enabledSkills}</b>
         </span>
         {stats?.model ? (
-          <span>
+          <span className="titlebar-model">
             Model：<b>{stats.model.name}</b>
             {!stats.modelAuthConfigured && (
-              <b style={{ color: "var(--color-accent)" }}>（未配置密钥）</b>
+              <b className="titlebar-model-auth">（未配置密钥）</b>
             )}
           </span>
         ) : (
-          <span>
+          <span className="titlebar-model">
             Model：<b>未配置</b>
           </span>
         )}

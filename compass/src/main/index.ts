@@ -80,6 +80,51 @@ function registerIpc(service: AgentService): void {
     await service.setApiKey(provider, key);
     return service.buildInitPayload();
   });
+  ipcMain.handle("auth:login-provider", async (_event, provider: string) => {
+    await service.loginProvider(provider, {
+      onAuth: (info) => {
+        const message = [info.instructions, info.url].filter(Boolean).join("\n");
+        mainWindow?.webContents.send("agent:event", {
+          kind: "notice",
+          tone: "info",
+          text: message || `正在打开 ${provider} 登录页面…`,
+          ts: Date.now(),
+        });
+        void shell.openExternal(info.url);
+      },
+      onPrompt: async (prompt) => {
+        if (prompt.allowEmpty) return "";
+        mainWindow?.webContents.send("agent:event", {
+          kind: "notice",
+          tone: "warn",
+          text: `${prompt.message}：当前桌面界面不支持手动输入回调码，请在打开的浏览器中完成本机回调。`,
+          ts: Date.now(),
+        });
+        return "";
+      },
+      onProgress: (message) => {
+        mainWindow?.webContents.send("agent:event", {
+          kind: "notice",
+          tone: "info",
+          text: message,
+          ts: Date.now(),
+        });
+      },
+      onSelect: async (prompt) => {
+        const selected = prompt.options[0]?.id;
+        mainWindow?.webContents.send("agent:event", {
+          kind: "notice",
+          tone: "info",
+          text: selected
+            ? `${prompt.message}：已选择 ${prompt.options[0]?.label ?? selected}`
+            : `${prompt.message}：没有可用选项。`,
+          ts: Date.now(),
+        });
+        return selected;
+      },
+    });
+    return service.buildInitPayload();
+  });
   ipcMain.handle("auth:remove", async (_event, provider: string) => {
     service.removeApiKey(provider);
     return service.buildInitPayload();

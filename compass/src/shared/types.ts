@@ -20,8 +20,17 @@ export interface UiProviderStatus {
   configured: boolean;
   /** where the credential comes from: stored | runtime | environment | ... */
   source?: string;
+  /** optional credential source detail, such as the environment variable name */
+  sourceLabel?: string;
+  /** missing provider-specific configuration that prevents reliable requests */
+  configurationIssue?: string;
   /** whether at least one model of this provider exists in the registry */
   hasModels: boolean;
+  supportsApiKey: boolean;
+  supportsOAuth: boolean;
+  envVars: string[];
+  requiredEnv: string[];
+  authNote?: string;
 }
 
 export interface UiSkill {
@@ -151,6 +160,7 @@ export interface CompassApi {
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
+  loginProvider(provider: string): Promise<InitPayload>;
   removeApiKey(provider: string): Promise<InitPayload>;
   setSkillEnabled(name: string, enabled: boolean): Promise<InitPayload>;
   addSkillDir(): Promise<InitPayload | null>;
