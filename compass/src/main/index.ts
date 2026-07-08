@@ -92,6 +92,15 @@ function registerIpc(service: AgentService): void {
         });
         void shell.openExternal(info.url);
       },
+      onDeviceCode: (info) => {
+        mainWindow?.webContents.send("agent:event", {
+          kind: "notice",
+          tone: "info",
+          text: `Open ${info.verificationUri}\nCode: ${info.userCode}`,
+          ts: Date.now(),
+        });
+        void shell.openExternal(info.verificationUri);
+      },
       onPrompt: async (prompt) => {
         if (prompt.allowEmpty) return "";
         mainWindow?.webContents.send("agent:event", {

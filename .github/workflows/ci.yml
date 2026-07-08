@@ -31,13 +31,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: compass/package-lock.json
+          cache-dependency-path: |
+            compass/package-lock.json
+            compass/vendor/pi/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -62,13 +66,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: compass/package-lock.json
+          cache-dependency-path: |
+            compass/package-lock.json
+            compass/vendor/pi/package-lock.json
 
       # Electron 43 的二进制在首次使用时才下载（~120MB），缓存 @electron/get
       # 的下载目录，避免每次 CI 都从 GitHub Releases 重新拉取

@@ -554,6 +554,91 @@ textarea {
   cursor: text;
 }
 
+/* ---------------- skill block */
+.skill-block {
+  border: 0.5px solid var(--color-border);
+  background: var(--color-bg);
+  transition: border-color 0.24s ease;
+}
+
+.skill-block:hover {
+  border-color: var(--color-border-strong);
+}
+
+.skill-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.72rem 1.05rem;
+  text-align: left;
+}
+
+.skill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex: 0 0 auto;
+}
+
+.skill-kind,
+.skill-meta {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  flex: 0 0 auto;
+}
+
+.skill-name {
+  max-width: 190px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-primary);
+  flex: 0 1 auto;
+}
+
+.skill-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.skill-chev {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  transition: transform 0.25s var(--ease-out-power3);
+  flex: 0 0 auto;
+}
+
+.skill-chev.open {
+  transform: rotate(90deg);
+}
+
+.skill-body {
+  overflow: hidden;
+}
+
+.skill-body-inner {
+  border-top: 0.5px solid var(--color-border);
+  padding: 1rem 1.05rem 1.05rem;
+}
+
+.skill-empty {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
 /* ---------------- tool card */
 .tool-card {
   border: 0.5px solid var(--color-border);

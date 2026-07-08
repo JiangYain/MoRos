@@ -16,9 +16,9 @@ import {
   getApiProviders,
   getModels,
   getProviders,
-} from "@mariozechner/pi-ai";
-import { getOAuthProviders } from "@mariozechner/pi-ai/oauth";
-import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-ai/compat";
+import { getOAuthProviders } from "@earendil-works/pi-ai/oauth";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 const args = new Set(process.argv.slice(2));
@@ -45,6 +45,7 @@ const oauthProviderIds = new Set(getOAuthProviders().map((provider) => provider.
 const providerAuthHints = {
   "amazon-bedrock":
     "AWS_PROFILE, AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS container/web identity credentials",
+  "ant-ling": "ANT_LING_API_KEY",
   anthropic: "Pi OAuth login, ANTHROPIC_OAUTH_TOKEN, or ANTHROPIC_API_KEY",
   "azure-openai-responses": "AZURE_OPENAI_API_KEY",
   cerebras: "CEREBRAS_API_KEY",
@@ -64,11 +65,13 @@ const providerAuthHints = {
   mistral: "MISTRAL_API_KEY",
   moonshotai: "MOONSHOT_API_KEY",
   "moonshotai-cn": "MOONSHOT_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
   openai: "OPENAI_API_KEY",
   "openai-codex": "Pi OAuth login for ChatGPT/Codex subscription",
   opencode: "OPENCODE_API_KEY",
   "opencode-go": "OPENCODE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  together: "TOGETHER_API_KEY",
   "vercel-ai-gateway": "AI_GATEWAY_API_KEY",
   xai: "XAI_API_KEY",
   xiaomi: "XIAOMI_API_KEY",
@@ -76,6 +79,7 @@ const providerAuthHints = {
   "xiaomi-token-plan-cn": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
   "xiaomi-token-plan-sgp": "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
   zai: "ZAI_API_KEY",
+  "zai-coding-cn": "ZAI_CODING_CN_API_KEY",
 };
 
 function log(message = "") {

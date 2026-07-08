@@ -30,6 +30,32 @@ const entrance = {
   transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] as const },
 };
 
+interface ParsedSkillBlock {
+  name: string;
+  body: string;
+  preview: string;
+  lineCount: number;
+}
+
+function parseSkillBlock(text: string): ParsedSkillBlock | undefined {
+  const match = text.match(/^\s*<skill\b([^>]*)>([\s\S]*?)(?:<\/skill>\s*)?$/i);
+  if (!match) return undefined;
+
+  const attrs = match[1] ?? "";
+  const nameMatch = attrs.match(/\bname=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
+  const name = nameMatch?.[1] ?? nameMatch?.[2] ?? nameMatch?.[3] ?? "skill";
+  const body = (match[2] ?? "").trim();
+  const lines = body.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const preview = lines.find((line) => !line.trim().startsWith("```"))?.trim() ?? "";
+
+  return {
+    name,
+    body,
+    preview,
+    lineCount: lines.length,
+  };
+}
+
 /* ------------------------------------------------------------- thinking */
 
 function ThinkingBlock({
@@ -58,6 +84,49 @@ function ThinkingBlock({
             transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="thinking-content-inner">{text}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- skill block */
+
+function SkillBlock({ text }: { text: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const skill = parseSkillBlock(text);
+
+  if (!skill) {
+    return (
+      <div className="assistant-body">
+        <Markdown text={text} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="skill-block">
+      <button className="skill-head" onClick={() => setOpen((value) => !value)}>
+        <span className="skill-dot" />
+        <span className="skill-kind">Skill</span>
+        <span className="skill-name">{skill.name}</span>
+        <span className="skill-preview">{skill.preview}</span>
+        <span className="skill-meta">{skill.lineCount} lines</span>
+        <span className={`skill-chev${open ? " open" : ""}`}>{">"}</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            className="skill-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="skill-body-inner">
+              {skill.body ? <Markdown text={skill.body} /> : <span className="skill-empty">Loading...</span>}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -99,9 +168,7 @@ function AssistantMessage({
             live={item.streaming && index === item.blocks.length - 1}
           />
         ) : (
-          <div className="assistant-body" key={index}>
-            <Markdown text={block.text} />
-          </div>
+          <SkillBlock key={index} text={block.text} />
         ),
       )}
       {item.streaming && (!lastBlock || lastBlock.type === "text") && (

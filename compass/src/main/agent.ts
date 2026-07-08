@@ -7,8 +7,8 @@ import {
   getAgentDir,
   ModelRegistry,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
-import type { Api, Model, OAuthLoginCallbacks } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-coding-agent";
+import type { Api, Model, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
 import type {
   AgentStats,
   AgentUiEvent,
