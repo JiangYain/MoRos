@@ -1499,6 +1499,11 @@ textarea {
   border-color: var(--color-accent);
 }
 
+.hair-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 /* skill card */
 .skill-card {
   border: 0.5px solid var(--color-border);
@@ -1682,6 +1687,31 @@ textarea {
   font-size: 10.5px;
   line-height: 1.45;
   color: var(--color-text-tertiary);
+}
+
+.prerequisite-row.warn {
+  border-color: rgba(217, 70, 50, 0.35);
+  background: var(--color-accent-soft);
+}
+
+.prereq-state {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--color-accent);
+}
+
+.prereq-state.ok {
+  color: var(--color-text-tertiary);
+}
+
+.prereq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.prereq-actions .hair-btn {
+  flex: 0 0 auto;
 }
 
 .key-input-row {

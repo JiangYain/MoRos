@@ -3,6 +3,7 @@ import type {
   AgentUiEvent,
   AppSettingsView,
   InitPayload,
+  RuntimePrerequisites,
   ThinkingLevel,
   UiBlock,
   UiModel,
@@ -28,6 +29,7 @@ interface CompassState {
   skills: UiSkill[];
   models: UiModel[];
   providers: UiProviderStatus[];
+  prerequisites?: RuntimePrerequisites;
   sessions: UiSessionInfo[];
   stats?: AgentStats;
   thread: UiThreadItem[];
@@ -56,6 +58,7 @@ interface CompassState {
   setApiKey(provider: string, key: string): Promise<void>;
   loginProvider(provider: string): Promise<void>;
   removeApiKey(provider: string): Promise<void>;
+  runPrerequisiteAction(actionId: string): Promise<void>;
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
   addSkillDir(): Promise<void>;
   removeSkillDir(dir: string): Promise<void>;
@@ -82,6 +85,7 @@ export const useCompass = create<CompassState>((set, get) => ({
   skills: [],
   models: [],
   providers: [],
+  prerequisites: undefined,
   sessions: [],
   thread: [],
   streaming: false,
@@ -96,6 +100,7 @@ export const useCompass = create<CompassState>((set, get) => ({
       ready: true,
       version: payload.version,
       settings: payload.settings,
+      prerequisites: payload.prerequisites,
       skills: payload.skills,
       models: payload.models,
       providers: payload.providers,
@@ -319,6 +324,18 @@ export const useCompass = create<CompassState>((set, get) => ({
       providers: payload.providers,
       stats: payload.stats,
     });
+  },
+
+  runPrerequisiteAction: async (actionId) => {
+    try {
+      const payload = await api.runPrerequisiteAction(actionId);
+      set({
+        settings: payload.settings,
+        prerequisites: payload.prerequisites,
+      });
+    } catch (error) {
+      set({ lastError: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)) });
+    }
   },
 
   setSkillEnabled: async (name, enabled) => {

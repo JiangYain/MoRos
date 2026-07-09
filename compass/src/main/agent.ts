@@ -14,6 +14,7 @@ import type {
   AgentUiEvent,
   AppSettingsView,
   InitPayload,
+  RuntimePrerequisites,
   ThinkingLevel,
   UiBlock,
   UiModel,
@@ -28,6 +29,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMPASS_CONTEXT } from "./compass-context";
 import { getProviderAuthInfo } from "./provider-auth";
+import { getRuntimePrerequisites } from "./prerequisites";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
 
@@ -602,6 +604,10 @@ export class AgentService {
     };
   }
 
+  getPrerequisites(): RuntimePrerequisites {
+    return getRuntimePrerequisites(this.settings.workspaceDir);
+  }
+
   private appVersion(): string {
     // out/main -> project root; app.getAppPath() is unreliable when electron
     // is launched with an entry file instead of the package dir.
@@ -623,6 +629,7 @@ export class AgentService {
   async buildInitPayload(): Promise<InitPayload> {
     return {
       settings: this.getSettingsView(),
+      prerequisites: this.getPrerequisites(),
       skills: this.getSkills(),
       models: this.getModels(),
       providers: this.getProviders(),

@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
-import type { UiProviderStatus } from "@shared/types";
+import { useRef, useState } from "react";
+import type { RuntimePrerequisites, UiProviderStatus } from "@shared/types";
 import { api } from "../ipc";
 import { useCompass } from "../store";
 
@@ -145,6 +145,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
+  const loginAttemptRef = useRef(0);
 
   const { id, name, configured, source, sourceLabel, supportsApiKey, supportsOAuth } = provider;
   const sourceText = [source, sourceLabel].filter(Boolean).join(": ");
@@ -162,13 +163,19 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
   };
 
   const login = async (): Promise<void> => {
+    const attempt = loginAttemptRef.current + 1;
+    loginAttemptRef.current = attempt;
     setLoginBusy(true);
     try {
       await loginProvider(id);
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      if (attempt === loginAttemptRef.current) {
+        setError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setLoginBusy(false);
+      if (attempt === loginAttemptRef.current) {
+        setLoginBusy(false);
+      }
     }
   };
 
@@ -179,8 +186,8 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
         <span className="p-name">{name}</span>
         {configured && <span className="p-src">{sourceText || "configured"}</span>}
         {supportsOAuth && (
-          <button className="link-btn" disabled={loginBusy} onClick={() => void login()}>
-            {loginBusy ? "登录中" : configured ? "重新登录" : "OAuth 登录"}
+          <button className="link-btn" onClick={() => void login()}>
+            {loginBusy ? "重新打开" : configured ? "重新登录" : "OAuth 登录"}
           </button>
         )}
         {supportsApiKey && (
@@ -231,8 +238,82 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
   );
 }
 
+function RuntimePrerequisitesSection({
+  prerequisites,
+}: {
+  prerequisites?: RuntimePrerequisites;
+}): React.JSX.Element | null {
+  const runPrerequisiteAction = useCompass((s) => s.runPrerequisiteAction);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const shell = prerequisites?.shell;
+  if (!shell) return null;
+
+  const runAction = async (actionId: string): Promise<void> => {
+    setBusyAction(actionId);
+    try {
+      await runPrerequisiteAction(actionId);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const installCommand = shell.actions.find((action) => action.command)?.command;
+
+  return (
+    <div className="panel-section">
+      <div className="panel-section-head">
+        <span className="micro-label">运行前置项 Runtime</span>
+        <span className={`prereq-state${shell.ok ? " ok" : ""}`}>
+          {shell.ok ? "READY" : "REQUIRED"}
+        </span>
+      </div>
+      <div className={`provider-row prerequisite-row${shell.ok ? "" : " warn"}`}>
+        <div className="row-1">
+          <span className={`p-dot${shell.ok ? " ok" : ""}`} />
+          <span className="p-name">{shell.name}</span>
+          {shell.shellPath && <span className="p-src">detected</span>}
+        </div>
+        <div className={shell.ok ? "provider-hints" : "p-issue"}>{shell.detail}</div>
+        {shell.shellPath && (
+          <div className="provider-hints">
+            <div>
+              Path: <span>{shell.shellPath}</span>
+            </div>
+            {shell.shellArgs && shell.shellArgs.length > 0 && (
+              <div>
+                Args: <span>{shell.shellArgs.join(" ")}</span>
+              </div>
+            )}
+          </div>
+        )}
+        {!shell.ok && installCommand && (
+          <div className="provider-hints">
+            <div>
+              Command: <span>{installCommand}</span>
+            </div>
+          </div>
+        )}
+        <div className="prereq-actions">
+          {shell.actions.map((action) => (
+            <button
+              key={action.id}
+              className="hair-btn"
+              disabled={busyAction !== null}
+              title={action.description}
+              onClick={() => void runAction(action.id)}
+            >
+              {busyAction === action.id ? "处理中" : action.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
   const providers = useCompass((s) => s.providers);
+  const prerequisites = useCompass((s) => s.prerequisites);
   const settings = useCompass((s) => s.settings);
   const version = useCompass((s) => s.version);
   const setWorkspaceDir = useCompass((s) => s.setWorkspaceDir);
@@ -255,6 +336,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.Element 
           Agent 的文件与命令均相对该目录执行；目录内含 SKILL.md 的子目录会被自动加载。
         </span>
       </div>
+
+      <RuntimePrerequisitesSection prerequisites={prerequisites} />
 
       <div className="panel-section">
         <div className="panel-section-head">

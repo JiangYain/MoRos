@@ -138,8 +138,31 @@ export interface AppSettingsView {
   disabledSkills: string[];
 }
 
+export interface RuntimePrerequisiteAction {
+  id: string;
+  label: string;
+  description: string;
+  command?: string;
+  url?: string;
+}
+
+export interface RuntimePrerequisiteCheck {
+  id: "bash";
+  name: string;
+  ok: boolean;
+  detail: string;
+  shellPath?: string;
+  shellArgs?: string[];
+  actions: RuntimePrerequisiteAction[];
+}
+
+export interface RuntimePrerequisites {
+  shell: RuntimePrerequisiteCheck;
+}
+
 export interface InitPayload {
   settings: AppSettingsView;
+  prerequisites: RuntimePrerequisites;
   skills: UiSkill[];
   models: UiModel[];
   providers: UiProviderStatus[];
@@ -162,6 +185,7 @@ export interface CompassApi {
   setApiKey(provider: string, key: string): Promise<InitPayload>;
   loginProvider(provider: string): Promise<InitPayload>;
   removeApiKey(provider: string): Promise<InitPayload>;
+  runPrerequisiteAction(actionId: string): Promise<InitPayload>;
   setSkillEnabled(name: string, enabled: boolean): Promise<InitPayload>;
   addSkillDir(): Promise<InitPayload | null>;
   removeSkillDir(dir: string): Promise<InitPayload>;

@@ -13,6 +13,7 @@ const api: CompassApi = {
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),
   loginProvider: (provider) => ipcRenderer.invoke("auth:login-provider", provider),
   removeApiKey: (provider) => ipcRenderer.invoke("auth:remove", provider),
+  runPrerequisiteAction: (actionId) => ipcRenderer.invoke("runtime:prerequisite-action", actionId),
   setSkillEnabled: (name, enabled) => ipcRenderer.invoke("skills:set-enabled", name, enabled),
   addSkillDir: () => ipcRenderer.invoke("skills:add-dir"),
   removeSkillDir: (dir) => ipcRenderer.invoke("skills:remove-dir", dir),
