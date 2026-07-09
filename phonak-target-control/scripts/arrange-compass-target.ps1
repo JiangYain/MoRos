@@ -17,6 +17,9 @@ using System.Runtime.InteropServices;
 
 public class PhonakTargetWindowLayout {
   [DllImport("user32.dll")]
+  public static extern bool SetProcessDPIAware();
+
+  [DllImport("user32.dll")]
   public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
   [DllImport("user32.dll", SetLastError=true)]
@@ -33,6 +36,14 @@ public class PhonakTargetWindowLayout {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+  [DllImport("dwmapi.dll")]
+  public static extern int DwmGetWindowAttribute(
+    IntPtr hwnd,
+    int dwAttribute,
+    out RECT pvAttribute,
+    int cbAttribute
+  );
+
   public struct RECT {
     public int Left;
     public int Top;
@@ -41,6 +52,69 @@ public class PhonakTargetWindowLayout {
   }
 }
 "@
+
+[void][PhonakTargetWindowLayout]::SetProcessDPIAware()
+
+function Get-RectText {
+  param($Rect)
+
+  $width = [int]($Rect.Right - $Rect.Left)
+  $height = [int]($Rect.Bottom - $Rect.Top)
+  "L=$($Rect.Left) T=$($Rect.Top) R=$($Rect.Right) B=$($Rect.Bottom) W=$width H=$height"
+}
+
+function Get-WindowBounds {
+  param([IntPtr]$Handle)
+
+  $windowRect = New-Object PhonakTargetWindowLayout+RECT
+  if (-not [PhonakTargetWindowLayout]::GetWindowRect($Handle, [ref]$windowRect)) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw "Failed to read window rect. Win32 error: $errorCode"
+  }
+
+  $visualRect = New-Object PhonakTargetWindowLayout+RECT
+  $dwmCode = [PhonakTargetWindowLayout]::DwmGetWindowAttribute(
+    $Handle,
+    9,
+    [ref]$visualRect,
+    [Runtime.InteropServices.Marshal]::SizeOf([type][PhonakTargetWindowLayout+RECT])
+  )
+
+  $hasVisualRect = $dwmCode -eq 0 -and
+    $visualRect.Right -gt $visualRect.Left -and
+    $visualRect.Bottom -gt $visualRect.Top
+
+  if (-not $hasVisualRect) {
+    $visualRect = $windowRect
+  }
+
+  [pscustomobject]@{
+    WindowRect = $windowRect
+    VisualRect = $visualRect
+    DwmReturnCode = $dwmCode
+    InsetLeft = [int]($visualRect.Left - $windowRect.Left)
+    InsetTop = [int]($visualRect.Top - $windowRect.Top)
+    InsetRight = [int]($windowRect.Right - $visualRect.Right)
+    InsetBottom = [int]($windowRect.Bottom - $visualRect.Bottom)
+  }
+}
+
+function ConvertTo-WindowPlacement {
+  param(
+    [int]$VisualLeft,
+    [int]$VisualTop,
+    [int]$VisualWidth,
+    [int]$VisualHeight,
+    $Bounds
+  )
+
+  [pscustomobject]@{
+    X = [int]($VisualLeft - $Bounds.InsetLeft)
+    Y = [int]($VisualTop - $Bounds.InsetTop)
+    Width = [int]($VisualWidth + $Bounds.InsetLeft + $Bounds.InsetRight)
+    Height = [int]($VisualHeight + $Bounds.InsetTop + $Bounds.InsetBottom)
+  }
+}
 
 $compassProcessNames = @("Compass", "compass", "electron")
 $compass = $compassProcessNames |
@@ -92,14 +166,32 @@ $hwndNoTopMost = [IntPtr](-2)
 
 [void][PhonakTargetWindowLayout]::ShowWindow($compass.MainWindowHandle, $swRestore)
 [void][PhonakTargetWindowLayout]::ShowWindow($target.MainWindowHandle, $swRestore)
+Start-Sleep -Milliseconds 150
+
+$compassInitialBounds = Get-WindowBounds $compass.MainWindowHandle
+$targetInitialBounds = Get-WindowBounds $target.MainWindowHandle
+
+$compassPlacement = ConvertTo-WindowPlacement `
+  -VisualLeft $area.Left `
+  -VisualTop $area.Top `
+  -VisualWidth $leftWidth `
+  -VisualHeight $area.Height `
+  -Bounds $compassInitialBounds
+
+$targetPlacement = ConvertTo-WindowPlacement `
+  -VisualLeft $targetLeft `
+  -VisualTop $area.Top `
+  -VisualWidth $targetWidth `
+  -VisualHeight $area.Height `
+  -Bounds $targetInitialBounds
 
 $compassMoveOk = [PhonakTargetWindowLayout]::SetWindowPos(
   $compass.MainWindowHandle,
   [IntPtr]::Zero,
-  $area.Left,
-  $area.Top,
-  $leftWidth,
-  $area.Height,
+  $compassPlacement.X,
+  $compassPlacement.Y,
+  $compassPlacement.Width,
+  $compassPlacement.Height,
   $swpNoActivate
 )
 
@@ -111,10 +203,10 @@ if (-not $compassMoveOk) {
 $targetMoveOk = [PhonakTargetWindowLayout]::SetWindowPos(
   $target.MainWindowHandle,
   [IntPtr]::Zero,
-  $targetLeft,
-  $area.Top,
-  $targetWidth,
-  $area.Height,
+  $targetPlacement.X,
+  $targetPlacement.Y,
+  $targetPlacement.Width,
+  $targetPlacement.Height,
   $swpNoActivate
 )
 
@@ -163,42 +255,50 @@ $targetNoTopMostOk = [PhonakTargetWindowLayout]::SetWindowPos(
 
 Start-Sleep -Milliseconds 500
 
-$compassRect = New-Object PhonakTargetWindowLayout+RECT
-$targetRect = New-Object PhonakTargetWindowLayout+RECT
+$compassBounds = Get-WindowBounds $compass.MainWindowHandle
+$targetBounds = Get-WindowBounds $target.MainWindowHandle
 
-[void][PhonakTargetWindowLayout]::GetWindowRect($compass.MainWindowHandle, [ref]$compassRect)
-[void][PhonakTargetWindowLayout]::GetWindowRect($target.MainWindowHandle, [ref]$targetRect)
+$compassRect = $compassBounds.WindowRect
+$targetRect = $targetBounds.WindowRect
+$compassVisualRect = $compassBounds.VisualRect
+$targetVisualRect = $targetBounds.VisualRect
 
-$actualCompassWidth = [int]($compassRect.Right - $compassRect.Left)
-$actualCompassHeight = [int]($compassRect.Bottom - $compassRect.Top)
-$actualTargetWidth = [int]($targetRect.Right - $targetRect.Left)
-$actualTargetHeight = [int]($targetRect.Bottom - $targetRect.Top)
+$actualCompassWidth = [int]($compassVisualRect.Right - $compassVisualRect.Left)
+$actualCompassHeight = [int]($compassVisualRect.Bottom - $compassVisualRect.Top)
+$actualTargetWidth = [int]($targetVisualRect.Right - $targetVisualRect.Left)
+$actualTargetHeight = [int]($targetVisualRect.Bottom - $targetVisualRect.Top)
 $expectedCompassLeft = [int]$area.Left
 $expectedTargetLeft = [int]$targetLeft
 
-$compassLeftOk = [Math]::Abs($compassRect.Left - $expectedCompassLeft) -le $TolerancePx
+$edgeTolerancePx = [Math]::Min($TolerancePx, 2)
+$compassLeftOk = [Math]::Abs($compassVisualRect.Left - $expectedCompassLeft) -le $edgeTolerancePx
 $compassWidthOk = [Math]::Abs($actualCompassWidth - $leftWidth) -le $TolerancePx
-$targetLeftOk = [Math]::Abs($targetRect.Left - $expectedTargetLeft) -le $TolerancePx
+$targetLeftOk = [Math]::Abs($targetVisualRect.Left - $expectedTargetLeft) -le $TolerancePx
 $targetWidthOk = [Math]::Abs($actualTargetWidth - $targetWidth) -le $TolerancePx
-$seamDeltaPx = [int]($targetRect.Left - $compassRect.Right)
+$seamDeltaPx = [int]($targetVisualRect.Left - $compassVisualRect.Right)
 $seamOk = [Math]::Abs($seamDeltaPx + $joinOverlapPx) -le $TolerancePx
 $overlapWithinTolerance = $seamDeltaPx -ge -($joinOverlapPx + $TolerancePx)
 
 $result = [pscustomobject]@{
   Screen = $screen.DeviceName
   WorkArea = "L=$($area.Left) T=$($area.Top) W=$($area.Width) H=$($area.Height)"
+  CoordinateSpace = "DPI-aware physical pixels"
   RequestedLayoutRatio = "Compass=$([Math]::Round(($requestedLeftWidth / $area.Width) * 100, 1))% Target=$([Math]::Round((($area.Width - $requestedLeftWidth) / $area.Width) * 100, 1))%"
   AppliedLayoutRatio = "Compass=$([Math]::Round(($leftWidth / $area.Width) * 100, 1))% Target=$([Math]::Round(($rightWidth / $area.Width) * 100, 1))%"
   ExpectedCompassWidth = $leftWidth
   ExpectedTargetLeft = $expectedTargetLeft
   VisualJoinOverlapPx = $joinOverlapPx
   CompassMoveOk = $compassMoveOk
-  CompassRect = "L=$($compassRect.Left) T=$($compassRect.Top) R=$($compassRect.Right) B=$($compassRect.Bottom) W=$actualCompassWidth H=$actualCompassHeight"
+  CompassWindowRect = Get-RectText $compassRect
+  CompassVisualRect = Get-RectText $compassVisualRect
+  CompassVisualInsets = "L=$($compassBounds.InsetLeft) T=$($compassBounds.InsetTop) R=$($compassBounds.InsetRight) B=$($compassBounds.InsetBottom)"
   CompassLeftOk = $compassLeftOk
   CompassWidthOk = $compassWidthOk
   CompassBringForwardOk = ($compassTopMostOk -and $compassNoTopMostOk)
   TargetMoveOk = $targetMoveOk
-  TargetRect = "L=$($targetRect.Left) T=$($targetRect.Top) R=$($targetRect.Right) B=$($targetRect.Bottom) W=$actualTargetWidth H=$actualTargetHeight"
+  TargetWindowRect = Get-RectText $targetRect
+  TargetVisualRect = Get-RectText $targetVisualRect
+  TargetVisualInsets = "L=$($targetBounds.InsetLeft) T=$($targetBounds.InsetTop) R=$($targetBounds.InsetRight) B=$($targetBounds.InsetBottom)"
   TargetLeftOk = $targetLeftOk
   TargetWidthOk = $targetWidthOk
   TargetBringForwardOk = ($targetTopMostOk -and $targetNoTopMostOk)
@@ -210,5 +310,5 @@ $result = [pscustomobject]@{
 $result | Format-List
 
 if (-not ($compassLeftOk -and $compassWidthOk -and $targetLeftOk -and $targetWidthOk -and $seamOk -and $overlapWithinTolerance)) {
-  throw "Window layout verification failed. Compass/Target final GetWindowRect values do not match the requested seam-adjusted layout."
+  throw "Window layout verification failed. Compass/Target final visual bounds do not match the requested seam-adjusted layout."
 }

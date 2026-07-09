@@ -1,14 +1,30 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AgentService } from "./agent";
 import { AuthLoginController } from "./auth-login-controller";
 import { runPrerequisiteAction } from "./prerequisite-actions";
 
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.compass.desktop");
+}
+
 let mainWindow: BrowserWindow | undefined;
 let agent: AgentService | undefined;
 let authLoginController: AuthLoginController | undefined;
 
+function getAppIconPath(): string | undefined {
+  const fileName = process.platform === "win32" ? "icon.ico" : "icon.png";
+  const devResources = join(import.meta.dirname, "../../resources", fileName);
+  const packagedResources = join(process.resourcesPath, fileName);
+  const candidates = app.isPackaged
+    ? [packagedResources, devResources]
+    : [devResources, packagedResources];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 function createWindow(): BrowserWindow {
+  const icon = getAppIconPath();
   const window = new BrowserWindow({
     width: 1320,
     height: 880,
@@ -17,6 +33,7 @@ function createWindow(): BrowserWindow {
     frame: false,
     backgroundColor: "#FFFFFF",
     show: false,
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
