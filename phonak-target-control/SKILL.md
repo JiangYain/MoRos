@@ -1,6 +1,6 @@
 ---
 name: phonak-target-control
-description: "用于准备和控制 Phonak Target 的行动指南，面向 CLI 驱动的 Microsoft UI Automation 工作。Use when Codex 需要打开内部 Phonak Target 可执行文件、等待 Phonak Target 12.0 主窗口出现、把 Codex 放在较窄左侧约 25.4% 并把 Target 放在较宽右侧约 74.6%、快速切换验配软件语言、新建顾客、打开指定顾客或会话、快速切换验配会话主 Tab 与子 Tab、设置顾客详情页用户同意/数据储存同意、快速输入左右耳 AC/BC/UCL 听力图、快速选择左右耳听力图测量条件、截取 Target 验配界面、打开 Palio Studio，或在 Target UI 自动化实验前建立稳定桌面布局。"
+description: "用于准备和控制 Phonak Target 的行动指南，面向 CLI 驱动的 Microsoft UI Automation 工作。Use when Compass 需要打开内部 Phonak Target 可执行文件、等待 Phonak Target 12.0 主窗口出现、把 Compass 放在较窄左侧约 25.4% 并把 Target 放在较宽右侧约 74.6%、快速切换验配软件语言、新建顾客、打开指定顾客或会话、快速切换验配会话主 Tab 与子 Tab、设置顾客详情页用户同意/数据储存同意、快速输入左右耳 AC/BC/UCL 听力图、快速选择左右耳听力图测量条件、截取 Target 验配界面、打开 Palio Studio，或在 Target UI 自动化实验前建立稳定桌面布局。"
 ---
 
 # Phonak Target Control
@@ -12,7 +12,7 @@ description: "用于准备和控制 Phonak Target 的行动指南，面向 CLI �
 这个 Skill 固化十一个常用操作：
 
 1. 打开内部版 Target 可执行文件，并等待主窗口标题变为 `Phonak Target 12.0`。
-2. 按当前验证过的工作比例排列窗口：Codex 使用左侧较小区域，约占工作区宽度 `25.4%`；Target 使用右侧较大区域，约占工作区宽度 `74.6%`。完成后用 Win32 `GetWindowRect` 验证坐标。
+2. 按当前验证过的工作比例排列窗口：Compass 使用左侧较小区域，约占工作区宽度 `25.4%`；Target 使用右侧较大区域，约占工作区宽度 `74.6%`。完成后用 Win32 `GetWindowRect` 验证坐标。
 3. 快速切换验配软件语言。
 4. 通过 Microsoft UI Automation 快速新建顾客。
 5. 直接打开当前 Target 版本对应的 Palio Studio。
@@ -29,13 +29,13 @@ description: "用于准备和控制 Phonak Target 的行动指南，面向 CLI �
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\open-target.ps1"
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\arrange-codex-target.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\arrange-compass-target.ps1"
 ```
 
 预期结果：
 
 - `open-target.ps1` 输出 `Ready`，并显示 Target 进程 ID 与主窗口标题。
-- `arrange-codex-target.ps1` 输出 `LayoutRatio=Codex=25.4% Target=74.6%` 附近的比例、`CodexMoveOk=True`、`TargetMoveOk=True`，并打印两个窗口的最终矩形坐标。
+- `arrange-compass-target.ps1` 输出 `AppliedLayoutRatio=Compass=25.4% Target=74.6%` 附近的比例、`CompassMoveOk=True`、`TargetMoveOk=True`、`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`NoOverlap=True`，并打印两个窗口的最终矩形坐标。脚本会让 Target 对 seam 做很小的受控覆盖，抵消 Windows 透明 resize 边界造成的肉眼缝隙；随后短暂提升两个窗口到前台层级后恢复普通窗口，不会保留置顶。
 
 ## 快速语言切换
 
@@ -115,7 +115,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 - `Status=Captured`。
 - `DetectedFittingPage=True`。
 - `OutputPath` 指向生成的 PNG。
-- 默认启用 DPI awareness，避免 Windows 缩放导致截入 Codex 或其他窗口边缘。
+- 默认启用 DPI awareness，避免 Windows 缩放导致截入 Compass 或其他窗口边缘。
 
 ## 快速输入听力图
 
@@ -205,26 +205,26 @@ C:\Program Files (x86)\Phonak\Phonak Target [Internal] 12.0.0.3627 (Alpha 0) mas
 用 PowerShell 启动 "C:\Program Files (x86)\Phonak\Phonak Target [Internal] 12.0.0.3627 (Alpha 0) master (2)\Target.exe"，然后等待主窗口标题 "Phonak Target 12.0" 出现。
 ```
 
-## 操作 2：按当前验证比例排列 Codex 和 Target
+## 操作 2：按当前验证比例排列 Compass 和 Target
 
 优先运行内置脚本：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\arrange-codex-target.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\arrange-compass-target.ps1"
 ```
 
 执行要求：
 
-- 移动前先恢复 Codex 和 Target 窗口，避免窗口处于最小化状态。
-- 使用 Codex 窗口所在屏幕的工作区。
-- 将 Codex 移动到工作区左侧较小区域，宽度约为总工作区宽度的 `25.4%`。
+- 移动前先恢复 Compass 和 Target 窗口，避免窗口处于最小化状态。
+- 使用 Compass 窗口所在屏幕的工作区。
+- 将 Compass 移动到工作区左侧较小区域，宽度约为总工作区宽度的 `25.4%`。
 - 将 Target 移动到工作区右侧较大区域，宽度约为总工作区宽度的 `74.6%`。
-- 用 `GetWindowRect` 验证两个窗口最终坐标。
+- 用 `GetWindowRect` 验证两个窗口最终坐标、Compass 实际宽度、Target 实际左边界和 seam 贴合状态；不能只依据 `SetWindowPos=True` 判定成功。Target 会向左做很小的受控覆盖，抵消 Windows 透明 resize 边界造成的肉眼缝隙。布局后短暂提升 Compass/Target 到前台层级，再恢复为非置顶窗口。
 
 给其他 Agent 的极简提示：
 
 ```text
-运行 PowerShell Win32 ShowWindow + SetWindowPos 布局步骤：恢复 Codex 和标题为 "Phonak Target 12.0" 的 Target 窗口，把 Codex 放到当前工作区左侧较窄区域约 25.4%，把 Target 放到右侧较宽区域约 74.6%，然后打印两个窗口的 GetWindowRect 坐标。
+运行 PowerShell Win32 ShowWindow + SetWindowPos 布局步骤：恢复 Compass 和标题为 "Phonak Target 12.0" 的 Target 窗口，把 Compass 放到当前工作区左侧较窄区域约 25.4%，把 Target 放到右侧较宽区域约 74.6%，并让 Target 对 seam 做小幅受控覆盖以消除透明边界缝隙，然后打印两个窗口的 GetWindowRect 坐标；只有 CompassWidthOk、TargetLeftOk、SeamOk、NoOverlap 都为 True 才算成功。
 ```
 
 ## 操作 3：切换验配软件语言
@@ -238,7 +238,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 执行要求：
 
 - 如果用户只要求切换语言，直接运行这个脚本；不要先运行 `rg --files`、不要读取 `target-bottom-tabs` 摘要、不要重新读取完整脚本。
-- 如果 Target 没有运行，先执行 `open-target.ps1`，再执行语言脚本。除非后续需要坐标自动化，否则不需要执行 `arrange-codex-target.ps1`。
+- 如果 Target 没有运行，先执行 `open-target.ps1`，再执行语言脚本。除非后续需要坐标自动化，否则不需要执行 `arrange-compass-target.ps1`。
 - 以脚本输出的 `CurrentLanguage` 作为主要验证来源。
 - 当 `Status=Changed` 且 `CurrentLanguage=zh-CN` 时，报告“已从 PreviousLanguage 切到 zh-CN”即可结束。
 - 当 `Status=AlreadySet` 且 `CurrentLanguage=zh-CN` 时，报告“已经是中文”即可结束。
@@ -340,9 +340,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 执行要求：
 
 - 脚本查找窗口标题精确等于 `Phonak Target 12.0` 的顶层窗口。
-- 默认截取 Target 客户区 `ClientArea`，不截 Codex、桌面或其他应用；需要包含 Windows 外框时才加 `-IncludeWindowFrame`。
+- 默认截取 Target 客户区 `ClientArea`，不截 Compass、桌面或其他应用；需要包含 Windows 外框时才加 `-IncludeWindowFrame`。
 - 脚本会先置前 Target 窗口，再使用 Win32 坐标和 `System.Drawing.CopyFromScreen` 保存 PNG。
-- 脚本启用 `SetProcessDPIAware()`；不要删除这一步，否则在 Windows 缩放下可能把左侧 Codex 边缘截入图像。
+- 脚本启用 `SetProcessDPIAware()`；不要删除这一步，否则在 Windows 缩放下可能把左侧 Compass 边缘截入图像。
 - `DetectedFittingPage=True` 通过 UIA 中 `AutomationId` 或 `ClassName` 是否包含 `Fitting` 判断，不依赖中文可见文本。
 - 默认输出到桌面 `FAI` 目录，文件名形如 `target-fitting-view-yyyyMMdd-HHmmss.png`；可用 `-OutputPath` 指定路径。
 
@@ -460,7 +460,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 
 - `Target.exe` 正在运行。
 - 存在一个可见顶层窗口，标题为 `Phonak Target 12.0`。
-- `Codex` 和 `Target` 的窗口矩形位于同一个工作区内，且宽度比例接近 `25.4% : 74.6%`。
+- `Compass` 和 `Target` 的窗口矩形位于同一个工作区内，`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`NoOverlap=True`，且宽度比例接近 `25.4% : 74.6%`。
 - 两个窗口都没有最小化。
 
 如果验证失败，报告具体缺失条件并停止。不要继续对过期、隐藏或最小化窗口执行基于坐标的 UI 自动化。
@@ -471,8 +471,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 
 - 如果 Target 可执行文件路径不存在，向用户询问当前安装的 `Target.exe` 路径。
 - 如果 Target 已启动但超时前没有出现 `Phonak Target 12.0` 标题，列出正在运行的 `Target` 进程及其窗口标题。
-- 如果 Codex 没有主窗口句柄，要求用户先让 Codex 桌面应用保持可见。
+- 如果 Compass 没有主窗口句柄，要求用户先让 Compass 桌面应用保持可见。
 - 如果窗口移动返回 `False`，报告 `GetLastWin32Error` 返回的 Win32 错误码。
+- 如果窗口移动返回 `True` 但 `CompassWidthOk`、`TargetLeftOk`、`SeamOk` 或 `NoOverlap` 为 `False`，报告最终 `GetWindowRect`，不要继续坐标自动化。
 - 如果语言脚本找不到请求语言码，使用 `-ListAvailable` 列出可用语言，并把可用语言码反馈给用户。
 - 如果新建顾客脚本返回保存按钮禁用，检查 `LastName`、`FirstName`、`BirthDate` 和 `Gender` 参数是否符合当前表单要求。
 - 如果 Palio Studio 打开失败，先确认 `PalioStudio.exe` 路径存在；路径存在但启动失败时，不要回退到 `Start-Process` 通配符路径，继续使用 `.NET ProcessStartInfo` 或报告原始异常。
