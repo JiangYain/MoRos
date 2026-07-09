@@ -35,7 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 预期结果：
 
 - `open-target.ps1` 输出 `Ready`，并显示 Target 进程 ID 与主窗口标题。
-- `arrange-compass-target.ps1` 输出 `AppliedLayoutRatio=Compass=25.4% Target=74.6%` 附近的比例、`CompassMoveOk=True`、`TargetMoveOk=True`、`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`NoOverlap=True`，并打印两个窗口的最终矩形坐标。脚本会让 Target 对 seam 做很小的受控覆盖，抵消 Windows 透明 resize 边界造成的肉眼缝隙；随后短暂提升两个窗口到前台层级后恢复普通窗口，不会保留置顶。
+- `arrange-compass-target.ps1` 输出 `AppliedLayoutRatio=Compass=25.4% Target=74.6%` 附近的比例、`CompassMoveOk=True`、`TargetMoveOk=True`、`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`OverlapWithinTolerance=True`，并打印两个窗口的最终矩形坐标。脚本会让 Target 对 seam 做很小的受控覆盖，抵消 Windows 透明 resize 边界造成的肉眼缝隙；随后短暂提升两个窗口到前台层级后恢复普通窗口，不会保留置顶。
 
 ## 快速语言切换
 
@@ -224,7 +224,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 给其他 Agent 的极简提示：
 
 ```text
-运行 PowerShell Win32 ShowWindow + SetWindowPos 布局步骤：恢复 Compass 和标题为 "Phonak Target 12.0" 的 Target 窗口，把 Compass 放到当前工作区左侧较窄区域约 25.4%，把 Target 放到右侧较宽区域约 74.6%，并让 Target 对 seam 做小幅受控覆盖以消除透明边界缝隙，然后打印两个窗口的 GetWindowRect 坐标；只有 CompassWidthOk、TargetLeftOk、SeamOk、NoOverlap 都为 True 才算成功。
+运行 PowerShell Win32 ShowWindow + SetWindowPos 布局步骤：恢复 Compass 和标题为 "Phonak Target 12.0" 的 Target 窗口，把 Compass 放到当前工作区左侧较窄区域约 25.4%，把 Target 放到右侧较宽区域约 74.6%，并让 Target 对 seam 做小幅受控覆盖以消除透明边界缝隙，然后打印两个窗口的 GetWindowRect 坐标；只有 CompassWidthOk、TargetLeftOk、SeamOk、OverlapWithinTolerance 都为 True 才算成功。
 ```
 
 ## 操作 3：切换验配软件语言
@@ -460,7 +460,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 
 - `Target.exe` 正在运行。
 - 存在一个可见顶层窗口，标题为 `Phonak Target 12.0`。
-- `Compass` 和 `Target` 的窗口矩形位于同一个工作区内，`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`NoOverlap=True`，且宽度比例接近 `25.4% : 74.6%`。
+- `Compass` 和 `Target` 的窗口矩形位于同一个工作区内，`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`OverlapWithinTolerance=True`，且宽度比例接近 `25.4% : 74.6%`。
 - 两个窗口都没有最小化。
 
 如果验证失败，报告具体缺失条件并停止。不要继续对过期、隐藏或最小化窗口执行基于坐标的 UI 自动化。
@@ -473,7 +473,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 - 如果 Target 已启动但超时前没有出现 `Phonak Target 12.0` 标题，列出正在运行的 `Target` 进程及其窗口标题。
 - 如果 Compass 没有主窗口句柄，要求用户先让 Compass 桌面应用保持可见。
 - 如果窗口移动返回 `False`，报告 `GetLastWin32Error` 返回的 Win32 错误码。
-- 如果窗口移动返回 `True` 但 `CompassWidthOk`、`TargetLeftOk`、`SeamOk` 或 `NoOverlap` 为 `False`，报告最终 `GetWindowRect`，不要继续坐标自动化。
+- 如果窗口移动返回 `True` 但 `CompassWidthOk`、`TargetLeftOk`、`SeamOk` 或 `OverlapWithinTolerance` 为 `False`，报告最终 `GetWindowRect`，不要继续坐标自动化。
 - 如果语言脚本找不到请求语言码，使用 `-ListAvailable` 列出可用语言，并把可用语言码反馈给用户。
 - 如果新建顾客脚本返回保存按钮禁用，检查 `LastName`、`FirstName`、`BirthDate` 和 `Gender` 参数是否符合当前表单要求。
 - 如果 Palio Studio 打开失败，先确认 `PalioStudio.exe` 路径存在；路径存在但启动失败时，不要回退到 `Start-Process` 通配符路径，继续使用 `.NET ProcessStartInfo` 或报告原始异常。

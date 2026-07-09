@@ -8,7 +8,16 @@ import {
   ModelRegistry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type { Api, Model, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  Message,
+  Model,
+  OAuthLoginCallbacks,
+  ToolCall,
+  ToolResultMessage,
+  UserMessage,
+} from "@earendil-works/pi-ai";
 import type {
   AgentStats,
   AgentUiEvent,
@@ -28,35 +37,40 @@ import { app } from "electron";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMPASS_CONTEXT } from "./compass-context";
-import { getProviderAuthInfo } from "./provider-auth";
+import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { getRuntimePrerequisites } from "./prerequisites";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
 
 type Emit = (event: AgentUiEvent) => void;
+type MessageContent = Message["content"];
+type AssistantContentBlock = AssistantMessage["content"][number];
 
-interface AnyContentBlock {
-  type: string;
-  text?: string;
-  thinking?: string;
-  id?: string;
-  name?: string;
-  arguments?: Record<string, unknown>;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-interface AnyMessage {
-  role?: string;
-  content?: string | AnyContentBlock[];
-  timestamp?: number;
-  stopReason?: string;
-  errorMessage?: string;
-  usage?: { input: number; output: number; cost: { total: number } };
-  toolCallId?: string;
-  toolName?: string;
-  isError?: boolean;
+function isUserMessage(value: unknown): value is UserMessage {
+  return isRecord(value) && value.role === "user";
 }
 
-function textOfContent(content: string | AnyContentBlock[] | undefined): string {
+function isAssistantMessage(value: unknown): value is AssistantMessage {
+  return isRecord(value) && value.role === "assistant";
+}
+
+function isToolResultMessage(value: unknown): value is ToolResultMessage {
+  return isRecord(value) && value.role === "toolResult" && typeof value.toolCallId === "string";
+}
+
+function isMessage(value: unknown): value is Message {
+  return isUserMessage(value) || isAssistantMessage(value) || isToolResultMessage(value);
+}
+
+function isToolCallBlock(block: AssistantContentBlock): block is ToolCall {
+  return block.type === "toolCall";
+}
+
+function textOfContent(content: MessageContent | undefined): string {
   if (!content) return "";
   if (typeof content === "string") return content;
   return content
@@ -65,19 +79,14 @@ function textOfContent(content: string | AnyContentBlock[] | undefined): string 
     .join("\n");
 }
 
-function usageOf(message: AnyMessage): UiUsage | undefined {
+function usageOf(message: AssistantMessage): UiUsage | undefined {
   const usage = message.usage;
   if (!usage) return undefined;
   return { input: usage.input ?? 0, output: usage.output ?? 0, cost: usage.cost?.total ?? 0 };
 }
 
-function blocksOf(message: AnyMessage): UiBlock[] {
+function blocksOf(message: AssistantMessage): UiBlock[] {
   const blocks: UiBlock[] = [];
-  if (!message.content || typeof message.content === "string") {
-    const text = textOfContent(message.content);
-    if (text) blocks.push({ type: "text", text });
-    return blocks;
-  }
   for (const block of message.content) {
     if (block.type === "thinking" && block.thinking?.trim()) {
       blocks.push({ type: "thinking", text: block.thinking });
@@ -86,6 +95,32 @@ function blocksOf(message: AnyMessage): UiBlock[] {
     }
   }
   return blocks;
+}
+
+function toolResultContent(value: unknown): ToolResultMessage["content"] | undefined {
+  return isRecord(value) && Array.isArray(value.content)
+    ? (value.content as ToolResultMessage["content"])
+    : undefined;
+}
+
+function hashText(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function historicalItemId(
+  prefix: string,
+  sessionId: string,
+  index: number,
+  message: Message,
+  extra = "",
+): string {
+  const key = [sessionId, index, message.role, message.timestamp, extra].join("|");
+  return `${prefix}-${index}-${hashText(key)}`;
 }
 
 export class AgentService {
@@ -206,13 +241,12 @@ export class AgentService {
         this.emit({ kind: "sessions-changed" });
         break;
       case "message_start": {
-        const message = event.message as AnyMessage;
-        if (message.role === "assistant") {
+        if (isAssistantMessage(event.message)) {
           this.currentAssistantId = this.nextId("a");
           this.emit({
             kind: "assistant-start",
             id: this.currentAssistantId,
-            ts: message.timestamp ?? Date.now(),
+            ts: event.message.timestamp ?? Date.now(),
           });
         }
         break;
@@ -240,18 +274,18 @@ export class AgentService {
         break;
       }
       case "message_end": {
-        const message = event.message as AnyMessage;
-        if (message.role === "user") {
+        const message = event.message;
+        if (isUserMessage(message)) {
           const text = textOfContent(message.content);
           if (text.trim()) {
             this.emit({
               kind: "user-message",
               id: this.nextId("u"),
               text,
-              ts: message.timestamp ?? Date.now(),
+              ts: message.timestamp,
             });
           }
-        } else if (message.role === "assistant" && this.currentAssistantId) {
+        } else if (isAssistantMessage(message) && this.currentAssistantId) {
           this.emit({
             kind: "assistant-end",
             id: this.currentAssistantId,
@@ -276,20 +310,18 @@ export class AgentService {
         });
         break;
       case "tool_execution_update": {
-        const partial = event.partialResult as { content?: AnyContentBlock[] } | undefined;
         this.emit({
           kind: "tool-update",
           callId: event.toolCallId,
-          output: textOfContent(partial?.content),
+          output: textOfContent(toolResultContent(event.partialResult)),
         });
         break;
       }
       case "tool_execution_end": {
-        const result = event.result as { content?: AnyContentBlock[] } | undefined;
         this.emit({
           kind: "tool-end",
           callId: event.toolCallId,
-          output: textOfContent(result?.content),
+          output: textOfContent(toolResultContent(event.result)),
           isError: event.isError,
         });
         break;
@@ -404,29 +436,33 @@ export class AgentService {
     const items: UiThreadItem[] = [];
     const pendingToolCalls = new Map<string, { name: string; args?: unknown }>();
 
-    for (const raw of session.messages) {
-      const message = raw as AnyMessage;
-      if (message.role === "user") {
+    for (const [index, raw] of session.messages.entries()) {
+      if (!isMessage(raw)) continue;
+      const message = raw;
+      if (isUserMessage(message)) {
         const text = textOfContent(message.content);
         if (text.trim()) {
-          items.push({ kind: "user", id: this.nextId("u"), text, ts: message.timestamp ?? 0 });
+          items.push({
+            kind: "user",
+            id: historicalItemId("u", session.sessionId, index, message),
+            text,
+            ts: message.timestamp ?? 0,
+          });
         }
-      } else if (message.role === "assistant") {
+      } else if (isAssistantMessage(message)) {
         const blocks = blocksOf(message);
-        if (Array.isArray(message.content)) {
-          for (const block of message.content) {
-            if (block.type === "toolCall" && block.id) {
-              pendingToolCalls.set(block.id, {
-                name: block.name ?? "tool",
-                args: block.arguments,
-              });
-            }
+        for (const block of message.content) {
+          if (isToolCallBlock(block) && block.id) {
+            pendingToolCalls.set(block.id, {
+              name: block.name ?? "tool",
+              args: block.arguments,
+            });
           }
         }
         if (blocks.length > 0 || message.errorMessage) {
           items.push({
             kind: "assistant",
-            id: this.nextId("a"),
+            id: historicalItemId("a", session.sessionId, index, message),
             blocks,
             streaming: false,
             stopReason: message.stopReason,
@@ -435,11 +471,11 @@ export class AgentService {
             ts: message.timestamp ?? 0,
           });
         }
-      } else if (message.role === "toolResult" && message.toolCallId) {
+      } else if (isToolResultMessage(message)) {
         const call = pendingToolCalls.get(message.toolCallId);
         items.push({
           kind: "tool",
-          id: this.nextId("t"),
+          id: historicalItemId("t", session.sessionId, index, message, message.toolCallId),
           callId: message.toolCallId,
           name: message.toolName ?? call?.name ?? "tool",
           args: this.safeClone(call?.args),
@@ -499,43 +535,46 @@ export class AgentService {
   getProviders(): UiProviderStatus[] {
     const providers = new Map<string, UiProviderStatus>();
     const allModels = this.modelRegistry.getAll();
+    const modelsByProvider = new Map<string, Model<Api>[]>();
     const oauthIds = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id));
     for (const model of allModels) {
       const id = String(model.provider);
-      if (!providers.has(id)) {
-        const status = this.modelRegistry.getProviderAuthStatus(id);
-        const providerModels = allModels.filter((candidate) => String(candidate.provider) === id);
-        const credentialConfigured = providerModels.some((candidate) => {
-          try {
-            return this.modelRegistry.hasConfiguredAuth(candidate);
-          } catch {
-            return false;
-          }
-        });
-        const configurationIssue = this.getProviderConfigurationIssue(id, providerModels);
-        const authInfo = getProviderAuthInfo(id, oauthIds.has(id));
-        providers.set(id, {
-          id,
-          name: this.modelRegistry.getProviderDisplayName(id),
-          configured: credentialConfigured && !configurationIssue,
-          source:
-            status.source ??
-            (credentialConfigured
-              ? id === "amazon-bedrock"
-                ? "environment"
-                : "configured"
-              : undefined),
-          sourceLabel:
-            status.label ?? (credentialConfigured && id === "amazon-bedrock" ? "AWS credential chain" : undefined),
-          configurationIssue,
-          hasModels: true,
-          supportsApiKey: authInfo.supportsApiKey,
-          supportsOAuth: Boolean(authInfo.supportsOAuth),
-          envVars: authInfo.envVars,
-          requiredEnv: authInfo.requiredEnv,
-          authNote: authInfo.authNote,
-        });
-      }
+      const providerModels = modelsByProvider.get(id) ?? [];
+      providerModels.push(model);
+      modelsByProvider.set(id, providerModels);
+    }
+    for (const [id, providerModels] of modelsByProvider) {
+      const status = this.modelRegistry.getProviderAuthStatus(id);
+      const credentialConfigured = providerModels.some((candidate) => {
+        try {
+          return this.modelRegistry.hasConfiguredAuth(candidate);
+        } catch {
+          return false;
+        }
+      });
+      const configurationIssue = getProviderConfigurationIssue(id, providerModels);
+      const authInfo = getProviderAuthInfo(id, oauthIds.has(id));
+      providers.set(id, {
+        id,
+        name: this.modelRegistry.getProviderDisplayName(id),
+        configured: credentialConfigured && !configurationIssue,
+        source:
+          status.source ??
+          (credentialConfigured
+            ? id === "amazon-bedrock"
+              ? "environment"
+              : "configured"
+            : undefined),
+        sourceLabel:
+          status.label ?? (credentialConfigured && id === "amazon-bedrock" ? "AWS credential chain" : undefined),
+        configurationIssue,
+        hasModels: true,
+        supportsApiKey: authInfo.supportsApiKey,
+        supportsOAuth: Boolean(authInfo.supportsOAuth),
+        envVars: authInfo.envVars,
+        requiredEnv: authInfo.requiredEnv,
+        authNote: authInfo.authNote,
+      });
     }
     return [...providers.values()].sort((a, b) => {
       if (a.configured !== b.configured) return a.configured ? -1 : 1;
@@ -546,39 +585,8 @@ export class AgentService {
   private isModelConnectable(model: Model<Api>): boolean {
     return (
       this.modelRegistry.hasConfiguredAuth(model) &&
-      !this.getProviderConfigurationIssue(String(model.provider), [model])
+      !getProviderConfigurationIssue(String(model.provider), [model])
     );
-  }
-
-  private getProviderConfigurationIssue(
-    provider: string,
-    models: Array<{ baseUrl?: string }>,
-  ): string | undefined {
-    const baseUrls = models.map((model) => model.baseUrl ?? "");
-
-    if (
-      provider === "azure-openai-responses" &&
-      baseUrls.some((baseUrl) => baseUrl.trim().length === 0) &&
-      !process.env.AZURE_OPENAI_BASE_URL?.trim() &&
-      !process.env.AZURE_OPENAI_RESOURCE_NAME?.trim()
-    ) {
-      return "Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME.";
-    }
-
-    if (baseUrls.some((baseUrl) => baseUrl.includes("{CLOUDFLARE_ACCOUNT_ID}"))) {
-      const missing = ["CLOUDFLARE_ACCOUNT_ID"].filter((name) => !process.env[name]?.trim());
-      if (
-        baseUrls.some((baseUrl) => baseUrl.includes("{CLOUDFLARE_GATEWAY_ID}")) &&
-        !process.env.CLOUDFLARE_GATEWAY_ID?.trim()
-      ) {
-        missing.push("CLOUDFLARE_GATEWAY_ID");
-      }
-      if (missing.length > 0) {
-        return `Set ${missing.join(" and ")}.`;
-      }
-    }
-
-    return undefined;
   }
 
   async listSessions(): Promise<UiSessionInfo[]> {
@@ -745,7 +753,7 @@ export class AgentService {
     const current = session.model;
     const candidate =
       current && String(current.provider) === provider
-          ? this.modelRegistry.find(provider, current.id)
+        ? this.modelRegistry.find(provider, current.id)
         : !current
           ? this.modelRegistry
               .getAvailable()

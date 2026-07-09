@@ -1,10 +1,10 @@
 import type { ThinkingLevel } from "@shared/types";
+import { NO_MODEL_ERROR } from "@shared/messages";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../store";
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-const NO_MODEL_ERROR = "请先在设置中配置 API Key，或切换到已配置的模型。";
 
 const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "关闭",

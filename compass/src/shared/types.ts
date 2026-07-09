@@ -138,13 +138,16 @@ export interface AppSettingsView {
   disabledSkills: string[];
 }
 
-export interface RuntimePrerequisiteAction {
+interface RuntimePrerequisiteActionBase {
   id: string;
   label: string;
   description: string;
-  command?: string;
-  url?: string;
 }
+
+export type RuntimePrerequisiteAction =
+  | (RuntimePrerequisiteActionBase & { kind: "refresh" })
+  | (RuntimePrerequisiteActionBase & { kind: "shell-command"; command: string })
+  | (RuntimePrerequisiteActionBase & { kind: "open-url"; url: string });
 
 export interface RuntimePrerequisiteCheck {
   id: "bash";

@@ -1,0 +1,191 @@
+{
+  "amazon-bedrock": {
+    "supportsApiKey": false,
+    "envVars": [
+      "AWS_PROFILE",
+      "AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY",
+      "AWS_BEARER_TOKEN_BEDROCK",
+      "AWS_CONTAINER_CREDENTIALS_*",
+      "AWS_WEB_IDENTITY_TOKEN_FILE"
+    ],
+    "requiredEnv": [],
+    "authNote": "Uses the AWS SDK credential chain; do not store a normal API key in auth.json."
+  },
+  "ant-ling": {
+    "supportsApiKey": true,
+    "envVars": ["ANT_LING_API_KEY"],
+    "requiredEnv": []
+  },
+  "anthropic": {
+    "supportsApiKey": true,
+    "supportsOAuth": true,
+    "envVars": ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN"],
+    "requiredEnv": [],
+    "authNote": "Pi OAuth login is also supported when the provider exposes it."
+  },
+  "azure-openai-responses": {
+    "supportsApiKey": true,
+    "envVars": ["AZURE_OPENAI_API_KEY"],
+    "requiredEnv": ["AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME"]
+  },
+  "cerebras": {
+    "supportsApiKey": true,
+    "envVars": ["CEREBRAS_API_KEY"],
+    "requiredEnv": []
+  },
+  "cloudflare-ai-gateway": {
+    "supportsApiKey": true,
+    "envVars": ["CLOUDFLARE_API_KEY"],
+    "requiredEnv": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_GATEWAY_ID"]
+  },
+  "cloudflare-workers-ai": {
+    "supportsApiKey": true,
+    "envVars": ["CLOUDFLARE_API_KEY"],
+    "requiredEnv": ["CLOUDFLARE_ACCOUNT_ID"]
+  },
+  "deepseek": {
+    "supportsApiKey": true,
+    "envVars": ["DEEPSEEK_API_KEY"],
+    "requiredEnv": []
+  },
+  "fireworks": {
+    "supportsApiKey": true,
+    "envVars": ["FIREWORKS_API_KEY"],
+    "requiredEnv": []
+  },
+  "github-copilot": {
+    "supportsApiKey": false,
+    "supportsOAuth": true,
+    "envVars": ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"],
+    "requiredEnv": [],
+    "authNote": "Preferred access is GitHub Copilot device-code OAuth."
+  },
+  "google": {
+    "supportsApiKey": true,
+    "envVars": ["GEMINI_API_KEY"],
+    "requiredEnv": []
+  },
+  "google-vertex": {
+    "supportsApiKey": true,
+    "envVars": ["GOOGLE_CLOUD_API_KEY"],
+    "requiredEnv": ["GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"],
+    "authNote": "Also supports Google Application Default Credentials instead of an API key."
+  },
+  "groq": {
+    "supportsApiKey": true,
+    "envVars": ["GROQ_API_KEY"],
+    "requiredEnv": []
+  },
+  "huggingface": {
+    "supportsApiKey": true,
+    "envVars": ["HF_TOKEN"],
+    "requiredEnv": []
+  },
+  "kimi-coding": {
+    "supportsApiKey": true,
+    "envVars": ["KIMI_API_KEY"],
+    "requiredEnv": []
+  },
+  "minimax": {
+    "supportsApiKey": true,
+    "envVars": ["MINIMAX_API_KEY"],
+    "requiredEnv": []
+  },
+  "minimax-cn": {
+    "supportsApiKey": true,
+    "envVars": ["MINIMAX_CN_API_KEY"],
+    "requiredEnv": []
+  },
+  "mistral": {
+    "supportsApiKey": true,
+    "envVars": ["MISTRAL_API_KEY"],
+    "requiredEnv": []
+  },
+  "moonshotai": {
+    "supportsApiKey": true,
+    "envVars": ["MOONSHOT_API_KEY"],
+    "requiredEnv": []
+  },
+  "moonshotai-cn": {
+    "supportsApiKey": true,
+    "envVars": ["MOONSHOT_API_KEY"],
+    "requiredEnv": []
+  },
+  "nvidia": {
+    "supportsApiKey": true,
+    "envVars": ["NVIDIA_API_KEY"],
+    "requiredEnv": []
+  },
+  "openai": {
+    "supportsApiKey": true,
+    "envVars": ["OPENAI_API_KEY"],
+    "requiredEnv": []
+  },
+  "openai-codex": {
+    "supportsApiKey": false,
+    "supportsOAuth": true,
+    "envVars": [],
+    "requiredEnv": [],
+    "authNote": "Requires ChatGPT Plus/Pro OAuth; OpenAI API keys are for the separate OpenAI provider."
+  },
+  "opencode": {
+    "supportsApiKey": true,
+    "envVars": ["OPENCODE_API_KEY"],
+    "requiredEnv": []
+  },
+  "opencode-go": {
+    "supportsApiKey": true,
+    "envVars": ["OPENCODE_API_KEY"],
+    "requiredEnv": []
+  },
+  "openrouter": {
+    "supportsApiKey": true,
+    "envVars": ["OPENROUTER_API_KEY"],
+    "requiredEnv": []
+  },
+  "together": {
+    "supportsApiKey": true,
+    "envVars": ["TOGETHER_API_KEY"],
+    "requiredEnv": []
+  },
+  "vercel-ai-gateway": {
+    "supportsApiKey": true,
+    "envVars": ["AI_GATEWAY_API_KEY"],
+    "requiredEnv": []
+  },
+  "xai": {
+    "supportsApiKey": true,
+    "envVars": ["XAI_API_KEY"],
+    "requiredEnv": []
+  },
+  "xiaomi": {
+    "supportsApiKey": true,
+    "envVars": ["XIAOMI_API_KEY"],
+    "requiredEnv": []
+  },
+  "xiaomi-token-plan-ams": {
+    "supportsApiKey": true,
+    "envVars": ["XIAOMI_TOKEN_PLAN_AMS_API_KEY"],
+    "requiredEnv": []
+  },
+  "xiaomi-token-plan-cn": {
+    "supportsApiKey": true,
+    "envVars": ["XIAOMI_TOKEN_PLAN_CN_API_KEY"],
+    "requiredEnv": []
+  },
+  "xiaomi-token-plan-sgp": {
+    "supportsApiKey": true,
+    "envVars": ["XIAOMI_TOKEN_PLAN_SGP_API_KEY"],
+    "requiredEnv": []
+  },
+  "zai": {
+    "supportsApiKey": true,
+    "envVars": ["ZAI_API_KEY"],
+    "requiredEnv": []
+  },
+  "zai-coding-cn": {
+    "supportsApiKey": true,
+    "envVars": ["ZAI_CODING_CN_API_KEY"],
+    "requiredEnv": []
+  }
+}

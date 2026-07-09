@@ -182,7 +182,7 @@ $targetLeftOk = [Math]::Abs($targetRect.Left - $expectedTargetLeft) -le $Toleran
 $targetWidthOk = [Math]::Abs($actualTargetWidth - $targetWidth) -le $TolerancePx
 $seamDeltaPx = [int]($targetRect.Left - $compassRect.Right)
 $seamOk = [Math]::Abs($seamDeltaPx + $joinOverlapPx) -le $TolerancePx
-$noOverlap = $seamDeltaPx -ge -($joinOverlapPx + $TolerancePx)
+$overlapWithinTolerance = $seamDeltaPx -ge -($joinOverlapPx + $TolerancePx)
 
 $result = [pscustomobject]@{
   Screen = $screen.DeviceName
@@ -204,11 +204,11 @@ $result = [pscustomobject]@{
   TargetBringForwardOk = ($targetTopMostOk -and $targetNoTopMostOk)
   SeamDeltaPx = $seamDeltaPx
   SeamOk = $seamOk
-  NoOverlap = $noOverlap
+  OverlapWithinTolerance = $overlapWithinTolerance
 } 
 
 $result | Format-List
 
-if (-not ($compassLeftOk -and $compassWidthOk -and $targetLeftOk -and $targetWidthOk -and $seamOk -and $noOverlap)) {
+if (-not ($compassLeftOk -and $compassWidthOk -and $targetLeftOk -and $targetWidthOk -and $seamOk -and $overlapWithinTolerance)) {
   throw "Window layout verification failed. Compass/Target final GetWindowRect values do not match the requested seam-adjusted layout."
 }

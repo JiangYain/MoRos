@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { getOAuthProviders } from "@earendil-works/pi-ai/oauth";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 const args = new Set(process.argv.slice(2));
@@ -41,46 +42,9 @@ const registeredApis = new Set(getApiProviders().map((provider) => provider.api)
 const allRegistryModels = registry.getAll();
 const availableModels = registry.getAvailable();
 const oauthProviderIds = new Set(getOAuthProviders().map((provider) => provider.id));
-
-const providerAuthHints = {
-  "amazon-bedrock":
-    "AWS_PROFILE, AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS container/web identity credentials",
-  "ant-ling": "ANT_LING_API_KEY",
-  anthropic: "Pi OAuth login, ANTHROPIC_OAUTH_TOKEN, or ANTHROPIC_API_KEY",
-  "azure-openai-responses": "AZURE_OPENAI_API_KEY",
-  cerebras: "CEREBRAS_API_KEY",
-  "cloudflare-ai-gateway": "CLOUDFLARE_API_KEY",
-  "cloudflare-workers-ai": "CLOUDFLARE_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-  fireworks: "FIREWORKS_API_KEY",
-  "github-copilot": "Pi OAuth login, COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN",
-  google: "GEMINI_API_KEY",
-  "google-vertex":
-    "GOOGLE_CLOUD_API_KEY, or ADC with GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT and GOOGLE_CLOUD_LOCATION",
-  groq: "GROQ_API_KEY",
-  huggingface: "HF_TOKEN",
-  "kimi-coding": "KIMI_API_KEY",
-  minimax: "MINIMAX_API_KEY",
-  "minimax-cn": "MINIMAX_CN_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  moonshotai: "MOONSHOT_API_KEY",
-  "moonshotai-cn": "MOONSHOT_API_KEY",
-  nvidia: "NVIDIA_API_KEY",
-  openai: "OPENAI_API_KEY",
-  "openai-codex": "Pi OAuth login for ChatGPT/Codex subscription",
-  opencode: "OPENCODE_API_KEY",
-  "opencode-go": "OPENCODE_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-  together: "TOGETHER_API_KEY",
-  "vercel-ai-gateway": "AI_GATEWAY_API_KEY",
-  xai: "XAI_API_KEY",
-  xiaomi: "XIAOMI_API_KEY",
-  "xiaomi-token-plan-ams": "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
-  "xiaomi-token-plan-cn": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
-  "xiaomi-token-plan-sgp": "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
-  zai: "ZAI_API_KEY",
-  "zai-coding-cn": "ZAI_CODING_CN_API_KEY",
-};
+const providerAuthRegistry = JSON.parse(
+  readFileSync(new URL("../src/shared/provider-auth-registry.json", import.meta.url), "utf8"),
+);
 
 function log(message = "") {
   if (!jsonOnly) {
@@ -97,24 +61,31 @@ function getUniqueValues(values) {
 }
 
 function getProviderAuthHint(provider) {
-  const hint = providerAuthHints[provider];
-  if (hint) {
-    return `set ${hint} or store credentials in ~/.pi/auth.json`;
+  const info = providerAuthRegistry[provider];
+  if (info) {
+    const hints = [
+      ...(info.supportsOAuth ? ["Pi OAuth login"] : []),
+      ...(info.envVars ?? []),
+      ...(info.requiredEnv ?? []),
+    ];
+    if (hints.length > 0) {
+      return `set ${hints.join(", ")} or store credentials in ~/.pi/auth.json`;
+    }
   }
   return "store credentials in ~/.pi/auth.json or configure the provider in ~/.pi/agent/models.json";
 }
 
 function hasProviderAuthHint(provider) {
-  return Object.hasOwn(providerAuthHints, provider);
+  return Object.hasOwn(providerAuthRegistry, provider);
 }
 
 function hasOAuthAuthHint(provider) {
-  return !oauthProviderIds.has(provider) || /\bOAuth\b/.test(getProviderAuthHint(provider));
+  return !oauthProviderIds.has(provider) || Boolean(providerAuthRegistry[provider]?.supportsOAuth);
 }
 
 function getStaleAuthHints(providers) {
   const knownProviders = new Set(providers);
-  return Object.keys(providerAuthHints).filter((provider) => !knownProviders.has(provider));
+  return Object.keys(providerAuthRegistry).filter((provider) => !knownProviders.has(provider));
 }
 
 function replacePlaceholders(url) {
@@ -233,7 +204,12 @@ async function probeEndpoint(url) {
   }
 }
 
-function getMissingMetadata(provider, models) {
+function hasCredentialScopedCatalog(provider) {
+  const credentials = authStorage.get(provider);
+  return provider === "github-copilot" && credentials?.type === "oauth" && Array.isArray(credentials.availableModelIds);
+}
+
+function getMissingMetadata(provider, models, { requireRegistryPresence = true } = {}) {
   const missing = [];
   for (const model of models) {
     const fields = ["id", "name", "provider", "api", "contextWindow", "maxTokens", "cost"];
@@ -252,7 +228,7 @@ function getMissingMetadata(provider, models) {
       missing.push(`${model.id}:unregistered-api:${model.api}`);
     }
 
-    if (!registry.find(provider, model.id)) {
+    if (requireRegistryPresence && !registry.find(provider, model.id)) {
       missing.push(`${model.id}:not-found-in-registry`);
     }
   }
@@ -350,7 +326,10 @@ async function auditProvider(provider) {
   const authStatus = registry.getProviderAuthStatus(provider);
   const missingAuthHint = !hasProviderAuthHint(provider);
   const missingOAuthHint = !hasOAuthAuthHint(provider);
-  const missingMetadata = getMissingMetadata(provider, models);
+  const credentialScopedCatalog = hasCredentialScopedCatalog(provider);
+  const missingMetadata = getMissingMetadata(provider, models, {
+    requireRegistryPresence: !credentialScopedCatalog,
+  });
   const endpoints = [];
 
   for (const spec of getEndpointSpecs(provider, models)) {
@@ -385,6 +364,7 @@ async function auditProvider(provider) {
     displayName: registry.getProviderDisplayName(provider),
     models: models.length,
     registryModels: registryModels.length,
+    credentialScopedCatalog,
     availableModels: availableCount,
     apis,
     apiRegistered: apis.every((api) => registeredApis.has(api)),
@@ -444,7 +424,7 @@ function summarizeLiveProbe(liveProbe) {
 function hasStaticFailure(result) {
   return (
     result.models === 0 ||
-    result.registryModels !== result.models ||
+    (!result.credentialScopedCatalog && result.registryModels !== result.models) ||
     !result.apiRegistered ||
     result.missingMetadata.length > 0 ||
     result.auth.missingHint ||
@@ -499,6 +479,7 @@ for (const provider of providers) {
       result.provider,
       `models=${result.models}`,
       `available=${result.availableModels}`,
+      result.credentialScopedCatalog ? `registry=scoped(${result.registryModels})` : undefined,
       `apis=${result.apis.join(",")}`,
       `endpoints=${result.endpoints.map(summarizeEndpoint).join(" | ")}`,
       result.auth.missingHint ? "authHint=missing" : undefined,

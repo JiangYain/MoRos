@@ -12,6 +12,7 @@ import type {
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
+import { NO_MODEL_ERROR } from "@shared/messages";
 import { create } from "zustand";
 import { api } from "./ipc";
 
@@ -39,6 +40,7 @@ interface CompassState {
   /** one-shot text the composer should insert (e.g. /skill:name) */
   composerSeed: string | null;
   lastError: string | null;
+  streamingBlocks: Map<string, StreamingAssistant>;
 
   applyInit(payload: InitPayload): void;
   applyEvent(event: AgentUiEvent): void;
@@ -65,12 +67,13 @@ interface CompassState {
   setWorkspaceDir(): Promise<void>;
 }
 
-const streamingBlocks = new Map<string, StreamingAssistant>();
-const NO_MODEL_ERROR = "请先在设置中配置 API Key，或切换到已配置的模型。";
-
 function sanitizeErrorMessage(message: string): string {
   if (/No API key found/i.test(message)) return NO_MODEL_ERROR;
   return message.replace(/[A-Za-z]:\\[^\s"'<>`]+/g, "[local path]");
+}
+
+function sanitizeUnknownError(error: unknown): string {
+  return sanitizeErrorMessage(error instanceof Error ? error.message : String(error));
 }
 
 function blocksToArray(streaming: StreamingAssistant): UiBlock[] {
@@ -79,7 +82,16 @@ function blocksToArray(streaming: StreamingAssistant): UiBlock[] {
     .map(([, block]) => ({ ...block }));
 }
 
-export const useCompass = create<CompassState>((set, get) => ({
+export const useCompass = create<CompassState>((set, get) => {
+  const runIpc = async (action: () => Promise<void>): Promise<void> => {
+    try {
+      await action();
+    } catch (error) {
+      set({ lastError: sanitizeUnknownError(error) });
+    }
+  };
+
+  return {
   ready: false,
   version: "",
   skills: [],
@@ -93,9 +105,9 @@ export const useCompass = create<CompassState>((set, get) => ({
   panel: "none",
   composerSeed: null,
   lastError: null,
+  streamingBlocks: new Map(),
 
   applyInit: (payload) => {
-    streamingBlocks.clear();
     set({
       ready: true,
       version: payload.version,
@@ -109,6 +121,7 @@ export const useCompass = create<CompassState>((set, get) => ({
       thread: payload.thread,
       streaming: payload.stats.isStreaming,
       queue: { steering: [], followUp: [] },
+      streamingBlocks: new Map(),
     });
   },
 
@@ -119,7 +132,7 @@ export const useCompass = create<CompassState>((set, get) => ({
         set({ streaming: true, lastError: null });
         break;
       case "agent-end":
-        set({ streaming: false });
+        set({ streaming: false, streamingBlocks: new Map() });
         break;
       case "user-message":
         set({
@@ -130,34 +143,42 @@ export const useCompass = create<CompassState>((set, get) => ({
         });
         break;
       case "assistant-start": {
+        const streamingBlocks = new Map(state.streamingBlocks);
         streamingBlocks.set(event.id, { id: event.id, blocks: new Map() });
         set({
           thread: [
             ...state.thread,
             { kind: "assistant", id: event.id, blocks: [], streaming: true, ts: event.ts },
           ],
+          streamingBlocks,
         });
         break;
       }
       case "assistant-delta": {
+        const streamingBlocks = new Map(state.streamingBlocks);
         const record = streamingBlocks.get(event.id);
         if (!record) break;
-        const existing = record.blocks.get(event.contentIndex);
+        const blocks = new Map(record.blocks);
+        const existing = blocks.get(event.contentIndex);
         if (existing && existing.type === event.blockType) {
-          existing.text += event.delta;
+          blocks.set(event.contentIndex, { ...existing, text: existing.text + event.delta });
         } else {
-          record.blocks.set(event.contentIndex, { type: event.blockType, text: event.delta });
+          blocks.set(event.contentIndex, { type: event.blockType, text: event.delta });
         }
+        const nextRecord = { ...record, blocks };
+        streamingBlocks.set(event.id, nextRecord);
         set({
           thread: state.thread.map((item) =>
             item.kind === "assistant" && item.id === event.id
-              ? { ...item, blocks: blocksToArray(record) }
+              ? { ...item, blocks: blocksToArray(nextRecord) }
               : item,
           ),
+          streamingBlocks,
         });
         break;
       }
       case "assistant-end": {
+        const streamingBlocks = new Map(state.streamingBlocks);
         streamingBlocks.delete(event.id);
         set({
           thread: state.thread
@@ -182,6 +203,7 @@ export const useCompass = create<CompassState>((set, get) => ({
                   !event.errorMessage
                 ),
             ),
+          streamingBlocks,
         });
         break;
       }
@@ -252,12 +274,12 @@ export const useCompass = create<CompassState>((set, get) => ({
   clearComposerSeed: () => set({ composerSeed: null }),
   setError: (message) => set({ lastError: message }),
 
-  boot: async () => {
+  boot: () => runIpc(async () => {
     const payload = await api.init();
     get().applyInit(payload);
-  },
+  }),
 
-  send: async (text) => {
+  send: (text) => runIpc(async () => {
     const state = get();
     if (!state.stats?.model || !state.stats.modelAuthConfigured) {
       set({ lastError: NO_MODEL_ERROR });
@@ -267,38 +289,38 @@ export const useCompass = create<CompassState>((set, get) => ({
     if (!result.ok && result.error) {
       set({ lastError: sanitizeErrorMessage(result.error) });
     }
-  },
+  }),
 
-  abort: async () => {
+  abort: () => runIpc(async () => {
     await api.abort();
-  },
+  }),
 
-  newSession: async () => {
+  newSession: () => runIpc(async () => {
     const payload = await api.newSession();
     get().applyInit(payload);
-  },
+  }),
 
-  openSession: async (path) => {
+  openSession: (path) => runIpc(async () => {
     const payload = await api.openSession(path);
     get().applyInit(payload);
-  },
+  }),
 
-  refreshSessions: async () => {
+  refreshSessions: () => runIpc(async () => {
     const sessions = await api.listSessions();
     set({ sessions });
-  },
+  }),
 
-  setModel: async (provider, id) => {
+  setModel: (provider, id) => runIpc(async () => {
     const result = await api.setModel(provider, id);
     if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
-  },
+  }),
 
-  setThinkingLevel: async (level) => {
+  setThinkingLevel: (level) => runIpc(async () => {
     const stats = await api.setThinkingLevel(level);
     set({ stats });
-  },
+  }),
 
-  setApiKey: async (provider, key) => {
+  setApiKey: (provider, key) => runIpc(async () => {
     const payload = await api.setApiKey(provider, key);
     // keep current thread; only refresh config-ish slices
     set({
@@ -306,55 +328,52 @@ export const useCompass = create<CompassState>((set, get) => ({
       providers: payload.providers,
       stats: payload.stats,
     });
-  },
+  }),
 
-  loginProvider: async (provider) => {
+  loginProvider: (provider) => runIpc(async () => {
     const payload = await api.loginProvider(provider);
     set({
       models: payload.models,
       providers: payload.providers,
       stats: payload.stats,
     });
-  },
+  }),
 
-  removeApiKey: async (provider) => {
+  removeApiKey: (provider) => runIpc(async () => {
     const payload = await api.removeApiKey(provider);
     set({
       models: payload.models,
       providers: payload.providers,
       stats: payload.stats,
     });
-  },
+  }),
 
-  runPrerequisiteAction: async (actionId) => {
-    try {
-      const payload = await api.runPrerequisiteAction(actionId);
-      set({
-        settings: payload.settings,
-        prerequisites: payload.prerequisites,
-      });
-    } catch (error) {
-      set({ lastError: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)) });
-    }
-  },
+  runPrerequisiteAction: (actionId) => runIpc(async () => {
+    const payload = await api.runPrerequisiteAction(actionId);
+    set({
+      settings: payload.settings,
+      prerequisites: payload.prerequisites,
+    });
+  }),
 
-  setSkillEnabled: async (name, enabled) => {
+  setSkillEnabled: (name, enabled) => runIpc(async () => {
     const payload = await api.setSkillEnabled(name, enabled);
     set({ skills: payload.skills, settings: payload.settings });
-  },
+  }),
 
-  addSkillDir: async () => {
+  addSkillDir: () => runIpc(async () => {
     const payload = await api.addSkillDir();
     if (payload) get().applyInit(payload);
-  },
+  }),
 
-  removeSkillDir: async (dir) => {
+  removeSkillDir: (dir) => runIpc(async () => {
     const payload = await api.removeSkillDir(dir);
     get().applyInit(payload);
-  },
+  }),
 
-  setWorkspaceDir: async () => {
+  setWorkspaceDir: () => runIpc(async () => {
     const payload = await api.setWorkspaceDir();
     if (payload) get().applyInit(payload);
-  },
-}));
+  }),
+  };
+});
