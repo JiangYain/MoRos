@@ -53,6 +53,29 @@ function sessionTitle(session: UiSessionInfo): string {
   return session.name?.trim() || session.firstMessage.trim() || "未命名会话";
 }
 
+function normalizedSessionDate(value: number): Date {
+  return new Date(value > 0 && value < 1_000_000_000_000 ? value * 1_000 : value);
+}
+
+function sessionTime(session: UiSessionInfo): string {
+  const date = normalizedSessionDate(session.createdAt || session.modifiedAt);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const time = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  if (startOfDate === startOfToday) return `今天 ${time}`;
+  if (startOfDate === startOfToday - 86_400_000) return `昨天 ${time}`;
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+  }
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`;
+}
+
 function cleanClientName(value: string): string {
   return value
     .replace(/^[\s"'“”‘’`]+|[\s"'“”‘’`]+$/g, "")
@@ -135,7 +158,7 @@ export function Sidebar(): React.JSX.Element {
   const archiveSession = useCompass((state) => state.archiveSession);
   const seedComposer = useCompass((state) => state.seedComposer);
   const setError = useCompass((state) => state.setError);
-  const setPanel = useCompass((state) => state.setPanel);
+  const openSettings = useCompass((state) => state.openSettings);
   const sidebarOpen = useCompass((state) => state.sidebarOpen);
   const setSidebarOpen = useCompass((state) => state.setSidebarOpen);
   const reduced = useReducedMotion();
@@ -250,7 +273,7 @@ export function Sidebar(): React.JSX.Element {
           }}
         >
           <SquarePen size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>新对话</span>
+          <span>New</span>
         </button>
         <button
           type="button"
@@ -271,7 +294,7 @@ export function Sidebar(): React.JSX.Element {
           className="sidebar-nav-item"
           onClick={() => {
             setSidebarOpen(false);
-            setPanel("skills");
+            openSettings("skills");
           }}
         >
           <Puzzle size={16} strokeWidth={1.65} aria-hidden="true" />
@@ -347,7 +370,7 @@ export function Sidebar(): React.JSX.Element {
                         ease: [0.22, 1, 0.36, 1],
                       }}
                     >
-                      <div className={`file-item folder-row${activeClient ? " active" : ""}`}>
+                      <div className="file-item folder-row">
                         <button
                           type="button"
                           className="file-item-main"
@@ -405,9 +428,9 @@ export function Sidebar(): React.JSX.Element {
                                       void openSession(session.path);
                                     }}
                                     onContextMenu={(event) => openThreadContextMenu(event, session)}
-                                    title={sessionTitle(session)}
+                                    title={`${sessionTime(session)} · ${sessionTitle(session)}`}
                                   >
-                                    <span className="file-name">{sessionTitle(session)}</span>
+                                    <span className="file-name">{sessionTime(session)}</span>
                                   </button>
                                 )}
                               </div>
@@ -463,7 +486,7 @@ export function Sidebar(): React.JSX.Element {
                 onClick={() => {
                   setProfileOpen(false);
                   setSidebarOpen(false);
-                  setPanel("skills");
+                  openSettings("skills");
                 }}
               >
                 <Sparkles size={15} strokeWidth={1.6} />
@@ -475,7 +498,7 @@ export function Sidebar(): React.JSX.Element {
                 onClick={() => {
                   setProfileOpen(false);
                   setSidebarOpen(false);
-                  setPanel("settings");
+                  openSettings();
                 }}
               >
                 <Settings size={15} strokeWidth={1.6} />

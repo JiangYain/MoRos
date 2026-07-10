@@ -4,6 +4,7 @@ import {
   AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
+  type ExtensionFactory,
   getAgentDir,
   ModelRegistry,
   SessionManager,
@@ -11,93 +12,51 @@ import {
 import type {
   Api,
   AssistantMessage,
-  Message,
   Model,
   OAuthLoginCallbacks,
-  ToolCall,
   ToolResultMessage,
-  UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
   AgentStats,
   AgentUiEvent,
   AppSettingsView,
   InitPayload,
+  PermissionMode,
   RuntimePrerequisites,
   ThinkingLevel,
-  UiBlock,
+  UiImageAttachment,
   UiModel,
   UiProviderStatus,
   UiSessionInfo,
   UiSkill,
   UiThreadItem,
-  UiUsage,
 } from "@shared/types";
-import { isThinkingLevel } from "@shared/types";
-import { app } from "electron";
+import { isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import { app, dialog } from "electron";
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { COMPASS_CONTEXT } from "./compass-context";
+import { buildEstimatedContextBreakdown } from "./context-usage";
+import { normalizeImages } from "./image-attachments";
+import { evaluateToolApproval } from "./permission-policy";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { getRuntimePrerequisites } from "./prerequisites";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
+import {
+  blocksOf,
+  cloneForUi,
+  imagesOfContent,
+  isAssistantMessage,
+  isRecord,
+  isUserMessage,
+  projectThread,
+  textOfContent,
+  usageOf,
+} from "./thread-projector";
 
 type Emit = (event: AgentUiEvent) => void;
-type MessageContent = Message["content"];
-type AssistantContentBlock = AssistantMessage["content"][number];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isUserMessage(value: unknown): value is UserMessage {
-  return isRecord(value) && value.role === "user";
-}
-
-function isAssistantMessage(value: unknown): value is AssistantMessage {
-  return isRecord(value) && value.role === "assistant";
-}
-
-function isToolResultMessage(value: unknown): value is ToolResultMessage {
-  return isRecord(value) && value.role === "toolResult" && typeof value.toolCallId === "string";
-}
-
-function isMessage(value: unknown): value is Message {
-  return isUserMessage(value) || isAssistantMessage(value) || isToolResultMessage(value);
-}
-
-function isToolCallBlock(block: AssistantContentBlock): block is ToolCall {
-  return block.type === "toolCall";
-}
-
-function textOfContent(content: MessageContent | undefined): string {
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  return content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text ?? "")
-    .join("\n");
-}
-
-function usageOf(message: AssistantMessage): UiUsage | undefined {
-  const usage = message.usage;
-  if (!usage) return undefined;
-  return { input: usage.input ?? 0, output: usage.output ?? 0, cost: usage.cost?.total ?? 0 };
-}
-
-function blocksOf(message: AssistantMessage): UiBlock[] {
-  const blocks: UiBlock[] = [];
-  for (const block of message.content) {
-    if (block.type === "thinking" && block.thinking?.trim()) {
-      blocks.push({ type: "thinking", text: block.thinking });
-    } else if (block.type === "text" && block.text?.trim()) {
-      blocks.push({ type: "text", text: block.text });
-    }
-  }
-  return blocks;
-}
 
 function normalizeThinkingLevels(levels: readonly unknown[]): ThinkingLevel[] {
   const normalized = [...new Set(levels.filter(isThinkingLevel))];
@@ -114,25 +73,6 @@ function toolResultContent(value: unknown): ToolResultMessage["content"] | undef
     : undefined;
 }
 
-function hashText(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function historicalItemId(
-  prefix: string,
-  sessionId: string,
-  index: number,
-  message: Message,
-  extra = "",
-): string {
-  const key = [sessionId, index, message.role, message.timestamp, extra].join("|");
-  return `${prefix}-${index}-${hashText(key)}`;
-}
 
 export class AgentService {
   private emit: Emit;
@@ -150,6 +90,7 @@ export class AgentService {
     this.settings = loadSettings();
     this.authStorage = AuthStorage.create();
     this.modelRegistry = ModelRegistry.create(this.authStorage);
+    this.ensureModelPreferences();
   }
 
   private nextId(prefix: string): string {
@@ -157,10 +98,42 @@ export class AgentService {
     return `${prefix}-${Date.now().toString(36)}-${this.idCounter}`;
   }
 
+  private permissionExtension(): ExtensionFactory {
+    return (pi) => {
+      pi.on("tool_call", async (event) => {
+        const approval = evaluateToolApproval(
+          this.settings.permissionMode,
+          this.settings.workspaceDir,
+          event.toolName,
+          event.input,
+        );
+        if (!approval) return undefined;
+        try {
+          const result = await dialog.showMessageBox({
+            type: "question",
+            title: "Compass permission request",
+            message: approval.message,
+            detail: approval.detail,
+            buttons: ["Allow once", "Deny"],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true,
+          });
+          return result.response === 0
+            ? undefined
+            : { block: true, reason: "The operator denied this action." };
+        } catch {
+          return { block: true, reason: "Compass could not request approval for this action." };
+        }
+      });
+    };
+  }
+
   // ---------------------------------------------------------------- session
 
   async start(options?: { sessionPath?: string }): Promise<void> {
     this.disposeSession();
+    this.ensureModelPreferences();
 
     const cwd = this.settings.workspaceDir;
     const skillDirs = [
@@ -172,6 +145,9 @@ export class AgentService {
       cwd,
       agentDir: getAgentDir(),
       additionalSkillPaths: [...new Set(skillDirs)],
+      extensionFactories: [
+        { name: "compass-permission-policy", factory: this.permissionExtension() },
+      ],
       skillsOverride: (base) => ({
         skills: base.skills.filter((skill) => !this.settings.disabledSkills.includes(skill.name)),
         diagnostics: base.diagnostics,
@@ -288,11 +264,13 @@ export class AgentService {
         const message = event.message;
         if (isUserMessage(message)) {
           const text = textOfContent(message.content);
-          if (text.trim()) {
+          const images = imagesOfContent(message.content);
+          if (text.trim() || images.length > 0) {
             this.emit({
               kind: "user-message",
               id: this.nextId("u"),
               text,
+              images: images.length > 0 ? images : undefined,
               ts: message.timestamp,
             });
           }
@@ -316,7 +294,7 @@ export class AgentService {
           id: this.nextId("t"),
           callId: event.toolCallId,
           name: event.toolName,
-          args: this.safeClone(event.args),
+          args: cloneForUi(event.args),
           ts: Date.now(),
         });
         break;
@@ -377,14 +355,6 @@ export class AgentService {
     }
   }
 
-  private safeClone(value: unknown): unknown {
-    try {
-      return JSON.parse(JSON.stringify(value ?? null));
-    } catch {
-      return undefined;
-    }
-  }
-
   // ------------------------------------------------------------------ state
 
   getStats(): AgentStats {
@@ -427,6 +397,7 @@ export class AgentService {
             id: model.id,
             name: model.name ?? model.id,
             reasoning: Boolean(model.reasoning),
+            supportsImages: model.input?.includes("image") ?? false,
             thinkingLevels,
           }
         : undefined,
@@ -436,6 +407,12 @@ export class AgentService {
       contextPercent: context?.percent ?? null,
       contextTokens: context?.tokens ?? null,
       contextWindow: context?.contextWindow ?? model?.contextWindow ?? 0,
+      contextBreakdown: buildEstimatedContextBreakdown(
+        session,
+        context?.tokens ?? null,
+        COMPASS_CONTEXT,
+        this.loader?.getSkills().skills ?? [],
+      ),
       cost: stats.cost,
       tokensIn: stats.tokens.input,
       tokensOut: stats.tokens.output,
@@ -447,62 +424,7 @@ export class AgentService {
   }
 
   getThread(): UiThreadItem[] {
-    const session = this.session;
-    if (!session) return [];
-    const items: UiThreadItem[] = [];
-    const pendingToolCalls = new Map<string, { name: string; args?: unknown }>();
-
-    for (const [index, raw] of session.messages.entries()) {
-      if (!isMessage(raw)) continue;
-      const message = raw;
-      if (isUserMessage(message)) {
-        const text = textOfContent(message.content);
-        if (text.trim()) {
-          items.push({
-            kind: "user",
-            id: historicalItemId("u", session.sessionId, index, message),
-            text,
-            ts: message.timestamp ?? 0,
-          });
-        }
-      } else if (isAssistantMessage(message)) {
-        const blocks = blocksOf(message);
-        for (const block of message.content) {
-          if (isToolCallBlock(block) && block.id) {
-            pendingToolCalls.set(block.id, {
-              name: block.name ?? "tool",
-              args: block.arguments,
-            });
-          }
-        }
-        if (blocks.length > 0 || message.errorMessage) {
-          items.push({
-            kind: "assistant",
-            id: historicalItemId("a", session.sessionId, index, message),
-            blocks,
-            streaming: false,
-            stopReason: message.stopReason,
-            errorMessage: message.errorMessage,
-            usage: usageOf(message),
-            ts: message.timestamp ?? 0,
-          });
-        }
-      } else if (isToolResultMessage(message)) {
-        const call = pendingToolCalls.get(message.toolCallId);
-        items.push({
-          kind: "tool",
-          id: historicalItemId("t", session.sessionId, index, message, message.toolCallId),
-          callId: message.toolCallId,
-          name: message.toolName ?? call?.name ?? "tool",
-          args: this.safeClone(call?.args),
-          output: textOfContent(message.content),
-          isError: Boolean(message.isError),
-          running: false,
-          ts: message.timestamp ?? 0,
-        });
-      }
-    }
-    return items;
+    return projectThread(this.session);
   }
 
   getSkills(): UiSkill[] {
@@ -544,8 +466,64 @@ export class AgentService {
         id: model.id,
         name: model.name ?? model.id,
         reasoning: Boolean(model.reasoning),
+        supportsImages: model.input?.includes("image") ?? false,
         contextWindow: model.contextWindow ?? 0,
       }));
+  }
+
+  private connectableModels(): Model<Api>[] {
+    return this.modelRegistry.getAvailable().filter((model) => this.isModelConnectable(model));
+  }
+
+  private ensureModelPreferences(): void {
+    const connectable = this.connectableModels();
+    if (connectable.length === 0) return;
+
+    const enabled = new Set(this.settings.enabledModels);
+    const preferred = this.settings.defaultModel
+      ? connectable.find(
+          (model) =>
+            String(model.provider) === this.settings.defaultModel?.provider &&
+            model.id === this.settings.defaultModel.id,
+        )
+      : undefined;
+    let enabledConnectable = connectable.filter((model) =>
+      enabled.has(modelSelectionKey(String(model.provider), model.id)),
+    );
+    let changed = false;
+
+    if (enabledConnectable.length === 0) {
+      const initial = preferred ?? connectable[0];
+      enabled.add(modelSelectionKey(String(initial.provider), initial.id));
+      enabledConnectable = [initial];
+      changed = true;
+    }
+
+    const defaultKey = this.settings.defaultModel
+      ? modelSelectionKey(this.settings.defaultModel.provider, this.settings.defaultModel.id)
+      : undefined;
+    if (!defaultKey || !enabled.has(defaultKey) || !preferred) {
+      const nextDefault = enabledConnectable[0];
+      this.settings.defaultModel = {
+        provider: String(nextDefault.provider),
+        id: nextDefault.id,
+      };
+      changed = true;
+    }
+
+    const normalized = [...enabled];
+    if (
+      normalized.length !== this.settings.enabledModels.length ||
+      normalized.some((key, index) => key !== this.settings.enabledModels[index])
+    ) {
+      this.settings.enabledModels = normalized;
+      changed = true;
+    }
+    if (changed) saveSettings(this.settings);
+  }
+
+  private enabledModelKeys(): string[] {
+    return [...this.settings.enabledModels];
   }
 
   getProviders(): UiProviderStatus[] {
@@ -702,6 +680,8 @@ export class AgentService {
       workspaceDir: this.settings.workspaceDir,
       skillDirs: [...this.settings.skillDirs],
       disabledSkills: [...this.settings.disabledSkills],
+      permissionMode: this.settings.permissionMode,
+      enabledModels: this.enabledModelKeys(),
     };
   }
 
@@ -743,14 +723,15 @@ export class AgentService {
 
   // ---------------------------------------------------------------- actions
 
-  async prompt(text: string): Promise<{ ok: boolean; error?: string }> {
+  async prompt(text: string, images?: UiImageAttachment[]): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
     if (!session) return { ok: false, error: "会话尚未就绪" };
     try {
+      const normalizedImages = normalizeImages(images);
       if (session.isStreaming) {
-        await session.prompt(text, { streamingBehavior: "steer" });
+        await session.prompt(text, { images: normalizedImages, streamingBehavior: "steer" });
       } else {
-        await session.prompt(text);
+        await session.prompt(text, { images: normalizedImages });
       }
       return { ok: true };
     } catch (error) {
@@ -769,6 +750,9 @@ export class AgentService {
     try {
       await session.setModel(model);
       this.settings.defaultModel = { provider, id };
+      const enabledModels = new Set(this.enabledModelKeys());
+      enabledModels.add(modelSelectionKey(provider, id));
+      this.settings.enabledModels = [...enabledModels];
       saveSettings(this.settings);
       this.emitStats();
       return { ok: true };
@@ -792,6 +776,7 @@ export class AgentService {
   async setApiKey(provider: string, key: string): Promise<void> {
     this.authStorage.set(provider, { type: "api_key", key });
     this.modelRegistry.refresh();
+    this.ensureModelPreferences();
     await this.syncSessionModelAfterAuth(provider);
     this.emitStats();
   }
@@ -799,14 +784,83 @@ export class AgentService {
   async loginProvider(provider: string, callbacks: OAuthLoginCallbacks): Promise<void> {
     await this.authStorage.login(provider, callbacks);
     this.modelRegistry.refresh();
+    this.ensureModelPreferences();
     await this.syncSessionModelAfterAuth(provider);
     this.emitStats();
   }
 
-  removeApiKey(provider: string): void {
+  async removeApiKey(provider: string): Promise<void> {
     this.authStorage.remove(provider);
     this.modelRegistry.refresh();
+    this.ensureModelPreferences();
+    const session = this.session;
+    const current = session?.model;
+    if (session && current && !this.isModelConnectable(current)) {
+      const enabled = new Set(this.settings.enabledModels);
+      const replacement = this.connectableModels().find((model) =>
+        enabled.has(modelSelectionKey(String(model.provider), model.id)),
+      );
+      if (replacement) {
+        await session.setModel(replacement);
+        this.settings.defaultModel = {
+          provider: String(replacement.provider),
+          id: replacement.id,
+        };
+        saveSettings(this.settings);
+      }
+    }
     this.emitStats();
+  }
+
+  async setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void> {
+    const model = this.modelRegistry.find(provider, id);
+    if (enabled && (!model || !this.isModelConnectable(model))) {
+      throw new Error("该模型当前不可用，请先配置对应 Provider。");
+    }
+    const enabledModels = new Set(this.enabledModelKeys());
+    const key = modelSelectionKey(provider, id);
+    if (enabled) {
+      enabledModels.add(key);
+    } else {
+      if (!enabledModels.has(key)) return;
+      const replacements = this.connectableModels().filter(
+        (candidate) => {
+          const candidateKey = modelSelectionKey(String(candidate.provider), candidate.id);
+          return candidateKey !== key && enabledModels.has(candidateKey);
+        },
+      );
+      if (replacements.length === 0) {
+        throw new Error("至少需要保留一个可用模型。");
+      }
+      const replacement = replacements[0];
+      const current = this.session?.model;
+      const currentKey = current
+        ? modelSelectionKey(String(current.provider), current.id)
+        : undefined;
+      if (currentKey === key && this.session) {
+        await this.session.setModel(replacement);
+      }
+      enabledModels.delete(key);
+      const defaultKey = this.settings.defaultModel
+        ? modelSelectionKey(this.settings.defaultModel.provider, this.settings.defaultModel.id)
+        : undefined;
+      if (defaultKey === key || currentKey === key) {
+        this.settings.defaultModel = {
+          provider: String(replacement.provider),
+          id: replacement.id,
+        };
+      }
+    }
+    this.settings.enabledModels = [...enabledModels];
+    saveSettings(this.settings);
+    this.emitStats();
+  }
+
+  setPermissionMode(mode: PermissionMode): AppSettingsView {
+    if (!isPermissionMode(mode)) throw new Error("无效的权限模式");
+    this.settings.permissionMode = mode;
+    saveSettings(this.settings);
+    return this.getSettingsView();
   }
 
   async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
@@ -859,6 +913,9 @@ export class AgentService {
     try {
       await session.setModel(candidate);
       this.settings.defaultModel = { provider, id: candidate.id };
+      const enabledModels = new Set(this.settings.enabledModels);
+      enabledModels.add(modelSelectionKey(provider, candidate.id));
+      this.settings.enabledModels = [...enabledModels];
       saveSettings(this.settings);
     } catch {
       /* stay on the current model; user can pick manually */

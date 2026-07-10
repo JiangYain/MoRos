@@ -140,7 +140,18 @@ function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }
   return (
     <motion.div className="msg-user" {...entrance}>
       <div className="who micro-label">Operator / 验配师</div>
-      <div className="text">{item.text}</div>
+      {item.images && item.images.length > 0 && (
+        <div className="msg-user-images">
+          {item.images.map((image, index) => (
+            <img
+              key={`${image.mimeType}-${index}`}
+              src={`data:${image.mimeType};base64,${image.data}`}
+              alt={image.name ?? `Attachment ${index + 1}`}
+            />
+          ))}
+        </div>
+      )}
+      {item.text.trim() && <div className="text">{item.text}</div>}
     </motion.div>
   );
 }

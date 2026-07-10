@@ -11,13 +11,44 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
 }
 
+export const PERMISSION_MODES = ["ask", "approve", "full"] as const;
+
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return typeof value === "string" && (PERMISSION_MODES as readonly string[]).includes(value);
+}
+
+export interface UiImageAttachment {
+  /** Base64 payload without a data URL prefix. */
+  data: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  name?: string;
+}
+
+export interface ContextUsageBreakdown {
+  systemPrompt: number;
+  toolDefinitions: number;
+  rules: number;
+  skills: number;
+  mcpTools: number;
+  subagents: number;
+  conversation: number;
+  estimated: boolean;
+}
+
 export interface UiModel {
   provider: string;
   providerName: string;
   id: string;
   name: string;
   reasoning: boolean;
+  supportsImages: boolean;
   contextWindow: number;
+}
+
+export function modelSelectionKey(provider: string, id: string): string {
+  return `${provider}::${id}`;
 }
 
 export interface UiProviderStatus {
@@ -69,7 +100,7 @@ export type UiBlock =
   | { type: "text"; text: string };
 
 export type UiThreadItem =
-  | { kind: "user"; id: string; text: string; ts: number }
+  | { kind: "user"; id: string; text: string; images?: UiImageAttachment[]; ts: number }
   | {
       kind: "assistant";
       id: string;
@@ -101,6 +132,7 @@ export interface AgentStats {
     id: string;
     name: string;
     reasoning: boolean;
+    supportsImages: boolean;
     thinkingLevels: ThinkingLevel[];
   };
   /** whether the active model's provider has a usable credential */
@@ -110,6 +142,7 @@ export interface AgentStats {
   contextPercent: number | null;
   contextTokens: number | null;
   contextWindow: number;
+  contextBreakdown?: ContextUsageBreakdown;
   cost: number;
   tokensIn: number;
   tokensOut: number;
@@ -119,7 +152,7 @@ export interface AgentStats {
 export type AgentUiEvent =
   | { kind: "agent-start" }
   | { kind: "agent-end" }
-  | { kind: "user-message"; id: string; text: string; ts: number }
+  | { kind: "user-message"; id: string; text: string; images?: UiImageAttachment[]; ts: number }
   | { kind: "assistant-start"; id: string; ts: number }
   | {
       kind: "assistant-delta";
@@ -142,12 +175,15 @@ export type AgentUiEvent =
   | { kind: "queue-update"; steering: string[]; followUp: string[] }
   | { kind: "notice"; tone: "info" | "warn"; text: string; ts: number }
   | { kind: "stats"; stats: AgentStats }
-  | { kind: "sessions-changed" };
+  | { kind: "sessions-changed" }
+  | { kind: "state-refresh"; payload: InitPayload };
 
 export interface AppSettingsView {
   workspaceDir: string;
   skillDirs: string[];
   disabledSkills: string[];
+  permissionMode: PermissionMode;
+  enabledModels: string[];
 }
 
 interface RuntimePrerequisiteActionBase {
@@ -190,12 +226,14 @@ export interface InitPayload {
 export interface VoiceInputResult {
   ok: boolean;
   error?: string;
+  /** Browser speech recognition returns text; desktop dictation types into the focused field. */
+  text?: string;
 }
 
 /** API exposed on window.compass by the preload script. */
 export interface CompassApi {
   init(): Promise<InitPayload>;
-  prompt(text: string): Promise<{ ok: boolean; error?: string }>;
+  prompt(text: string, images?: UiImageAttachment[]): Promise<{ ok: boolean; error?: string }>;
   abort(): Promise<void>;
   newSession(): Promise<InitPayload>;
   openSession(path: string): Promise<InitPayload>;
@@ -204,7 +242,9 @@ export interface CompassApi {
   deleteSession(path: string): Promise<{ ok: boolean; error?: string }>;
   archiveSession(path: string): Promise<{ ok: boolean; error?: string }>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
+  setModelEnabled(provider: string, id: string, enabled: boolean): Promise<InitPayload>;
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
+  setPermissionMode(mode: PermissionMode): Promise<AppSettingsView>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
   loginProvider(provider: string): Promise<InitPayload>;
   removeApiKey(provider: string): Promise<InitPayload>;
@@ -219,3 +259,12 @@ export interface CompassApi {
   windowControl(action: "minimize" | "maximize" | "close"): void;
   onMaximizeChange(listener: (maximized: boolean) => void): () => void;
 }
+
+/** Operations implemented by the local Compass backend, excluding renderer-only event/window hooks. */
+export type CompassBackendApi = Omit<
+  CompassApi,
+  "onAgentEvent" | "windowControl" | "onMaximizeChange"
+>;
+
+/** Backend operations transported over the browser RPC bridge. */
+export type WebRpcMethod = Exclude<keyof CompassBackendApi, "startDictation">;

@@ -1,9 +1,16 @@
-import type { AgentUiEvent, CompassApi, ThinkingLevel } from "@shared/types";
+import type {
+  AgentUiEvent,
+  CompassApi,
+  PermissionMode,
+  ThinkingLevel,
+  UiImageAttachment,
+} from "@shared/types";
 import { contextBridge, ipcRenderer } from "electron";
 
 const api: CompassApi = {
   init: () => ipcRenderer.invoke("app:init"),
-  prompt: (text) => ipcRenderer.invoke("agent:prompt", text),
+  prompt: (text: string, images?: UiImageAttachment[]) =>
+    ipcRenderer.invoke("agent:prompt", text, images),
   abort: () => ipcRenderer.invoke("agent:abort"),
   newSession: () => ipcRenderer.invoke("agent:new-session"),
   openSession: (path) => ipcRenderer.invoke("agent:open-session", path),
@@ -12,7 +19,10 @@ const api: CompassApi = {
   deleteSession: (path) => ipcRenderer.invoke("sessions:delete", path),
   archiveSession: (path) => ipcRenderer.invoke("sessions:archive", path),
   setModel: (provider, id) => ipcRenderer.invoke("models:set", provider, id),
+  setModelEnabled: (provider, id, enabled) =>
+    ipcRenderer.invoke("models:set-enabled", provider, id, enabled),
   setThinkingLevel: (level: ThinkingLevel) => ipcRenderer.invoke("thinking:set", level),
+  setPermissionMode: (mode: PermissionMode) => ipcRenderer.invoke("permissions:set", mode),
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),
   loginProvider: (provider) => ipcRenderer.invoke("auth:login-provider", provider),
   removeApiKey: (provider) => ipcRenderer.invoke("auth:remove", provider),
