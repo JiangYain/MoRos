@@ -63,14 +63,22 @@ try {
   const modelButton = page.locator(".model-pill");
   await modelButton.click();
   await page.locator(".model-popover").waitFor();
-  await page.locator(".model-menu-main button").filter({ hasText: "Effort" }).hover();
-  const renderedLevels = await page
-    .locator(".model-submenu [data-thinking-level]")
-    .evaluateAll((buttons) => buttons.map((button) => button.dataset.thinkingLevel));
   const initPayload = await page.evaluate(() => window.compass.init());
   const supportedLevels = new Set(initPayload.stats.model?.thinkingLevels ?? []);
-  if (renderedLevels.some((level) => !level || !supportedLevels.has(level))) {
-    throw new Error(`Model menu rendered unsupported thinking levels: ${renderedLevels.join(", ")}`);
+  const supportsThinking = [...supportedLevels].some((level) => level !== "off");
+  const effortButton = page.locator(".model-menu-main button").filter({ hasText: "Effort" });
+  const effortDisabled = await effortButton.isDisabled();
+  if (effortDisabled === supportsThinking) {
+    throw new Error(`Effort control capability mismatch: supportsThinking=${supportsThinking}, disabled=${effortDisabled}`);
+  }
+  if (!effortDisabled) {
+    await effortButton.hover();
+    const renderedLevels = await page
+      .locator(".model-submenu [data-thinking-level]")
+      .evaluateAll((buttons) => buttons.map((button) => button.dataset.thinkingLevel));
+    if (renderedLevels.length === 0 || renderedLevels.some((level) => !level || !supportedLevels.has(level))) {
+      throw new Error(`Model menu rendered unsupported thinking levels: ${renderedLevels.join(", ")}`);
+    }
   }
   await shot("06-model-picker");
   await page.getByRole("button", { name: "Add Model" }).click();
