@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron } from "playwright-core";
 
-const outDir = resolve(process.argv[2] ?? join(tmpdir(), "compass-smoke"));
+const defaultOutDir = process.env.CI ? "smoke-out" : join(tmpdir(), "compass-smoke");
+const outDir = resolve(process.argv[2] ?? defaultOutDir);
 mkdirSync(outDir, { recursive: true });
 
 const app = await electron.launch({
@@ -84,11 +85,24 @@ try {
   await page.getByRole("button", { name: "Add Model" }).click();
   await page.getByRole("heading", { name: "Models" }).waitFor();
   const activeModelSwitch = page.locator(".settings-model-row.active [role=switch]");
-  if ((await activeModelSwitch.count()) !== 1 || (await activeModelSwitch.getAttribute("aria-checked")) !== "true") {
-    throw new Error("Models settings did not expose the active enabled model");
+  const activeModel = initPayload.stats.model;
+  const activeModelIsAvailable = Boolean(
+    activeModel && initPayload.models.some((model) => model.provider === activeModel.provider && model.id === activeModel.id),
+  );
+  if (activeModelIsAvailable) {
+    if ((await activeModelSwitch.count()) !== 1 || (await activeModelSwitch.getAttribute("aria-checked")) !== "true") {
+      throw new Error("Models settings did not expose the active enabled model");
+    }
+  } else {
+    if ((await activeModelSwitch.count()) !== 0) {
+      throw new Error("Models settings marked an unavailable model as active");
+    }
+    if (initPayload.models.length === 0) {
+      await page.getByText("No available models", { exact: true }).waitFor();
+    }
   }
   const enabledSwitchCount = await page.locator('.settings-model-row [role=switch][aria-checked="true"]').count();
-  if (enabledSwitchCount === 1 && !(await activeModelSwitch.isDisabled())) {
+  if (activeModelIsAvailable && enabledSwitchCount === 1 && !(await activeModelSwitch.isDisabled())) {
     throw new Error("The only active model can be disabled without a replacement");
   }
   await shot("07-models-settings");
