@@ -24,6 +24,7 @@
     "@earendil-works/pi-ai": "file:vendor/pi/packages/ai",
     "@earendil-works/pi-coding-agent": "file:vendor/pi/packages/coding-agent",
     "@earendil-works/pi-tui": "file:vendor/pi/packages/tui",
+    "lucide-react": "^1.23.0",
     "motion": "^12.42.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

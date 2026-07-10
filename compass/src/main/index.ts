@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { VoiceInputResult } from "@shared/types";
 import { AgentService } from "./agent";
 import { AuthLoginController } from "./auth-login-controller";
 import { runPrerequisiteAction } from "./prerequisite-actions";
@@ -12,6 +14,77 @@ if (process.platform === "win32") {
 let mainWindow: BrowserWindow | undefined;
 let agent: AgentService | undefined;
 let authLoginController: AuthLoginController | undefined;
+
+function windowsDictationScript(windowHandle: string): string {
+  return `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class CompassVoiceInput {
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+  [DllImport("user32.dll")]
+  public static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
+}
+"@
+
+[long]$windowHandle = ${windowHandle}
+[void][CompassVoiceInput]::SetForegroundWindow([IntPtr]$windowHandle)
+Start-Sleep -Milliseconds 80
+[CompassVoiceInput]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
+[CompassVoiceInput]::keybd_event(0x48, 0, 0, [UIntPtr]::Zero)
+[CompassVoiceInput]::keybd_event(0x48, 0, 2, [UIntPtr]::Zero)
+[CompassVoiceInput]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+`;
+}
+
+function startWindowsDictation(ownerWindow?: BrowserWindow): Promise<VoiceInputResult> {
+  if (process.platform !== "win32") {
+    return Promise.resolve({ ok: false, error: "语音输入目前仅支持 Windows。" });
+  }
+  if (!ownerWindow || ownerWindow.isDestroyed()) {
+    return Promise.resolve({ ok: false, error: "Compass 主窗口不可用。" });
+  }
+
+  ownerWindow.restore();
+  ownerWindow.focus();
+  ownerWindow.webContents.focus();
+  const handleBuffer = ownerWindow.getNativeWindowHandle();
+  const windowHandle =
+    handleBuffer.length >= 8
+      ? handleBuffer.readBigUInt64LE(0).toString()
+      : handleBuffer.readUInt32LE(0).toString();
+
+  return new Promise((resolveResult) => {
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        windowsDictationScript(windowHandle),
+      ],
+      { stdio: "ignore", windowsHide: true },
+    );
+    child.once("error", (error) => {
+      resolveResult({ ok: false, error: `无法启动 Windows 语音输入：${error.message}` });
+    });
+    child.once("close", (code) => {
+      resolveResult(
+        code === 0
+          ? { ok: true }
+          : { ok: false, error: `Windows 语音输入启动失败（退出码 ${code ?? "unknown"}）。` },
+      );
+    });
+  });
+}
 
 function getAppIconPath(): string | undefined {
   const fileName = process.platform === "win32" ? "icon.ico" : "icon.png";
@@ -96,6 +169,11 @@ function registerIpc(service: AgentService, authController: AuthLoginController)
     return service.buildInitPayload();
   });
   ipcMain.handle("sessions:list", () => service.listSessions());
+  ipcMain.handle("sessions:rename", (_event, path: string, name: string) =>
+    service.renameSession(path, name),
+  );
+  ipcMain.handle("sessions:delete", (_event, path: string) => service.deleteSession(path));
+  ipcMain.handle("sessions:archive", (_event, path: string) => service.archiveSession(path));
   ipcMain.handle("models:set", (_event, provider: string, id: string) =>
     service.setModel(provider, id),
   );
@@ -140,6 +218,7 @@ function registerIpc(service: AgentService, authController: AuthLoginController)
     return service.buildInitPayload();
   });
   ipcMain.handle("shell:open-path", (_event, path: string) => shell.openPath(path));
+  ipcMain.handle("voice:start-dictation", () => startWindowsDictation(mainWindow));
 
   ipcMain.on("win:control", (_event, action: "minimize" | "maximize" | "close") => {
     if (!mainWindow) return;

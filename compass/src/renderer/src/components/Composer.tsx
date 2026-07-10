@@ -1,10 +1,20 @@
 import type { ThinkingLevel } from "@shared/types";
 import { NO_MODEL_ERROR } from "@shared/messages";
+import {
+  ArrowUp,
+  ChevronDown,
+  Folder,
+  Mic,
+  Plus,
+  Settings,
+  Sparkles,
+  Square,
+  SquarePen,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../ipc";
 import { useCompass } from "../store";
-
-const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "关闭",
@@ -13,48 +23,61 @@ const THINKING_LABELS: Record<ThinkingLevel, string> = {
   medium: "中",
   high: "高",
   xhigh: "极高",
+  max: "最高",
 };
 
-type PopoverKind = "none" | "model" | "thinking";
+type PopoverKind = "none" | "actions" | "model" | "context";
+
+function workspaceName(path: string | undefined): string {
+  const parts = path?.split(/[\\/]/).filter(Boolean) ?? [];
+  return parts.at(-1) ?? "选择工作区";
+}
+
+function formatCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
+}
 
 export function Composer(): React.JSX.Element {
-  const streaming = useCompass((s) => s.streaming);
-  const stats = useCompass((s) => s.stats);
-  const models = useCompass((s) => s.models);
-  const skills = useCompass((s) => s.skills);
-  const queue = useCompass((s) => s.queue);
-  const composerSeed = useCompass((s) => s.composerSeed);
-  const clearComposerSeed = useCompass((s) => s.clearComposerSeed);
-  const lastError = useCompass((s) => s.lastError);
-  const setError = useCompass((s) => s.setError);
-  const send = useCompass((s) => s.send);
-  const abort = useCompass((s) => s.abort);
-  const setModel = useCompass((s) => s.setModel);
-  const setThinkingLevel = useCompass((s) => s.setThinkingLevel);
-  const setPanel = useCompass((s) => s.setPanel);
+  const streaming = useCompass((state) => state.streaming);
+  const stats = useCompass((state) => state.stats);
+  const settings = useCompass((state) => state.settings);
+  const models = useCompass((state) => state.models);
+  const skills = useCompass((state) => state.skills);
+  const queue = useCompass((state) => state.queue);
+  const composerSeed = useCompass((state) => state.composerSeed);
+  const clearComposerSeed = useCompass((state) => state.clearComposerSeed);
+  const lastError = useCompass((state) => state.lastError);
+  const setError = useCompass((state) => state.setError);
+  const send = useCompass((state) => state.send);
+  const abort = useCompass((state) => state.abort);
+  const newSession = useCompass((state) => state.newSession);
+  const setModel = useCompass((state) => state.setModel);
+  const setThinkingLevel = useCompass((state) => state.setThinkingLevel);
+  const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
+  const setPanel = useCompass((state) => state.setPanel);
 
   const [text, setText] = useState("");
   const [popover, setPopover] = useState<PopoverKind>("none");
   const [slashIndex, setSlashIndex] = useState(0);
+  const [dictationBusy, setDictationBusy] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // one-shot seed from hero suggestions / skills panel
   useEffect(() => {
-    if (composerSeed !== null) {
-      setText(composerSeed);
-      clearComposerSeed();
-      requestAnimationFrame(() => {
-        const node = textareaRef.current;
-        if (node) {
-          node.focus();
-          node.setSelectionRange(node.value.length, node.value.length);
-        }
-      });
-    }
+    if (composerSeed === null) return;
+    setText(composerSeed);
+    clearComposerSeed();
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    });
   }, [composerSeed, clearComposerSeed]);
 
-  // autogrow
   useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
@@ -62,16 +85,23 @@ export function Composer(): React.JSX.Element {
     node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
   }, [text]);
 
-  // click outside closes popovers
   useEffect(() => {
-    const onDown = (event: MouseEvent): void => {
+    const onPointerDown = (event: MouseEvent): void => {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
         setPopover("none");
+        setComposerFocused(false);
       }
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && popover !== "none") setPopover("none");
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [popover]);
 
   const slashQuery = useMemo(() => {
     const match = /^\/(\S*)$/.exec(text);
@@ -92,12 +122,23 @@ export function Composer(): React.JSX.Element {
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
 
-  const contextPercent = stats?.contextPercent ?? null;
   const noModel = !stats?.model || !stats.modelAuthConfigured;
-  const supportsThinking = Boolean(stats?.model?.reasoning);
+  const thinkingLevels = stats?.model?.thinkingLevels ?? [];
+  const supportsThinking = thinkingLevels.some((level) => level !== "off");
+  const rawContextPercent = stats?.contextPercent;
+  const contextPercent = Math.min(100, Math.max(0, rawContextPercent ?? 0));
+  const contextKnown = rawContextPercent !== null && rawContextPercent !== undefined;
+  const contextTokens = stats?.contextTokens ?? 0;
+  const contextWindow = stats?.contextWindow ?? 0;
+  const contextRemaining = Math.max(0, contextWindow - contextTokens);
+
+  const togglePopover = (next: Exclude<PopoverKind, "none">): void => {
+    setPopover((current) => (current === next ? "none" : next));
+  };
 
   const applySlash = (command: string): void => {
     setText(`${command} `);
+    setComposerFocused(true);
     textareaRef.current?.focus();
   };
 
@@ -109,8 +150,29 @@ export function Composer(): React.JSX.Element {
       return;
     }
     setError(null);
+    setPopover("none");
     setText("");
     void send(trimmed);
+  };
+
+  const startDictation = (): void => {
+    if (dictationBusy) return;
+    setPopover("none");
+    textareaRef.current?.focus();
+    setDictationBusy(true);
+    window.setTimeout(() => {
+      void api
+        .startDictation()
+        .then((result) => {
+          if (!result.ok) setError(result.error ?? "无法启动语音输入");
+        })
+        .catch((error: unknown) => {
+          setError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          window.setTimeout(() => setDictationBusy(false), 650);
+        });
+    }, 120);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -136,6 +198,11 @@ export function Composer(): React.JSX.Element {
         return;
       }
     }
+    if (event.key === "Escape" && popover !== "none") {
+      event.preventDefault();
+      setPopover("none");
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       doSend();
@@ -153,18 +220,13 @@ export function Composer(): React.JSX.Element {
         {noModel && (
           <motion.div
             className="model-banner"
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            style={{ paddingTop: "0.9rem" }}
           >
             <div className="model-banner-inner">
-              <span>
-                {stats?.model
-                  ? `模型 ${stats.model.name} 所属 Provider 尚未配置密钥 — 请在设置中添加 API Key，或切换到已配置的模型。`
-                  : "尚未配置推理模型 — 添加任一 Provider 的 API Key 后即可开始对话。"}
-              </span>
-              <button className="go" onClick={() => setPanel("settings")}>
+              <span>{stats?.model ? "当前模型尚未配置凭据。" : "配置模型后即可开始对话。"}</span>
+              <button type="button" className="go" onClick={() => setPanel("settings")}>
                 打开设置
               </button>
             </div>
@@ -173,15 +235,14 @@ export function Composer(): React.JSX.Element {
         {lastError && (
           <motion.div
             className="model-banner"
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            style={{ paddingTop: noModel ? 0 : "0.9rem" }}
           >
-            <div className="model-banner-inner">
-              <span style={{ color: "var(--color-accent)" }}>{lastError}</span>
-              <button className="go" onClick={() => setError(null)}>
-                知道了
+            <div className="model-banner-inner error">
+              <span>{lastError}</span>
+              <button type="button" className="go" onClick={() => setError(null)}>
+                关闭
               </button>
             </div>
           </motion.div>
@@ -206,28 +267,39 @@ export function Composer(): React.JSX.Element {
           </div>
         )}
 
+        <button
+          type="button"
+          className="workspace-tab"
+          title={settings?.workspaceDir}
+          onClick={() => {
+            if (settings?.workspaceDir) void api.openPath(settings.workspaceDir);
+          }}
+        >
+          <Folder size={15} strokeWidth={1.6} />
+          <span>{workspaceName(settings?.workspaceDir)}</span>
+        </button>
+
         <div className="composer">
           <AnimatePresence>
-            {slashItems.length > 0 && (
+            {composerFocused && popover === "none" && slashItems.length > 0 && (
               <motion.div
-                className="popover"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 4 }}
-                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="popover slash-popover"
+                initial={{ opacity: 0, y: 5, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4, scale: 0.99 }}
               >
-                <div className="popover-head micro-label">Skills / 技能命令</div>
+                <div className="popover-head">技能命令</div>
                 {slashItems.map((item, index) => (
                   <button
+                    type="button"
                     key={item.command}
                     className={`popover-item${index === slashIndex ? " hl" : ""}`}
+                    onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setSlashIndex(index)}
                     onClick={() => applySlash(item.command)}
                   >
                     <div className="row-1">
-                      <span className="name" style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                        {item.command}
-                      </span>
+                      <span className="name">{item.command}</span>
                       <span className="tag">Skill</span>
                     </div>
                     <div className="desc">{item.description}</div>
@@ -241,198 +313,253 @@ export function Composer(): React.JSX.Element {
             ref={textareaRef}
             rows={1}
             value={text}
-            placeholder={
-              streaming ? "输入转向指令，Enter 发送（将插入当前任务）…" : "描述主诉、粘贴听力图数据，或输入 / 调用技能…"
-            }
+            placeholder={streaming ? "输入一条转向指令…" : "描述主诉、粘贴听力图，或让 Compass 执行任务"}
             onChange={(event) => setText(event.target.value)}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             onKeyDown={onKeyDown}
             spellCheck={false}
           />
 
           <div className="composer-toolbar">
-            {/* model picker */}
-            <div style={{ position: "relative" }}>
+            <div className="toolbar-anchor">
               <button
-                className="picker-btn"
-                onClick={() => setPopover(popover === "model" ? "none" : "model")}
+                type="button"
+                className={`composer-icon-btn${popover === "actions" ? " active" : ""}`}
+                aria-label="更多操作"
+                aria-expanded={popover === "actions"}
+                onClick={() => togglePopover("actions")}
               >
-                Model
-                <span className="val">{stats?.model ? stats.model.name : "未配置"}</span>
-                <span className="caret-down">▼</span>
+                <Plus size={19} strokeWidth={1.65} />
               </button>
               <AnimatePresence>
-                {popover === "model" && (
+                {popover === "actions" && (
                   <motion.div
-                    className="popover"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 4 }}
-                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                    className="popover action-popover"
+                    initial={{ opacity: 0, y: 5, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.99 }}
                   >
-                    <div className="popover-head micro-label">Models / 可用模型</div>
-                    {models.length === 0 && (
-                      <div
-                        className="popover-item"
-                        style={{ color: "var(--color-text-tertiary)", fontSize: 11.5 }}
-                      >
-                        暂无可用模型，请先在设置中配置 API Key。
-                      </div>
-                    )}
-                    {models.map((model) => {
-                      const current =
-                        stats?.model?.provider === model.provider && stats.model.id === model.id;
-                      return (
-                        <button
-                          key={`${model.provider}/${model.id}`}
-                          className="popover-item"
-                          onClick={() => {
-                            setPopover("none");
-                            void setModel(model.provider, model.id);
-                          }}
-                        >
-                          <div className="row-1">
-                            <span className="name">{model.name}</span>
-                            {current ? (
-                              <span className="check">●</span>
-                            ) : (
-                              <span className="tag">{model.providerName}</span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
+                    <button
+                      type="button"
+                      className="menu-action"
+                      onClick={() => {
+                        setPopover("none");
+                        void newSession();
+                      }}
+                    >
+                      <SquarePen size={16} strokeWidth={1.6} />
+                      新对话
+                    </button>
+                    <button
+                      type="button"
+                      className="menu-action"
+                      onClick={() => {
+                        setPopover("none");
+                        setPanel("skills");
+                      }}
+                    >
+                      <Sparkles size={16} strokeWidth={1.6} />
+                      技能库
+                    </button>
+                    <button
+                      type="button"
+                      className="menu-action"
+                      onClick={() => {
+                        setPopover("none");
+                        void setWorkspaceDir();
+                      }}
+                    >
+                      <Folder size={16} strokeWidth={1.6} />
+                      更换工作区
+                    </button>
+                    <button
+                      type="button"
+                      className="menu-action"
+                      onClick={() => {
+                        setPopover("none");
+                        setPanel("settings");
+                      }}
+                    >
+                      <Settings size={16} strokeWidth={1.6} />
+                      设置
+                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            {/* thinking picker */}
-            {supportsThinking && (
-              <div style={{ position: "relative" }}>
-                <button
-                  className="picker-btn"
-                  onClick={() => setPopover(popover === "thinking" ? "none" : "thinking")}
-                >
-                  Thinking
-                  <span className="val">{THINKING_LABELS[stats?.thinkingLevel ?? "off"]}</span>
-                  <span className="caret-down">▼</span>
-                </button>
-                <AnimatePresence>
-                  {popover === "thinking" && (
-                    <motion.div
-                      className="popover"
-                      style={{ minWidth: 180 }}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 4 }}
-                      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                      <div className="popover-head micro-label">思考深度</div>
-                      {THINKING_LEVELS.map((level) => (
-                        <button
-                          key={level}
-                          className="popover-item"
-                          onClick={() => {
-                            setPopover("none");
-                            void setThinkingLevel(level);
-                          }}
-                        >
-                          <div className="row-1">
-                            <span className="name">{THINKING_LABELS[level]}</span>
-                            {stats?.thinkingLevel === level ? (
-                              <span className="check">●</span>
-                            ) : (
-                              <span className="tag">{level}</span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
             <div className="composer-spacer" />
 
-            {streaming && !text.trim() ? (
-              <button className="send-btn stop" aria-label="停止" onClick={() => void abort()}>
-                <svg width="9" height="9" viewBox="0 0 9 9">
-                  <rect width="9" height="9" fill="currentColor" />
+            <div className="toolbar-anchor model-anchor">
+              <button
+                type="button"
+                className={`model-pill${popover === "model" ? " active" : ""}`}
+                aria-expanded={popover === "model"}
+                onClick={() => togglePopover("model")}
+              >
+                <span className="model-pill-name">{stats?.model?.name ?? "选择模型"}</span>
+                {supportsThinking && (
+                  <span className="model-pill-thinking">
+                    {THINKING_LABELS[stats?.thinkingLevel ?? "off"]}
+                  </span>
+                )}
+                <ChevronDown size={14} strokeWidth={1.6} />
+              </button>
+              <AnimatePresence>
+                {popover === "model" && (
+                  <motion.div
+                    className="popover model-popover"
+                    initial={{ opacity: 0, y: 5, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.99 }}
+                  >
+                    <div className="popover-head">可用模型</div>
+                    <div className="model-list">
+                      {models.length === 0 && <div className="popover-empty">请先在设置中配置模型凭据。</div>}
+                      {models.map((model) => {
+                        const current =
+                          stats?.model?.provider === model.provider && stats.model.id === model.id;
+                        return (
+                          <button
+                            type="button"
+                            key={`${model.provider}/${model.id}`}
+                            className="popover-item"
+                            onClick={() => {
+                              setPopover("none");
+                              void setModel(model.provider, model.id);
+                            }}
+                          >
+                            <div className="row-1">
+                              <span className="name">{model.name}</span>
+                              <span className={current ? "check" : "tag"}>
+                                {current ? "✓" : model.providerName}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {supportsThinking && (
+                      <div className="thinking-section">
+                        <div className="popover-head">思考深度</div>
+                        <div className="thinking-options">
+                          {thinkingLevels.map((level) => (
+                            <button
+                              type="button"
+                              key={level}
+                              data-thinking-level={level}
+                              className={stats?.thinkingLevel === level ? "active" : ""}
+                              onClick={() => void setThinkingLevel(level)}
+                            >
+                              {THINKING_LABELS[level]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <div className="toolbar-anchor context-anchor">
+              <button
+                type="button"
+                className={`context-trigger${popover === "context" ? " active" : ""}${contextPercent > 75 ? " high" : ""}`}
+                aria-label={contextKnown ? `上下文已使用 ${Math.round(contextPercent)}%` : "上下文用量未知"}
+                aria-expanded={popover === "context"}
+                title={contextKnown ? `Context ${Math.round(contextPercent)}%` : "Context —"}
+                onClick={() => togglePopover("context")}
+              >
+                <svg viewBox="0 0 28 28" aria-hidden="true">
+                  <circle className="context-track" cx="14" cy="14" r="10.5" />
+                  {contextKnown && (
+                    <circle
+                      className="context-progress"
+                      cx="14"
+                      cy="14"
+                      r="10.5"
+                      pathLength="100"
+                      strokeDasharray="100"
+                      strokeDashoffset={100 - contextPercent}
+                    />
+                  )}
                 </svg>
+                <span>{contextKnown ? Math.round(contextPercent) : "–"}</span>
+              </button>
+              <AnimatePresence>
+                {popover === "context" && (
+                  <motion.div
+                    className="popover context-popover"
+                    initial={{ opacity: 0, y: 5, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.99 }}
+                  >
+                    <div className="context-summary">
+                      <div className={`context-large-ring${contextPercent > 75 ? " high" : ""}`}>
+                        <svg viewBox="0 0 56 56" aria-hidden="true">
+                          <circle className="context-track" cx="28" cy="28" r="21" />
+                          {contextKnown && (
+                            <circle
+                              className="context-progress"
+                              cx="28"
+                              cy="28"
+                              r="21"
+                              pathLength="100"
+                              strokeDasharray="100"
+                              strokeDashoffset={100 - contextPercent}
+                            />
+                          )}
+                        </svg>
+                        <b>{contextKnown ? `${Math.round(contextPercent)}%` : "—"}</b>
+                      </div>
+                      <div>
+                        <span>当前上下文</span>
+                        <b>{formatCount(contextTokens)} / {formatCount(contextWindow)}</b>
+                        <small>剩余 {formatCount(contextRemaining)} tokens</small>
+                      </div>
+                    </div>
+                    <div className="context-detail-grid">
+                      <div><span>Input</span><b>{formatCount(stats?.tokensIn ?? 0)}</b></div>
+                      <div><span>Output</span><b>{formatCount(stats?.tokensOut ?? 0)}</b></div>
+                      <div><span>Cost</span><b>${(stats?.cost ?? 0).toFixed(4)}</b></div>
+                      <div><span>Window</span><b>{formatCount(contextWindow)}</b></div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button
+              type="button"
+              className={`composer-icon-btn voice-btn${dictationBusy ? " active launching" : ""}`}
+              aria-label="启动 Windows 语音输入"
+              title="语音输入（Windows Win+H）"
+              onClick={startDictation}
+            >
+              <Mic size={18} strokeWidth={1.75} />
+            </button>
+
+            {streaming && !text.trim() ? (
+              <button type="button" className="send-btn stop" aria-label="停止" onClick={() => void abort()}>
+                <Square size={13} fill="currentColor" strokeWidth={0} />
               </button>
             ) : (
               <button
+                type="button"
                 className="send-btn"
                 aria-label="发送"
+                title={noModel ? "请先配置模型" : "发送"}
                 disabled={!text.trim() || noModel}
                 onClick={doSend}
               >
-                <svg width="11" height="12" viewBox="0 0 11 12">
-                  <path
-                    d="M5.5 11 V1.5 M1.5 5 L5.5 1 L9.5 5"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    fill="none"
-                  />
-                </svg>
+                <ArrowUp size={19} strokeWidth={1.8} />
               </button>
             )}
           </div>
         </div>
-
-        <div className="composer-hint">
-          <span>
-            <b>Enter</b> 发送 · <b>Shift+Enter</b> 换行 · <b>/</b> 技能 · <b>Esc</b> 中止
-          </span>
-          <span>
-            5可原则 · 建议经确认后执行
-          </span>
-        </div>
       </div>
-
-      <StatusLine contextPercent={contextPercent} />
     </div>
   );
-}
-
-function StatusLine({ contextPercent }: { contextPercent: number | null }): React.JSX.Element {
-  const stats = useCompass((s) => s.stats);
-  const streaming = useCompass((s) => s.streaming);
-  const percent = contextPercent ?? 0;
-
-  return (
-    <div className="statusline">
-      <span className="titlebar-state">
-        <span className={`state-dot${streaming ? " running" : ""}`} />
-        {streaming ? "Agent Running" : "Ready"}
-      </span>
-      {stats?.model && <b>{stats.model.name}</b>}
-      <span className="grow" />
-      {stats && stats.contextWindow > 0 && (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
-          Context
-          <span className="context-bar">
-            <span
-              className={`fill${percent > 75 ? " high" : ""}`}
-              style={{ width: `${Math.min(percent, 100)}%` }}
-            />
-          </span>
-          {contextPercent !== null ? `${Math.round(percent)}%` : "—"}
-        </span>
-      )}
-      {stats && (stats.tokensIn > 0 || stats.tokensOut > 0) && (
-        <span>
-          Tokens {formatCount(stats.tokensIn)} ↦ {formatCount(stats.tokensOut)}
-        </span>
-      )}
-      {stats && stats.cost > 0 && <span>${stats.cost.toFixed(4)}</span>}
-    </div>
-  );
-}
-
-function formatCount(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(value);
 }

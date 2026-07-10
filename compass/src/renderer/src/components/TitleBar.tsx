@@ -1,50 +1,34 @@
+import { PanelLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../ipc";
 import { useCompass } from "../store";
 import { CompassLogo } from "./CompassLogo";
 
 export function TitleBar(): React.JSX.Element {
-  const streaming = useCompass((s) => s.streaming);
-  const stats = useCompass((s) => s.stats);
-  const skills = useCompass((s) => s.skills);
   const [maximized, setMaximized] = useState(false);
+  const sidebarOpen = useCompass((state) => state.sidebarOpen);
+  const setSidebarOpen = useCompass((state) => state.setSidebarOpen);
 
   useEffect(() => api.onMaximizeChange(setMaximized), []);
-
-  const enabledSkills = skills.filter((skill) => skill.enabled).length;
 
   return (
     <header className="titlebar">
       <div className="titlebar-brand">
-        <CompassLogo size={19} />
+        <CompassLogo size={17} />
         <div className="logo-text">
           Compass<span className="accent">.</span>
         </div>
       </div>
-      <div className="titlebar-meta">
-        <span className="titlebar-state">
-          <span className={`state-dot${streaming ? " running" : ""}`} />
-          {streaming ? "Running" : "Ready"}
-        </span>
-        <span className="titlebar-engine">
-          Engine：<b>Pi Agent Runtime</b>
-        </span>
-        <span className="titlebar-skills">
-          Skills：<b>{enabledSkills}</b>
-        </span>
-        {stats?.model ? (
-          <span className="titlebar-model">
-            Model：<b>{stats.model.name}</b>
-            {!stats.modelAuthConfigured && (
-              <b className="titlebar-model-auth">（未配置密钥）</b>
-            )}
-          </span>
-        ) : (
-          <span className="titlebar-model">
-            Model：<b>未配置</b>
-          </span>
-        )}
-      </div>
+      <button
+        type="button"
+        className={`sidebar-toggle${sidebarOpen ? " active" : ""}`}
+        aria-label={sidebarOpen ? "关闭导航" : "打开导航"}
+        aria-expanded={sidebarOpen}
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+      >
+        <PanelLeft size={17} strokeWidth={1.6} />
+      </button>
+      <div className="titlebar-drag-space" />
       <div className="win-controls">
         <button
           className="win-btn"

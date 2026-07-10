@@ -9,8 +9,9 @@
 - **Pi 作为 Agent 基座**：主进程内运行 `@mariozechner/pi-coding-agent` 会话，支持全部 Pi Provider（Anthropic / OpenAI / DeepSeek / 智谱 / Groq 等 30+）。
 - **SKILL 动态加载**：自动扫描工作目录及自定义目录下的 `SKILL.md` 技能包（如 `phonak-target-control`），可在技能库面板启用/停用，输入 `/` 触发技能命令。
 - **Codex 式对话体验**：流式回复、思考块折叠、工具执行卡片、转向/追问队列、上下文用量与费用统计。
-- **会话管理**：会话自动持久化（Pi SessionManager），侧边栏可回溯历史会话。
-- **设计系统**：高端医疗科技风 —— Cormorant Garamond + Inter 双字形，黑白灰 + 陶土红（#D94632），0.5px 细边框、无圆角、克制动效，支持 `prefers-reduced-motion`。
+- **精简任务输入区**：工作区入口、模型与思考深度胶囊、可点击上下文用量环、Windows 系统语音输入（`Win+H`）以及统一的发送/停止控制。
+- **会话与客户导航**：会话自动持久化（Pi SessionManager），侧边栏按客户线索归组，支持搜索、重命名、删除和归档，并提供本地操作员菜单。
+- **设计系统**：高端医疗科技风 —— Cormorant Garamond + Inter 双字形，黑白灰 + 陶土红（#D94632），以中性胶囊、柔和圆角和克制动效构成 Codex 式桌面界面，支持 `prefers-reduced-motion`。
 
 ## 开发
 
@@ -30,7 +31,7 @@ npm start          # electron-vite preview（运行已构建产物）
 
 ```bash
 npm run build
-node scripts/smoke.mjs   # Playwright 驱动已构建应用，截图存到 smoke-out/
+node scripts/smoke.mjs   # Playwright 驱动已构建应用，覆盖菜单/面板/搜索且不会发送模型请求
 ```
 
 ## 配置

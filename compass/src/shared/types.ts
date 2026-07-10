@@ -3,7 +3,13 @@
  * and the renderer (Compass UI). Everything here must be structured-clone safe.
  */
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+}
 
 export interface UiModel {
   provider: string;
@@ -90,7 +96,13 @@ export type UiThreadItem =
 export interface AgentStats {
   sessionId: string;
   sessionName?: string;
-  model?: { provider: string; id: string; name: string; reasoning: boolean };
+  model?: {
+    provider: string;
+    id: string;
+    name: string;
+    reasoning: boolean;
+    thinkingLevels: ThinkingLevel[];
+  };
   /** whether the active model's provider has a usable credential */
   modelAuthConfigured: boolean;
   thinkingLevel: ThinkingLevel;
@@ -175,6 +187,11 @@ export interface InitPayload {
   version: string;
 }
 
+export interface VoiceInputResult {
+  ok: boolean;
+  error?: string;
+}
+
 /** API exposed on window.compass by the preload script. */
 export interface CompassApi {
   init(): Promise<InitPayload>;
@@ -183,6 +200,9 @@ export interface CompassApi {
   newSession(): Promise<InitPayload>;
   openSession(path: string): Promise<InitPayload>;
   listSessions(): Promise<UiSessionInfo[]>;
+  renameSession(path: string, name: string): Promise<{ ok: boolean; error?: string }>;
+  deleteSession(path: string): Promise<{ ok: boolean; error?: string }>;
+  archiveSession(path: string): Promise<{ ok: boolean; error?: string }>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
@@ -194,6 +214,7 @@ export interface CompassApi {
   removeSkillDir(dir: string): Promise<InitPayload>;
   setWorkspaceDir(): Promise<InitPayload | null>;
   openPath(path: string): Promise<void>;
+  startDictation(): Promise<VoiceInputResult>;
   onAgentEvent(listener: (event: AgentUiEvent) => void): () => void;
   windowControl(action: "minimize" | "maximize" | "close"): void;
   onMaximizeChange(listener: (maximized: boolean) => void): () => void;

@@ -1,6 +1,5 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useCompass } from "../store";
-import { CompassLogo } from "./CompassLogo";
 
 const CHARS = ["C", "o", "m", "p", "a", "s", "s"];
 const CHAR_STAGGER = 0.052;
@@ -13,11 +12,8 @@ const SUGGESTIONS = [
 
 export function Hero(): React.JSX.Element {
   const reduced = useReducedMotion();
-  const skills = useCompass((s) => s.skills);
-  const stats = useCompass((s) => s.stats);
   const seedComposer = useCompass((s) => s.seedComposer);
 
-  const enabledSkills = skills.filter((skill) => skill.enabled);
   const dotDelay = CHARS.length * CHAR_STAGGER + 0.12;
 
   const fadeUp = (delay: number) =>
@@ -32,13 +28,6 @@ export function Hero(): React.JSX.Element {
   return (
     <div className="hero">
       <div className="hero-inner">
-        <motion.div className="hero-mark-row" {...fadeUp(0.05)}>
-          <CompassLogo size={30} />
-          <span className="micro-label" style={{ letterSpacing: "0.2em" }}>
-            AI-Assisted Hearing Aid Fitting / 智能验配辅助决策系统
-          </span>
-        </motion.div>
-
         <h1 className="hero-title" aria-label="Compass.">
           {/* echo 残影共振 */}
           {!reduced && (
@@ -108,49 +97,6 @@ export function Hero(): React.JSX.Element {
             )}
           </motion.span>
         </h1>
-
-        <motion.div className="hero-sub" style={{ marginTop: "1.5rem" }} {...fadeUp(0.62)}>
-          把听力数据与主观主诉，转化为可解释、可确认、可执行、
-          <br />
-          可验证、可记录的验配决策。
-        </motion.div>
-
-        <motion.table className="hero-spec" {...fadeUp(0.78)}>
-          <tbody>
-            <tr>
-              <td>Core Engine</td>
-              <td>Pi Agent Runtime + Audiology Knowledge</td>
-            </tr>
-            <tr>
-              <td>Loaded Skills</td>
-              <td>
-                {enabledSkills.length > 0 ? (
-                  <>
-                    {enabledSkills
-                      .slice(0, 3)
-                      .map((skill) => skill.name)
-                      .join(" · ")}
-                    {enabledSkills.length > 3 ? ` 等 ${enabledSkills.length} 项` : ""}
-                  </>
-                ) : (
-                  "未发现技能"
-                )}
-              </td>
-            </tr>
-            <tr>
-              <td>Active Model</td>
-              <td>
-                {stats?.model
-                  ? `${stats.model.name}${stats.modelAuthConfigured ? "" : "（待配置 API Key）"}`
-                  : "未配置 — 请在设置中添加 API Key"}
-              </td>
-            </tr>
-            <tr>
-              <td>Design Philosophy</td>
-              <td>可解释 · 可确认 · 可执行 · 可验证 · 可记录</td>
-            </tr>
-          </tbody>
-        </motion.table>
 
         <div className="hero-suggests">
           {SUGGESTIONS.map((text, index) => (

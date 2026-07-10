@@ -15,6 +15,8 @@ export default function App(): React.JSX.Element {
   const applyEvent = useCompass((s) => s.applyEvent);
   const setPanel = useCompass((s) => s.setPanel);
   const panel = useCompass((s) => s.panel);
+  const sidebarOpen = useCompass((s) => s.sidebarOpen);
+  const setSidebarOpen = useCompass((s) => s.setSidebarOpen);
 
   useEffect(() => {
     void boot();
@@ -24,16 +26,33 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
+        event.preventDefault();
+        setPanel("settings");
+        return;
+      }
+      if (event.key === "Escape" && sidebarOpen) {
+        setSidebarOpen(false);
+        return;
+      }
       if (event.key === "Escape" && panel !== "none") setPanel("none");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, setPanel]);
+  }, [panel, setPanel, setSidebarOpen, sidebarOpen]);
 
   return (
     <div className="app-frame">
       <TitleBar />
       <div className="app-body">
+        {sidebarOpen && (
+          <button
+            type="button"
+            className="mobile-sidebar-scrim"
+            aria-label="关闭导航"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
         <Sidebar />
         <main className="main-col">
           {ready && thread.length === 0 ? <Hero /> : <Thread />}

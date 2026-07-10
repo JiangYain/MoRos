@@ -8,6 +8,9 @@ const api: CompassApi = {
   newSession: () => ipcRenderer.invoke("agent:new-session"),
   openSession: (path) => ipcRenderer.invoke("agent:open-session", path),
   listSessions: () => ipcRenderer.invoke("sessions:list"),
+  renameSession: (path, name) => ipcRenderer.invoke("sessions:rename", path, name),
+  deleteSession: (path) => ipcRenderer.invoke("sessions:delete", path),
+  archiveSession: (path) => ipcRenderer.invoke("sessions:archive", path),
   setModel: (provider, id) => ipcRenderer.invoke("models:set", provider, id),
   setThinkingLevel: (level: ThinkingLevel) => ipcRenderer.invoke("thinking:set", level),
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),
@@ -19,6 +22,7 @@ const api: CompassApi = {
   removeSkillDir: (dir) => ipcRenderer.invoke("skills:remove-dir", dir),
   setWorkspaceDir: () => ipcRenderer.invoke("settings:set-workspace"),
   openPath: (path) => ipcRenderer.invoke("shell:open-path", path),
+  startDictation: () => ipcRenderer.invoke("voice:start-dictation"),
   onAgentEvent: (listener) => {
     const handler = (_event: unknown, payload: AgentUiEvent): void => listener(payload);
     ipcRenderer.on("agent:event", handler);

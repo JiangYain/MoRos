@@ -1,15 +1,22 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const scriptPath = fileURLToPath(import.meta.url);
+const rootDir = resolve(dirname(scriptPath), "..");
 const piDir = join(rootDir, "vendor", "pi");
+const buildMarkerPath = join(rootDir, "node_modules", ".cache", "compass", "pi-source-build.json");
+const buildRecipe = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
 const requiredDistFiles = [
   join(piDir, "packages", "ai", "dist", "providers", "github-copilot.models.js"),
+  join(piDir, "packages", "ai", "dist", "types.d.ts"),
   join(piDir, "packages", "agent", "dist", "index.js"),
+  join(piDir, "packages", "agent", "dist", "types.d.ts"),
   join(piDir, "packages", "tui", "dist", "index.js"),
   join(piDir, "packages", "coding-agent", "dist", "index.js"),
+  join(piDir, "packages", "coding-agent", "dist", "core", "agent-session.d.ts"),
 ];
 
 function run(command, args, cwd) {
@@ -28,6 +35,37 @@ function sourceCheckoutReady() {
   return existsSync(join(piDir, "package.json")) && existsSync(join(piDir, "packages", "ai", "package.json"));
 }
 
+function sourceRevision() {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: piDir,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  if (result.status !== 0) {
+    throw new Error("Unable to resolve the Pi source revision.");
+  }
+  return result.stdout.trim();
+}
+
+function buildMarkerMatches(revision) {
+  if (!existsSync(buildMarkerPath)) return false;
+  try {
+    const marker = JSON.parse(readFileSync(buildMarkerPath, "utf8"));
+    return marker.sourceRevision === revision && marker.buildRecipe === buildRecipe;
+  } catch {
+    return false;
+  }
+}
+
+function writeBuildMarker(revision) {
+  mkdirSync(dirname(buildMarkerPath), { recursive: true });
+  writeFileSync(
+    buildMarkerPath,
+    `${JSON.stringify({ sourceRevision: revision, buildRecipe, builtAt: new Date().toISOString() }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 function builtFromSourceHasRequiredModels() {
   if (!requiredDistFiles.every(existsSync)) return false;
   const copilotModels = readFileSync(requiredDistFiles[0], "utf8");
@@ -44,13 +82,13 @@ if (!sourceCheckoutReady()) {
   );
 }
 
-if (builtFromSourceHasRequiredModels()) {
+const revision = sourceRevision();
+
+if (builtFromSourceHasRequiredModels() && buildMarkerMatches(revision)) {
   process.exit(0);
 }
 
-if (!existsSync(join(piDir, "node_modules"))) {
-  run("npm", ["ci", "--ignore-scripts"], piDir);
-}
+run("npm", ["ci", "--ignore-scripts"], piDir);
 
 const buildSteps = [
   ["run", "build", "--workspace", "@earendil-works/pi-tui"],
@@ -68,3 +106,5 @@ for (const args of buildSteps) {
 if (!builtFromSourceHasRequiredModels()) {
   throw new Error("Built Pi source does not contain claude-sonnet-5 in github-copilot models.");
 }
+
+writeBuildMarker(revision);

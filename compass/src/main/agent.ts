@@ -33,9 +33,11 @@ import type {
   UiThreadItem,
   UiUsage,
 } from "@shared/types";
+import { isThinkingLevel } from "@shared/types";
 import { app } from "electron";
+import { mkdir, rename, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { COMPASS_CONTEXT } from "./compass-context";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { getRuntimePrerequisites } from "./prerequisites";
@@ -95,6 +97,15 @@ function blocksOf(message: AssistantMessage): UiBlock[] {
     }
   }
   return blocks;
+}
+
+function normalizeThinkingLevels(levels: readonly unknown[]): ThinkingLevel[] {
+  const normalized = [...new Set(levels.filter(isThinkingLevel))];
+  return normalized.length > 0 ? normalized : ["off"];
+}
+
+function normalizeThinkingLevel(value: unknown, available: ThinkingLevel[]): ThinkingLevel {
+  return isThinkingLevel(value) && available.includes(value) ? value : (available[0] ?? "off");
 }
 
 function toolResultContent(value: unknown): ToolResultMessage["content"] | undefined {
@@ -200,9 +211,9 @@ export class AgentService {
     this.session = session;
     this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 
-    if (!options?.sessionPath && this.settings.thinkingLevel && session.model) {
+    if (!options?.sessionPath && isThinkingLevel(this.settings.thinkingLevel) && session.model) {
       try {
-        session.setThinkingLevel(this.settings.thinkingLevel as ThinkingLevel);
+        session.setThinkingLevel(this.settings.thinkingLevel);
       } catch {
         /* model may not support the stored level */
       }
@@ -395,6 +406,10 @@ export class AgentService {
     const stats = session.getSessionStats();
     const context = session.getContextUsage();
     const model = session.model;
+    const thinkingLevels: ThinkingLevel[] = model
+      ? normalizeThinkingLevels(session.getAvailableThinkingLevels())
+      : ["off"];
+    const thinkingLevel = normalizeThinkingLevel(session.thinkingLevel, thinkingLevels);
     let modelAuthConfigured = false;
     if (model) {
       try {
@@ -412,10 +427,11 @@ export class AgentService {
             id: model.id,
             name: model.name ?? model.id,
             reasoning: Boolean(model.reasoning),
+            thinkingLevels,
           }
         : undefined,
       modelAuthConfigured,
-      thinkingLevel: session.thinkingLevel,
+      thinkingLevel,
       isStreaming: session.isStreaming,
       contextPercent: context?.percent ?? null,
       contextTokens: context?.tokens ?? null,
@@ -604,6 +620,83 @@ export class AgentService {
       .sort((a, b) => b.modifiedAt - a.modifiedAt);
   }
 
+  private async resolveWorkspaceSessionDir(): Promise<string | null> {
+    const sessions = await SessionManager.list(this.settings.workspaceDir);
+    if (sessions.length === 0) return null;
+    return resolve(dirname(sessions[0].path));
+  }
+
+  private async assertListedSessionPath(
+    path: string,
+  ): Promise<{ ok: true; sessionDir: string } | { ok: false; error: string }> {
+    const sessions = await SessionManager.list(this.settings.workspaceDir);
+    const listed = sessions.some((session) => session.path === path);
+    if (!listed) {
+      return { ok: false, error: "会话不存在或路径无效" };
+    }
+    const sessionDir = await this.resolveWorkspaceSessionDir();
+    if (!sessionDir) {
+      return { ok: false, error: "无法解析会话目录" };
+    }
+    const normalizedPath = resolve(path);
+    if (!normalizedPath.startsWith(sessionDir + sep)) {
+      return { ok: false, error: "路径不在会话目录内" };
+    }
+    return { ok: true, sessionDir };
+  }
+
+  private async detachIfActiveSession(path: string): Promise<void> {
+    if (this.currentSessionFile !== path) return;
+    await this.start();
+  }
+
+  async renameSession(path: string, name: string): Promise<{ ok: boolean; error?: string }> {
+    const allowed = await this.assertListedSessionPath(path);
+    if (!allowed.ok) return allowed;
+    const trimmed = name.trim();
+    if (!trimmed) return { ok: false, error: "名称不能为空" };
+    try {
+      const manager = SessionManager.open(path);
+      manager.appendSessionInfo(trimmed);
+      this.emit({ kind: "sessions-changed" });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async archiveSession(path: string): Promise<{ ok: boolean; error?: string }> {
+    const allowed = await this.assertListedSessionPath(path);
+    if (!allowed.ok) return allowed;
+    try {
+      const archiveDir = join(allowed.sessionDir, "archive");
+      await mkdir(archiveDir, { recursive: true });
+      const targetPath = join(archiveDir, basename(path));
+      if (resolve(targetPath) === resolve(path)) {
+        return { ok: false, error: "会话已在归档目录中" };
+      }
+      await this.detachIfActiveSession(path);
+      await rename(path, targetPath);
+      this.emit({ kind: "sessions-changed" });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async deleteSession(path: string): Promise<{ ok: boolean; error?: string }> {
+    const allowed = await this.assertListedSessionPath(path);
+    if (!allowed.ok) return allowed;
+    try {
+      await this.detachIfActiveSession(path);
+      await unlink(path);
+      this.emit({ kind: "sessions-changed" });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   getSettingsView(): AppSettingsView {
     return {
       workspaceDir: this.settings.workspaceDir,
@@ -684,7 +777,10 @@ export class AgentService {
     }
   }
 
-  setThinkingLevel(level: ThinkingLevel): AgentStats {
+  setThinkingLevel(level: unknown): AgentStats {
+    if (!isThinkingLevel(level)) {
+      throw new Error("无效的思考深度");
+    }
     if (this.session) {
       this.session.setThinkingLevel(level);
       this.settings.thinkingLevel = this.session.thinkingLevel;

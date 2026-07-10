@@ -37,6 +37,7 @@ interface CompassState {
   streaming: boolean;
   queue: { steering: string[]; followUp: string[] };
   panel: PanelKind;
+  sidebarOpen: boolean;
   /** one-shot text the composer should insert (e.g. /skill:name) */
   composerSeed: string | null;
   lastError: string | null;
@@ -45,6 +46,7 @@ interface CompassState {
   applyInit(payload: InitPayload): void;
   applyEvent(event: AgentUiEvent): void;
   setPanel(panel: PanelKind): void;
+  setSidebarOpen(open: boolean): void;
   seedComposer(text: string): void;
   clearComposerSeed(): void;
   setError(message: string | null): void;
@@ -55,6 +57,9 @@ interface CompassState {
   newSession(): Promise<void>;
   openSession(path: string): Promise<void>;
   refreshSessions(): Promise<void>;
+  renameSession(path: string, name: string): Promise<void>;
+  deleteSession(path: string): Promise<void>;
+  archiveSession(path: string): Promise<void>;
   setModel(provider: string, id: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
@@ -103,6 +108,7 @@ export const useCompass = create<CompassState>((set, get) => {
   streaming: false,
   queue: { steering: [], followUp: [] },
   panel: "none",
+  sidebarOpen: false,
   composerSeed: null,
   lastError: null,
   streamingBlocks: new Map(),
@@ -270,6 +276,7 @@ export const useCompass = create<CompassState>((set, get) => {
   },
 
   setPanel: (panel) => set({ panel }),
+  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   seedComposer: (text) => set({ composerSeed: text, panel: "none" }),
   clearComposerSeed: () => set({ composerSeed: null }),
   setError: (message) => set({ lastError: message }),
@@ -308,6 +315,35 @@ export const useCompass = create<CompassState>((set, get) => {
   refreshSessions: () => runIpc(async () => {
     const sessions = await api.listSessions();
     set({ sessions });
+  }),
+
+  renameSession: (path, name) => runIpc(async () => {
+    const result = await api.renameSession(path, name);
+    if (!result.ok && result.error) {
+      set({ lastError: sanitizeErrorMessage(result.error) });
+      return;
+    }
+    await get().refreshSessions();
+  }),
+
+  deleteSession: (path) => runIpc(async () => {
+    const result = await api.deleteSession(path);
+    if (!result.ok && result.error) {
+      set({ lastError: sanitizeErrorMessage(result.error) });
+      return;
+    }
+    const payload = await api.init();
+    get().applyInit(payload);
+  }),
+
+  archiveSession: (path) => runIpc(async () => {
+    const result = await api.archiveSession(path);
+    if (!result.ok && result.error) {
+      set({ lastError: sanitizeErrorMessage(result.error) });
+      return;
+    }
+    const payload = await api.init();
+    get().applyInit(payload);
   }),
 
   setModel: (provider, id) => runIpc(async () => {
@@ -372,6 +408,12 @@ export const useCompass = create<CompassState>((set, get) => {
   }),
 
   setWorkspaceDir: () => runIpc(async () => {
+    if (
+      get().streaming &&
+      !window.confirm("当前任务仍在运行。更换工作区会中止本次任务，是否继续？")
+    ) {
+      return;
+    }
     const payload = await api.setWorkspaceDir();
     if (payload) get().applyInit(payload);
   }),
