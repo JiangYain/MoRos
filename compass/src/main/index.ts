@@ -1,11 +1,20 @@
+import type {
+  AgentUiEvent,
+  CompassBackendApi,
+  PermissionMode,
+  ThinkingLevel,
+  UiImageAttachment,
+} from "@shared/types";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { VoiceInputResult } from "@shared/types";
 import { AgentService } from "./agent";
 import { AuthLoginController } from "./auth-login-controller";
-import { runPrerequisiteAction } from "./prerequisite-actions";
+import { createCompassBackendApi } from "./compass-api";
+import { startCompassWebServer, type CompassWebServer } from "./web-server";
+
+const DEFAULT_WEB_PORT = 5173;
+const DEFAULT_DEV_API_PORT = 4317;
 
 if (process.platform === "win32") {
   app.setAppUserModelId("com.compass.desktop");
@@ -14,76 +23,41 @@ if (process.platform === "win32") {
 let mainWindow: BrowserWindow | undefined;
 let agent: AgentService | undefined;
 let authLoginController: AuthLoginController | undefined;
+let webServer: CompassWebServer | undefined;
+let shutdownPromise: Promise<void> | undefined;
+const agentEventListeners = new Set<(event: AgentUiEvent) => void>();
 
-function windowsDictationScript(windowHandle: string): string {
-  return `
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-
-public static class CompassVoiceInput {
-  [DllImport("user32.dll")]
-  public static extern bool SetForegroundWindow(IntPtr windowHandle);
-
-  [DllImport("user32.dll")]
-  public static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
-}
-"@
-
-[long]$windowHandle = ${windowHandle}
-[void][CompassVoiceInput]::SetForegroundWindow([IntPtr]$windowHandle)
-Start-Sleep -Milliseconds 80
-[CompassVoiceInput]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
-[CompassVoiceInput]::keybd_event(0x48, 0, 0, [UIntPtr]::Zero)
-[CompassVoiceInput]::keybd_event(0x48, 0, 2, [UIntPtr]::Zero)
-[CompassVoiceInput]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
-`;
+function emitAgentEvent(event: AgentUiEvent): void {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("agent:event", event);
+    }
+  } catch (error) {
+    console.error("Failed to send agent event to the desktop renderer:", error);
+  }
+  for (const listener of agentEventListeners) {
+    try {
+      listener(event);
+    } catch (error) {
+      console.error("Failed to send agent event to a web listener:", error);
+    }
+  }
 }
 
-function startWindowsDictation(ownerWindow?: BrowserWindow): Promise<VoiceInputResult> {
-  if (process.platform !== "win32") {
-    return Promise.resolve({ ok: false, error: "语音输入目前仅支持 Windows。" });
-  }
-  if (!ownerWindow || ownerWindow.isDestroyed()) {
-    return Promise.resolve({ ok: false, error: "Compass 主窗口不可用。" });
-  }
+function subscribeToAgentEvents(listener: (event: AgentUiEvent) => void): () => void {
+  agentEventListeners.add(listener);
+  return () => agentEventListeners.delete(listener);
+}
 
-  ownerWindow.restore();
-  ownerWindow.focus();
-  ownerWindow.webContents.focus();
-  const handleBuffer = ownerWindow.getNativeWindowHandle();
-  const windowHandle =
-    handleBuffer.length >= 8
-      ? handleBuffer.readBigUInt64LE(0).toString()
-      : handleBuffer.readUInt32LE(0).toString();
-
-  return new Promise((resolveResult) => {
-    const child = spawn(
-      "powershell.exe",
-      [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-WindowStyle",
-        "Hidden",
-        "-Command",
-        windowsDictationScript(windowHandle),
-      ],
-      { stdio: "ignore", windowsHide: true },
-    );
-    child.once("error", (error) => {
-      resolveResult({ ok: false, error: `无法启动 Windows 语音输入：${error.message}` });
-    });
-    child.once("close", (code) => {
-      resolveResult(
-        code === 0
-          ? { ok: true }
-          : { ok: false, error: `Windows 语音输入启动失败（退出码 ${code ?? "unknown"}）。` },
-      );
-    });
-  });
+function envPort(name: string, fallback: number, allowZero = false): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  const minimum = allowZero ? 0 : 1;
+  if (!Number.isInteger(value) || value < minimum || value > 65_535) {
+    throw new Error(`${name} must be an integer between ${minimum} and 65535.`);
+  }
+  return value;
 }
 
 function getAppIconPath(): string | undefined {
@@ -96,7 +70,7 @@ function getAppIconPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
-function createWindow(): BrowserWindow {
+function createWindow(rendererUrl: string): BrowserWindow {
   const icon = getAppIconPath();
   const window = new BrowserWindow({
     width: 1320,
@@ -118,19 +92,18 @@ function createWindow(): BrowserWindow {
   window.once("ready-to-show", () => window.show());
   window.on("maximize", () => window.webContents.send("win:maximized", true));
   window.on("unmaximize", () => window.webContents.send("win:maximized", false));
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = undefined;
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
   });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    void window.loadFile(join(import.meta.dirname, "../renderer/index.html"));
-  }
+  void window.loadURL(rendererUrl);
 
-  // 临时验证钩子：COMPASS_CAPTURE=<输出目录> 时，在若干时间点抓取页面并退出
+  // Temporary visual verification hook: capture the renderer at a few settled moments.
   if (process.env.COMPASS_CAPTURE) {
     const outDir = process.env.COMPASS_CAPTURE;
     window.webContents.once("did-finish-load", () => {
@@ -152,73 +125,52 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-function registerIpc(service: AgentService, authController: AuthLoginController): void {
-  ipcMain.handle("app:init", () => service.buildInitPayload());
-  ipcMain.handle("runtime:prerequisite-action", async (_event, actionId: string) => {
-    await runPrerequisiteAction(actionId, mainWindow);
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("agent:prompt", (_event, text: string) => service.prompt(text));
-  ipcMain.handle("agent:abort", () => service.abort());
-  ipcMain.handle("agent:new-session", async () => {
-    await service.start();
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("agent:open-session", async (_event, path: string) => {
-    await service.start({ sessionPath: path });
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("sessions:list", () => service.listSessions());
+function registerIpc(api: CompassBackendApi): void {
+  ipcMain.handle("app:init", () => api.init());
+  ipcMain.handle("runtime:prerequisite-action", (_event, actionId: string) =>
+    api.runPrerequisiteAction(actionId),
+  );
+  ipcMain.handle("agent:prompt", (_event, text: string, images?: UiImageAttachment[]) =>
+    api.prompt(text, images),
+  );
+  ipcMain.handle("agent:abort", () => api.abort());
+  ipcMain.handle("agent:new-session", () => api.newSession());
+  ipcMain.handle("agent:open-session", (_event, path: string) => api.openSession(path));
+  ipcMain.handle("sessions:list", () => api.listSessions());
   ipcMain.handle("sessions:rename", (_event, path: string, name: string) =>
-    service.renameSession(path, name),
+    api.renameSession(path, name),
   );
-  ipcMain.handle("sessions:delete", (_event, path: string) => service.deleteSession(path));
-  ipcMain.handle("sessions:archive", (_event, path: string) => service.archiveSession(path));
+  ipcMain.handle("sessions:delete", (_event, path: string) => api.deleteSession(path));
+  ipcMain.handle("sessions:archive", (_event, path: string) => api.archiveSession(path));
   ipcMain.handle("models:set", (_event, provider: string, id: string) =>
-    service.setModel(provider, id),
+    api.setModel(provider, id),
   );
-  ipcMain.handle("thinking:set", (_event, level) => service.setThinkingLevel(level));
-  ipcMain.handle("auth:set-key", async (_event, provider: string, key: string) => {
-    await service.setApiKey(provider, key);
-    return service.buildInitPayload();
-  });
+  ipcMain.handle(
+    "models:set-enabled",
+    (_event, provider: string, id: string, enabled: boolean) =>
+      api.setModelEnabled(provider, id, enabled),
+  );
+  ipcMain.handle("thinking:set", (_event, level: ThinkingLevel) =>
+    api.setThinkingLevel(level),
+  );
+  ipcMain.handle("permissions:set", (_event, mode: PermissionMode) =>
+    api.setPermissionMode(mode),
+  );
+  ipcMain.handle("auth:set-key", (_event, provider: string, key: string) =>
+    api.setApiKey(provider, key),
+  );
   ipcMain.handle("auth:login-provider", (_event, provider: string) =>
-    authController.loginProvider(provider),
+    api.loginProvider(provider),
   );
-  ipcMain.handle("auth:remove", async (_event, provider: string) => {
-    service.removeApiKey(provider);
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("skills:set-enabled", async (_event, name: string, enabled: boolean) => {
-    await service.setSkillEnabled(name, enabled);
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("skills:add-dir", async () => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: "选择技能目录",
-      properties: ["openDirectory"],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    await service.addSkillDir(result.filePaths[0]);
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("skills:remove-dir", async (_event, dir: string) => {
-    await service.removeSkillDir(dir);
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("settings:set-workspace", async () => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: "选择工作目录",
-      properties: ["openDirectory"],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    await service.setWorkspaceDir(result.filePaths[0]);
-    return service.buildInitPayload();
-  });
-  ipcMain.handle("shell:open-path", (_event, path: string) => shell.openPath(path));
-  ipcMain.handle("voice:start-dictation", () => startWindowsDictation(mainWindow));
+  ipcMain.handle("auth:remove", (_event, provider: string) => api.removeApiKey(provider));
+  ipcMain.handle("skills:set-enabled", (_event, name: string, enabled: boolean) =>
+    api.setSkillEnabled(name, enabled),
+  );
+  ipcMain.handle("skills:add-dir", () => api.addSkillDir());
+  ipcMain.handle("skills:remove-dir", (_event, dir: string) => api.removeSkillDir(dir));
+  ipcMain.handle("settings:set-workspace", () => api.setWorkspaceDir());
+  ipcMain.handle("shell:open-path", (_event, path: string) => api.openPath(path));
+  ipcMain.handle("voice:start-dictation", () => api.startDictation());
 
   ipcMain.on("win:control", (_event, action: "minimize" | "maximize" | "close") => {
     if (!mainWindow) return;
@@ -230,13 +182,34 @@ function registerIpc(service: AgentService, authController: AuthLoginController)
   });
 }
 
-app.whenReady().then(async () => {
-  agent = new AgentService((event) => {
-    mainWindow?.webContents.send("agent:event", event);
+async function startApplication(): Promise<void> {
+  agent = new AgentService(emitAgentEvent);
+  authLoginController = new AuthLoginController(agent, emitAgentEvent);
+  const backendApi = createCompassBackendApi({
+    service: agent,
+    authController: authLoginController,
+    getWindow: () => mainWindow,
+    emitEvent: emitAgentEvent,
   });
-  authLoginController = new AuthLoginController(agent, () => mainWindow);
-  registerIpc(agent, authLoginController);
-  mainWindow = createWindow();
+  registerIpc(backendApi);
+
+  const devRendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const development = Boolean(devRendererUrl);
+  const serverPort = development
+    ? envPort("COMPASS_WEB_API_PORT", DEFAULT_DEV_API_PORT)
+    : envPort("COMPASS_WEB_PORT", DEFAULT_WEB_PORT, true);
+  webServer = await startCompassWebServer({
+    api: backendApi,
+    port: serverPort,
+    rendererDir: development ? undefined : join(import.meta.dirname, "../renderer"),
+    publicUrl: devRendererUrl,
+    subscribe: subscribeToAgentEvents,
+  });
+
+  const rendererUrl = devRendererUrl ?? webServer.url;
+  mainWindow = createWindow(rendererUrl);
+  console.log(`[Compass] Web app: ${rendererUrl}`);
+  if (development) console.log(`[Compass] Web API: ${webServer.url}`);
 
   try {
     await agent.start();
@@ -245,11 +218,36 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow(devRendererUrl ?? webServer?.url ?? rendererUrl);
+    }
   });
-});
+}
+
+function shutdown(): Promise<void> {
+  if (!shutdownPromise) {
+    authLoginController?.abortAll();
+    shutdownPromise = Promise.allSettled([
+      agent?.shutdown() ?? Promise.resolve(),
+      webServer?.close() ?? Promise.resolve(),
+    ]).then(() => undefined);
+  }
+  return shutdownPromise;
+}
+
+void app
+  .whenReady()
+  .then(startApplication)
+  .catch(async (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Failed to start Compass:", error);
+    await shutdown();
+    dialog.showErrorBox("Compass 启动失败", message);
+    app.quit();
+  });
+
+app.on("before-quit", () => authLoginController?.abortAll());
 
 app.on("window-all-closed", () => {
-  authLoginController?.abortAll();
-  void agent?.shutdown().finally(() => app.quit());
+  void shutdown().finally(() => app.quit());
 });

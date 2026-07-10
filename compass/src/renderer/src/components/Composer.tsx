@@ -1,49 +1,62 @@
-import type { ThinkingLevel } from "@shared/types";
+import type { UiImageAttachment } from "@shared/types";
 import { NO_MODEL_ERROR } from "@shared/messages";
-import {
-  ArrowUp,
-  ChevronDown,
-  Folder,
-  Mic,
-  Plus,
-  Settings,
-  Sparkles,
-  Square,
-  SquarePen,
-} from "lucide-react";
+import { ArrowUp, Mic, Square, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../ipc";
+import { api, isDesktop } from "../ipc";
 import { useCompass } from "../store";
+import { ActionsMenu } from "./composer/ActionsMenu";
+import { ContextUsageSurface, ContextUsageTrigger } from "./composer/ContextUsage";
+import { ModelMenu } from "./composer/ModelMenu";
+import { PermissionMenu } from "./composer/PermissionMenu";
 
-const THINKING_LABELS: Record<ThinkingLevel, string> = {
-  off: "关闭",
-  minimal: "极简",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "极高",
-  max: "最高",
-};
+type PopoverKind = "none" | "actions" | "permissions" | "model";
 
-type PopoverKind = "none" | "actions" | "model" | "context";
-
-function workspaceName(path: string | undefined): string {
-  const parts = path?.split(/[\\/]/).filter(Boolean) ?? [];
-  return parts.at(-1) ?? "选择工作区";
+interface ComposerAttachment extends UiImageAttachment {
+  id: string;
 }
 
-function formatCount(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(value);
+function attachmentId(): string {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function readImageFile(file: File): Promise<ComposerAttachment> {
+  const supported = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+  if (!supported.includes(file.type as (typeof supported)[number])) {
+    return Promise.reject(new Error("仅支持 PNG、JPEG、WebP 与 GIF 图片。"));
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return Promise.reject(new Error("单张图片不能超过 10 MB。"));
+  }
+  return new Promise((resolveImage, rejectImage) => {
+    const reader = new FileReader();
+    reader.onerror = () => rejectImage(new Error(`无法读取图片：${file.name || "clipboard image"}`));
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        rejectImage(new Error("图片数据无效。"));
+        return;
+      }
+      const comma = reader.result.indexOf(",");
+      if (comma < 0) {
+        rejectImage(new Error("图片数据无效。"));
+        return;
+      }
+      resolveImage({
+        id: attachmentId(),
+        data: reader.result.slice(comma + 1),
+        mimeType: file.type as UiImageAttachment["mimeType"],
+        name: file.name || "Pasted image",
+      });
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export function Composer(): React.JSX.Element {
   const streaming = useCompass((state) => state.streaming);
   const stats = useCompass((state) => state.stats);
-  const settings = useCompass((state) => state.settings);
-  const models = useCompass((state) => state.models);
   const skills = useCompass((state) => state.skills);
   const queue = useCompass((state) => state.queue);
   const composerSeed = useCompass((state) => state.composerSeed);
@@ -52,18 +65,17 @@ export function Composer(): React.JSX.Element {
   const setError = useCompass((state) => state.setError);
   const send = useCompass((state) => state.send);
   const abort = useCompass((state) => state.abort);
-  const newSession = useCompass((state) => state.newSession);
-  const setModel = useCompass((state) => state.setModel);
-  const setThinkingLevel = useCompass((state) => state.setThinkingLevel);
-  const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
-  const setPanel = useCompass((state) => state.setPanel);
+  const openSettings = useCompass((state) => state.openSettings);
 
   const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [popover, setPopover] = useState<PopoverKind>("none");
+  const [contextExpanded, setContextExpanded] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [dictationBusy, setDictationBusy] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,7 +105,7 @@ export function Composer(): React.JSX.Element {
       }
     };
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape" && popover !== "none") setPopover("none");
+      if (event.key === "Escape") setPopover("none");
     };
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -101,13 +113,12 @@ export function Composer(): React.JSX.Element {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [popover]);
+  }, []);
 
   const slashQuery = useMemo(() => {
     const match = /^\/(\S*)$/.exec(text);
     return match ? match[1].toLowerCase() : null;
   }, [text]);
-
   const slashItems = useMemo(() => {
     if (slashQuery === null) return [];
     return skills
@@ -119,21 +130,43 @@ export function Composer(): React.JSX.Element {
       }))
       .filter((item) => item.command.toLowerCase().includes(slashQuery));
   }, [skills, slashQuery]);
-
   useEffect(() => setSlashIndex(0), [slashQuery]);
 
   const noModel = !stats?.model || !stats.modelAuthConfigured;
-  const thinkingLevels = stats?.model?.thinkingLevels ?? [];
-  const supportsThinking = thinkingLevels.some((level) => level !== "off");
-  const rawContextPercent = stats?.contextPercent;
-  const contextPercent = Math.min(100, Math.max(0, rawContextPercent ?? 0));
-  const contextKnown = rawContextPercent !== null && rawContextPercent !== undefined;
-  const contextTokens = stats?.contextTokens ?? 0;
-  const contextWindow = stats?.contextWindow ?? 0;
-  const contextRemaining = Math.max(0, contextWindow - contextTokens);
-
   const togglePopover = (next: Exclude<PopoverKind, "none">): void => {
     setPopover((current) => (current === next ? "none" : next));
+  };
+
+  const addImageFiles = async (files: File[]): Promise<void> => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      setError("请选择图片文件。");
+      return;
+    }
+    const available = Math.max(0, 8 - attachments.length);
+    if (available === 0) {
+      setError("一次最多附加 8 张图片。");
+      return;
+    }
+    try {
+      const next = await Promise.all(imageFiles.slice(0, available).map(readImageFile));
+      setAttachments((current) => [...current, ...next].slice(0, 8));
+      setError(imageFiles.length > available ? "一次最多附加 8 张图片。" : null);
+      setPopover("none");
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addImageFiles(files);
   };
 
   const applySlash = (command: string): void => {
@@ -144,15 +177,27 @@ export function Composer(): React.JSX.Element {
 
   const doSend = (): void => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && attachments.length === 0) return;
     if (noModel) {
       setError(NO_MODEL_ERROR);
       return;
     }
+    if (attachments.length > 0 && stats?.model && !stats.model.supportsImages) {
+      setError("当前模型不支持图像输入，请先切换到支持视觉的模型。");
+      return;
+    }
+
+    const draftText = text;
+    const draftAttachments = attachments;
+    const images = attachments.map(({ data, mimeType, name }) => ({ data, mimeType, name }));
     setError(null);
     setPopover("none");
     setText("");
-    void send(trimmed);
+    setAttachments([]);
+    void send(trimmed, images).catch(() => {
+      setText((current) => current || draftText);
+      setAttachments((current) => current.length > 0 ? current : draftAttachments);
+    });
   };
 
   const startDictation = (): void => {
@@ -161,17 +206,19 @@ export function Composer(): React.JSX.Element {
     textareaRef.current?.focus();
     setDictationBusy(true);
     window.setTimeout(() => {
-      void api
-        .startDictation()
+      void api.startDictation()
         .then((result) => {
-          if (!result.ok) setError(result.error ?? "无法启动语音输入");
+          if (!result.ok) {
+            setError(result.error ?? "无法启动语音输入");
+            return;
+          }
+          if (result.text) {
+            setText((current) => `${current.trimEnd()}${current.trim() ? " " : ""}${result.text}`);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }
         })
-        .catch((error: unknown) => {
-          setError(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => {
-          window.setTimeout(() => setDictationBusy(false), 650);
-        });
+        .catch((error: unknown) => setError(error instanceof Error ? error.message : String(error)))
+        .finally(() => window.setTimeout(() => setDictationBusy(false), 650));
     }, 120);
   };
 
@@ -218,32 +265,18 @@ export function Composer(): React.JSX.Element {
     <div className="composer-zone">
       <AnimatePresence>
         {noModel && (
-          <motion.div
-            className="model-banner"
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
+          <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="model-banner-inner">
               <span>{stats?.model ? "当前模型尚未配置凭据。" : "配置模型后即可开始对话。"}</span>
-              <button type="button" className="go" onClick={() => setPanel("settings")}>
-                打开设置
-              </button>
+              <button type="button" className="go" onClick={() => openSettings()}>打开设置</button>
             </div>
           </motion.div>
         )}
         {lastError && (
-          <motion.div
-            className="model-banner"
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
+          <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="model-banner-inner error">
               <span>{lastError}</span>
-              <button type="button" className="go" onClick={() => setError(null)}>
-                关闭
-              </button>
+              <button type="button" className="go" onClick={() => setError(null)}>关闭</button>
             </div>
           </motion.div>
         )}
@@ -253,55 +286,24 @@ export function Composer(): React.JSX.Element {
         {(queue.steering.length > 0 || queue.followUp.length > 0) && (
           <div className="queue-chips">
             {queue.steering.map((message, index) => (
-              <span className="queue-chip" key={`s-${index}`}>
-                <span className="tag">转向</span>
-                <span className="txt">{message}</span>
-              </span>
+              <span className="queue-chip" key={`s-${index}`}><span className="tag">转向</span><span className="txt">{message}</span></span>
             ))}
             {queue.followUp.map((message, index) => (
-              <span className="queue-chip" key={`f-${index}`}>
-                <span className="tag">追问</span>
-                <span className="txt">{message}</span>
-              </span>
+              <span className="queue-chip" key={`f-${index}`}><span className="tag">追问</span><span className="txt">{message}</span></span>
             ))}
           </div>
         )}
 
-        <button
-          type="button"
-          className="workspace-tab"
-          title={settings?.workspaceDir}
-          onClick={() => {
-            if (settings?.workspaceDir) void api.openPath(settings.workspaceDir);
-          }}
-        >
-          <Folder size={15} strokeWidth={1.6} />
-          <span>{workspaceName(settings?.workspaceDir)}</span>
-        </button>
+        <ContextUsageSurface expanded={contextExpanded} onClose={() => setContextExpanded(false)} />
 
         <div className="composer">
           <AnimatePresence>
             {composerFocused && popover === "none" && slashItems.length > 0 && (
-              <motion.div
-                className="popover slash-popover"
-                initial={{ opacity: 0, y: 5, scale: 0.99 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 4, scale: 0.99 }}
-              >
+              <motion.div className="popover slash-popover" initial={{ opacity: 0, y: 5, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.99 }}>
                 <div className="popover-head">技能命令</div>
                 {slashItems.map((item, index) => (
-                  <button
-                    type="button"
-                    key={item.command}
-                    className={`popover-item${index === slashIndex ? " hl" : ""}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setSlashIndex(index)}
-                    onClick={() => applySlash(item.command)}
-                  >
-                    <div className="row-1">
-                      <span className="name">{item.command}</span>
-                      <span className="tag">Skill</span>
-                    </div>
+                  <button type="button" key={item.command} className={`popover-item${index === slashIndex ? " hl" : ""}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setSlashIndex(index)} onClick={() => applySlash(item.command)}>
+                    <div className="row-1"><span className="name">{item.command}</span><span className="tag">Skill</span></div>
                     <div className="desc">{item.description}</div>
                   </button>
                 ))}
@@ -309,251 +311,43 @@ export function Composer(): React.JSX.Element {
             )}
           </AnimatePresence>
 
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={text}
-            placeholder={streaming ? "输入一条转向指令…" : "描述主诉、粘贴听力图，或让 Compass 执行任务"}
-            onChange={(event) => setText(event.target.value)}
-            onFocus={() => setComposerFocused(true)}
-            onBlur={() => setComposerFocused(false)}
-            onKeyDown={onKeyDown}
-            spellCheck={false}
-          />
+          <input ref={imageInputRef} className="composer-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length > 0) void addImageFiles(files);
+          }} />
+
+          {attachments.length > 0 && (
+            <div className="composer-attachments">
+              {attachments.map((image, index) => (
+                <div className="composer-attachment" key={image.id}>
+                  <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name ?? `Attachment ${index + 1}`} />
+                  <button type="button" aria-label={`Remove image ${index + 1}`} onClick={() => setAttachments((current) => current.filter((item) => item.id !== image.id))}>
+                    <X size={12} strokeWidth={2} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <textarea ref={textareaRef} rows={1} value={text} placeholder={streaming ? "输入一条转向指令…" : "描述主诉、粘贴听力图，或让 Compass 执行任务"} onChange={(event) => setText(event.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={onKeyDown} onPaste={onPaste} spellCheck={false} />
 
           <div className="composer-toolbar">
-            <div className="toolbar-anchor">
-              <button
-                type="button"
-                className={`composer-icon-btn${popover === "actions" ? " active" : ""}`}
-                aria-label="更多操作"
-                aria-expanded={popover === "actions"}
-                onClick={() => togglePopover("actions")}
-              >
-                <Plus size={19} strokeWidth={1.65} />
-              </button>
-              <AnimatePresence>
-                {popover === "actions" && (
-                  <motion.div
-                    className="popover action-popover"
-                    initial={{ opacity: 0, y: 5, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 4, scale: 0.99 }}
-                  >
-                    <button
-                      type="button"
-                      className="menu-action"
-                      onClick={() => {
-                        setPopover("none");
-                        void newSession();
-                      }}
-                    >
-                      <SquarePen size={16} strokeWidth={1.6} />
-                      新对话
-                    </button>
-                    <button
-                      type="button"
-                      className="menu-action"
-                      onClick={() => {
-                        setPopover("none");
-                        setPanel("skills");
-                      }}
-                    >
-                      <Sparkles size={16} strokeWidth={1.6} />
-                      技能库
-                    </button>
-                    <button
-                      type="button"
-                      className="menu-action"
-                      onClick={() => {
-                        setPopover("none");
-                        void setWorkspaceDir();
-                      }}
-                    >
-                      <Folder size={16} strokeWidth={1.6} />
-                      更换工作区
-                    </button>
-                    <button
-                      type="button"
-                      className="menu-action"
-                      onClick={() => {
-                        setPopover("none");
-                        setPanel("settings");
-                      }}
-                    >
-                      <Settings size={16} strokeWidth={1.6} />
-                      设置
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
+            <ActionsMenu open={popover === "actions"} onAddImage={() => imageInputRef.current?.click()} onClose={() => setPopover("none")} onToggle={() => togglePopover("actions")} />
+            <PermissionMenu open={popover === "permissions"} onClose={() => setPopover("none")} onToggle={() => togglePopover("permissions")} />
             <div className="composer-spacer" />
-
-            <div className="toolbar-anchor model-anchor">
-              <button
-                type="button"
-                className={`model-pill${popover === "model" ? " active" : ""}`}
-                aria-expanded={popover === "model"}
-                onClick={() => togglePopover("model")}
-              >
-                <span className="model-pill-name">{stats?.model?.name ?? "选择模型"}</span>
-                {supportsThinking && (
-                  <span className="model-pill-thinking">
-                    {THINKING_LABELS[stats?.thinkingLevel ?? "off"]}
-                  </span>
-                )}
-                <ChevronDown size={14} strokeWidth={1.6} />
-              </button>
-              <AnimatePresence>
-                {popover === "model" && (
-                  <motion.div
-                    className="popover model-popover"
-                    initial={{ opacity: 0, y: 5, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 4, scale: 0.99 }}
-                  >
-                    <div className="popover-head">可用模型</div>
-                    <div className="model-list">
-                      {models.length === 0 && <div className="popover-empty">请先在设置中配置模型凭据。</div>}
-                      {models.map((model) => {
-                        const current =
-                          stats?.model?.provider === model.provider && stats.model.id === model.id;
-                        return (
-                          <button
-                            type="button"
-                            key={`${model.provider}/${model.id}`}
-                            className="popover-item"
-                            onClick={() => {
-                              setPopover("none");
-                              void setModel(model.provider, model.id);
-                            }}
-                          >
-                            <div className="row-1">
-                              <span className="name">{model.name}</span>
-                              <span className={current ? "check" : "tag"}>
-                                {current ? "✓" : model.providerName}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {supportsThinking && (
-                      <div className="thinking-section">
-                        <div className="popover-head">思考深度</div>
-                        <div className="thinking-options">
-                          {thinkingLevels.map((level) => (
-                            <button
-                              type="button"
-                              key={level}
-                              data-thinking-level={level}
-                              className={stats?.thinkingLevel === level ? "active" : ""}
-                              onClick={() => void setThinkingLevel(level)}
-                            >
-                              {THINKING_LABELS[level]}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className="toolbar-anchor context-anchor">
-              <button
-                type="button"
-                className={`context-trigger${popover === "context" ? " active" : ""}${contextPercent > 75 ? " high" : ""}`}
-                aria-label={contextKnown ? `上下文已使用 ${Math.round(contextPercent)}%` : "上下文用量未知"}
-                aria-expanded={popover === "context"}
-                title={contextKnown ? `Context ${Math.round(contextPercent)}%` : "Context —"}
-                onClick={() => togglePopover("context")}
-              >
-                <svg viewBox="0 0 28 28" aria-hidden="true">
-                  <circle className="context-track" cx="14" cy="14" r="10.5" />
-                  {contextKnown && (
-                    <circle
-                      className="context-progress"
-                      cx="14"
-                      cy="14"
-                      r="10.5"
-                      pathLength="100"
-                      strokeDasharray="100"
-                      strokeDashoffset={100 - contextPercent}
-                    />
-                  )}
-                </svg>
-                <span>{contextKnown ? Math.round(contextPercent) : "–"}</span>
-              </button>
-              <AnimatePresence>
-                {popover === "context" && (
-                  <motion.div
-                    className="popover context-popover"
-                    initial={{ opacity: 0, y: 5, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 4, scale: 0.99 }}
-                  >
-                    <div className="context-summary">
-                      <div className={`context-large-ring${contextPercent > 75 ? " high" : ""}`}>
-                        <svg viewBox="0 0 56 56" aria-hidden="true">
-                          <circle className="context-track" cx="28" cy="28" r="21" />
-                          {contextKnown && (
-                            <circle
-                              className="context-progress"
-                              cx="28"
-                              cy="28"
-                              r="21"
-                              pathLength="100"
-                              strokeDasharray="100"
-                              strokeDashoffset={100 - contextPercent}
-                            />
-                          )}
-                        </svg>
-                        <b>{contextKnown ? `${Math.round(contextPercent)}%` : "—"}</b>
-                      </div>
-                      <div>
-                        <span>当前上下文</span>
-                        <b>{formatCount(contextTokens)} / {formatCount(contextWindow)}</b>
-                        <small>剩余 {formatCount(contextRemaining)} tokens</small>
-                      </div>
-                    </div>
-                    <div className="context-detail-grid">
-                      <div><span>Input</span><b>{formatCount(stats?.tokensIn ?? 0)}</b></div>
-                      <div><span>Output</span><b>{formatCount(stats?.tokensOut ?? 0)}</b></div>
-                      <div><span>Cost</span><b>${(stats?.cost ?? 0).toFixed(4)}</b></div>
-                      <div><span>Window</span><b>{formatCount(contextWindow)}</b></div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <button
-              type="button"
-              className={`composer-icon-btn voice-btn${dictationBusy ? " active launching" : ""}`}
-              aria-label="启动 Windows 语音输入"
-              title="语音输入（Windows Win+H）"
-              onClick={startDictation}
-            >
+            <ModelMenu open={popover === "model"} onClose={() => setPopover("none")} onOpenSettings={() => openSettings("models")} onToggle={() => togglePopover("model")} />
+            <ContextUsageTrigger expanded={contextExpanded} onToggle={() => {
+              setPopover("none");
+              setContextExpanded((current) => !current);
+            }} />
+            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={isDesktop ? "启动 Windows 语音输入" : "启动浏览器语音输入"} title={isDesktop ? "语音输入（Windows Win+H）" : "语音输入（浏览器麦克风）"} onClick={startDictation}>
               <Mic size={18} strokeWidth={1.75} />
             </button>
-
-            {streaming && !text.trim() ? (
-              <button type="button" className="send-btn stop" aria-label="停止" onClick={() => void abort()}>
-                <Square size={13} fill="currentColor" strokeWidth={0} />
-              </button>
+            {streaming && !text.trim() && attachments.length === 0 ? (
+              <button type="button" className="send-btn stop" aria-label="停止" onClick={() => void abort()}><Square size={13} fill="currentColor" strokeWidth={0} /></button>
             ) : (
-              <button
-                type="button"
-                className="send-btn"
-                aria-label="发送"
-                title={noModel ? "请先配置模型" : "发送"}
-                disabled={!text.trim() || noModel}
-                onClick={doSend}
-              >
+              <button type="button" className="send-btn" aria-label="发送" title={noModel ? "请先配置模型" : "发送"} disabled={(!text.trim() && attachments.length === 0) || noModel} onClick={doSend}>
                 <ArrowUp size={19} strokeWidth={1.8} />
               </button>
             )}

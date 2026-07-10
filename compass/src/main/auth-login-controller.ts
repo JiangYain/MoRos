@@ -1,16 +1,15 @@
-import type { BrowserWindow } from "electron";
 import { shell } from "electron";
-import type { InitPayload } from "@shared/types";
+import type { AgentUiEvent, InitPayload } from "@shared/types";
 import type { AgentService } from "./agent";
 
 export class AuthLoginController {
   private readonly service: AgentService;
-  private readonly getWindow: () => BrowserWindow | undefined;
+  private readonly emitEvent: (event: AgentUiEvent) => void;
   private readonly activeLogins = new Map<string, AbortController>();
 
-  constructor(service: AgentService, getWindow: () => BrowserWindow | undefined) {
+  constructor(service: AgentService, emitEvent: (event: AgentUiEvent) => void) {
     this.service = service;
-    this.getWindow = getWindow;
+    this.emitEvent = emitEvent;
   }
 
   abortAll(): void {
@@ -90,7 +89,7 @@ export class AuthLoginController {
   }
 
   private emitNotice(tone: "info" | "warn", text: string): void {
-    this.getWindow()?.webContents.send("agent:event", {
+    this.emitEvent({
       kind: "notice",
       tone,
       text,

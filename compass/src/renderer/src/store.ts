@@ -3,9 +3,11 @@ import type {
   AgentUiEvent,
   AppSettingsView,
   InitPayload,
+  PermissionMode,
   RuntimePrerequisites,
   ThinkingLevel,
   UiBlock,
+  UiImageAttachment,
   UiModel,
   UiProviderStatus,
   UiSessionInfo,
@@ -16,7 +18,7 @@ import { NO_MODEL_ERROR } from "@shared/messages";
 import { create } from "zustand";
 import { api } from "./ipc";
 
-export type PanelKind = "none" | "skills" | "settings";
+export type SettingsSection = "general" | "models" | "skills";
 
 interface StreamingAssistant {
   id: string;
@@ -36,7 +38,7 @@ interface CompassState {
   thread: UiThreadItem[];
   streaming: boolean;
   queue: { steering: string[]; followUp: string[] };
-  panel: PanelKind;
+  settingsSection: SettingsSection | null;
   sidebarOpen: boolean;
   /** one-shot text the composer should insert (e.g. /skill:name) */
   composerSeed: string | null;
@@ -45,14 +47,15 @@ interface CompassState {
 
   applyInit(payload: InitPayload): void;
   applyEvent(event: AgentUiEvent): void;
-  setPanel(panel: PanelKind): void;
+  openSettings(section?: SettingsSection): void;
+  closeSettings(): void;
   setSidebarOpen(open: boolean): void;
   seedComposer(text: string): void;
   clearComposerSeed(): void;
   setError(message: string | null): void;
 
   boot(): Promise<void>;
-  send(text: string): Promise<void>;
+  send(text: string, images?: UiImageAttachment[]): Promise<void>;
   abort(): Promise<void>;
   newSession(): Promise<void>;
   openSession(path: string): Promise<void>;
@@ -61,7 +64,9 @@ interface CompassState {
   deleteSession(path: string): Promise<void>;
   archiveSession(path: string): Promise<void>;
   setModel(provider: string, id: string): Promise<void>;
+  setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  setPermissionMode(mode: PermissionMode): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
   loginProvider(provider: string): Promise<void>;
   removeApiKey(provider: string): Promise<void>;
@@ -107,7 +112,7 @@ export const useCompass = create<CompassState>((set, get) => {
   thread: [],
   streaming: false,
   queue: { steering: [], followUp: [] },
-  panel: "none",
+  settingsSection: null,
   sidebarOpen: false,
   composerSeed: null,
   lastError: null,
@@ -144,7 +149,13 @@ export const useCompass = create<CompassState>((set, get) => {
         set({
           thread: [
             ...state.thread,
-            { kind: "user", id: event.id, text: event.text, ts: event.ts },
+            {
+              kind: "user",
+              id: event.id,
+              text: event.text,
+              images: event.images,
+              ts: event.ts,
+            },
           ],
         });
         break;
@@ -272,12 +283,16 @@ export const useCompass = create<CompassState>((set, get) => {
       case "sessions-changed":
         void get().refreshSessions();
         break;
+      case "state-refresh":
+        get().applyInit(event.payload);
+        break;
     }
   },
 
-  setPanel: (panel) => set({ panel }),
+  openSettings: (settingsSection = "general") => set({ settingsSection }),
+  closeSettings: () => set({ settingsSection: null }),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-  seedComposer: (text) => set({ composerSeed: text, panel: "none" }),
+  seedComposer: (text) => set({ composerSeed: text, settingsSection: null }),
   clearComposerSeed: () => set({ composerSeed: null }),
   setError: (message) => set({ lastError: message }),
 
@@ -286,17 +301,20 @@ export const useCompass = create<CompassState>((set, get) => {
     get().applyInit(payload);
   }),
 
-  send: (text) => runIpc(async () => {
+  send: async (text, images) => {
     const state = get();
     if (!state.stats?.model || !state.stats.modelAuthConfigured) {
       set({ lastError: NO_MODEL_ERROR });
-      return;
+      throw new Error(NO_MODEL_ERROR);
     }
-    const result = await api.prompt(text);
-    if (!result.ok && result.error) {
-      set({ lastError: sanitizeErrorMessage(result.error) });
+    try {
+      const result = await api.prompt(text, images);
+      if (!result.ok) throw new Error(result.error ?? "Compass could not send this message.");
+    } catch (error) {
+      set({ lastError: sanitizeUnknownError(error) });
+      throw error;
     }
-  }),
+  },
 
   abort: () => runIpc(async () => {
     await api.abort();
@@ -351,9 +369,24 @@ export const useCompass = create<CompassState>((set, get) => {
     if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
   }),
 
+  setModelEnabled: (provider, id, enabled) => runIpc(async () => {
+    const payload = await api.setModelEnabled(provider, id, enabled);
+    set({
+      settings: payload.settings,
+      models: payload.models,
+      providers: payload.providers,
+      stats: payload.stats,
+    });
+  }),
+
   setThinkingLevel: (level) => runIpc(async () => {
     const stats = await api.setThinkingLevel(level);
     set({ stats });
+  }),
+
+  setPermissionMode: (mode) => runIpc(async () => {
+    const settings = await api.setPermissionMode(mode);
+    set({ settings });
   }),
 
   setApiKey: (provider, key) => runIpc(async () => {

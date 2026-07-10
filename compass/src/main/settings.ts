@@ -1,6 +1,12 @@
 import { app } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import {
+  isPermissionMode,
+  isThinkingLevel,
+  type PermissionMode,
+  type ThinkingLevel,
+} from "@shared/types";
 
 export interface AppSettings {
   workspaceDir: string;
@@ -8,8 +14,11 @@ export interface AppSettings {
   skillDirs: string[];
   /** Skill names hidden from the agent. */
   disabledSkills: string[];
+  permissionMode: PermissionMode;
   defaultModel?: { provider: string; id: string };
-  thinkingLevel?: string;
+  /** Model keys explicitly shown in the composer model picker. */
+  enabledModels: string[];
+  thinkingLevel?: ThinkingLevel;
 }
 
 function settingsPath(): string {
@@ -34,6 +43,8 @@ export function loadSettings(): AppSettings {
     workspaceDir: defaultWorkspaceDir(),
     skillDirs: [],
     disabledSkills: [],
+    permissionMode: "full",
+    enabledModels: [],
   };
   try {
     const raw = readFileSync(settingsPath(), "utf8");
@@ -43,6 +54,17 @@ export function loadSettings(): AppSettings {
       merged.workspaceDir = defaults.workspaceDir;
     }
     merged.skillDirs = (merged.skillDirs ?? []).filter((dir) => existsSync(dir));
+    merged.enabledModels = [
+      ...new Set(
+        (Array.isArray(merged.enabledModels) ? merged.enabledModels : []).filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        ),
+      ),
+    ];
+    if (!isPermissionMode(merged.permissionMode)) merged.permissionMode = defaults.permissionMode;
+    if (merged.thinkingLevel !== undefined && !isThinkingLevel(merged.thinkingLevel)) {
+      delete merged.thinkingLevel;
+    }
     return merged;
   } catch {
     return defaults;
