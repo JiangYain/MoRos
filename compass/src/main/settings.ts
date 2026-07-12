@@ -2,8 +2,10 @@ import { app } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
+  DEFAULT_SUMMARY_MODEL,
   isPermissionMode,
   isThinkingLevel,
+  type ModelSelection,
   type PermissionMode,
   type ThinkingLevel,
 } from "@shared/types";
@@ -16,6 +18,8 @@ export interface AppSettings {
   disabledSkills: string[];
   permissionMode: PermissionMode;
   defaultModel?: { provider: string; id: string };
+  /** Lightweight model used to generate concise conversation titles. */
+  summaryModel: ModelSelection;
   /** Model keys explicitly shown in the composer model picker. */
   enabledModels: string[];
   thinkingLevel?: ThinkingLevel;
@@ -45,6 +49,7 @@ export function loadSettings(): AppSettings {
     disabledSkills: [],
     permissionMode: "full",
     enabledModels: [],
+    summaryModel: { ...DEFAULT_SUMMARY_MODEL },
   };
   try {
     const raw = readFileSync(settingsPath(), "utf8");
@@ -61,6 +66,15 @@ export function loadSettings(): AppSettings {
         ),
       ),
     ];
+    if (
+      !merged.summaryModel ||
+      typeof merged.summaryModel.provider !== "string" ||
+      typeof merged.summaryModel.id !== "string" ||
+      !merged.summaryModel.provider.trim() ||
+      !merged.summaryModel.id.trim()
+    ) {
+      merged.summaryModel = { ...DEFAULT_SUMMARY_MODEL };
+    }
     if (!isPermissionMode(merged.permissionMode)) merged.permissionMode = defaults.permissionMode;
     if (merged.thinkingLevel !== undefined && !isThinkingLevel(merged.thinkingLevel)) {
       delete merged.thinkingLevel;

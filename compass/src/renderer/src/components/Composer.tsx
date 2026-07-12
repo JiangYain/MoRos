@@ -1,4 +1,4 @@
-import type { UiImageAttachment } from "@shared/types";
+import type { UiImageAttachment, VoiceInputUpdate } from "@shared/types";
 import { NO_MODEL_ERROR } from "@shared/messages";
 import { ArrowUp, Mic, Square, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -9,11 +9,19 @@ import { ActionsMenu } from "./composer/ActionsMenu";
 import { ContextUsageSurface, ContextUsageTrigger } from "./composer/ContextUsage";
 import { ModelMenu } from "./composer/ModelMenu";
 import { PermissionMenu } from "./composer/PermissionMenu";
+import { findSlashToken, replaceSlashToken } from "./composer/slash-token";
 
 type PopoverKind = "none" | "actions" | "permissions" | "model";
 
 interface ComposerAttachment extends UiImageAttachment {
   id: string;
+}
+
+type DictationPhase = "idle" | "starting" | "listening" | "processing" | "complete";
+
+interface DictationState {
+  phase: DictationPhase;
+  preview: string;
 }
 
 function attachmentId(): string {
@@ -72,11 +80,15 @@ export function Composer(): React.JSX.Element {
   const [popover, setPopover] = useState<PopoverKind>("none");
   const [contextExpanded, setContextExpanded] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
-  const [dictationBusy, setDictationBusy] = useState(false);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [dictation, setDictation] = useState<DictationState>({ phase: "idle", preview: "" });
+  const [dragActive, setDragActive] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const dragDepthRef = useRef(0);
+  const dictationResetRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (composerSeed === null) return;
@@ -97,10 +109,21 @@ export function Composer(): React.JSX.Element {
     node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
   }, [text]);
 
+  useEffect(() => () => {
+    if (dictationResetRef.current !== null) window.clearTimeout(dictationResetRef.current);
+  }, []);
+
   useEffect(() => {
     const onPointerDown = (event: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      // Menu contents and toolbar anchors own their own toggle/selection
+      // behavior. Every other surface — including composer whitespace,
+      // attachments and the workspace strip — dismisses the active menu.
+      if (!target.closest(".popover, .toolbar-anchor")) {
         setPopover("none");
+      }
+      if (rootRef.current && !rootRef.current.contains(target)) {
         setComposerFocused(false);
       }
     };
@@ -115,10 +138,8 @@ export function Composer(): React.JSX.Element {
     };
   }, []);
 
-  const slashQuery = useMemo(() => {
-    const match = /^\/(\S*)$/.exec(text);
-    return match ? match[1].toLowerCase() : null;
-  }, [text]);
+  const slashToken = useMemo(() => findSlashToken(text), [text]);
+  const slashQuery = slashToken?.query ?? null;
   const slashItems = useMemo(() => {
     if (slashQuery === null) return [];
     return skills
@@ -130,7 +151,11 @@ export function Composer(): React.JSX.Element {
       }))
       .filter((item) => item.command.toLowerCase().includes(slashQuery));
   }, [skills, slashQuery]);
-  useEffect(() => setSlashIndex(0), [slashQuery]);
+  useEffect(() => {
+    setSlashIndex(0);
+    setSlashDismissed(false);
+  }, [slashQuery, slashToken?.start]);
+  const slashMenuOpen = composerFocused && !slashDismissed && slashItems.length > 0;
 
   const noModel = !stats?.model || !stats.modelAuthConfigured;
   const togglePopover = (next: Exclude<PopoverKind, "none">): void => {
@@ -169,10 +194,46 @@ export function Composer(): React.JSX.Element {
     void addImageFiles(files);
   };
 
+  const onDragEnter = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  };
+
+  const onDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragActive(false);
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) void addImageFiles(files);
+  };
+
   const applySlash = (command: string): void => {
-    setText(`${command} `);
+    if (!slashToken) return;
+    const nextText = replaceSlashToken(text, slashToken, command);
+    const caret = slashToken.start + command.length + 1;
+    setText(nextText);
     setComposerFocused(true);
-    textareaRef.current?.focus();
+    setSlashDismissed(true);
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(caret, caret);
+    });
   };
 
   const doSend = (): void => {
@@ -200,30 +261,54 @@ export function Composer(): React.JSX.Element {
     });
   };
 
+  const resetDictationAfter = (delay: number): void => {
+    if (dictationResetRef.current !== null) window.clearTimeout(dictationResetRef.current);
+    dictationResetRef.current = window.setTimeout(() => {
+      dictationResetRef.current = null;
+      setDictation({ phase: "idle", preview: "" });
+    }, delay);
+  };
+
   const startDictation = (): void => {
-    if (dictationBusy) return;
+    if (dictation.phase !== "idle") return;
     setPopover("none");
     textareaRef.current?.focus();
-    setDictationBusy(true);
+    setDictation({ phase: "starting", preview: isDesktop ? "正在打开 Windows 语音输入…" : "正在连接麦克风…" });
     window.setTimeout(() => {
-      void api.startDictation()
+      const onUpdate = isDesktop
+        ? undefined
+        : (update: VoiceInputUpdate): void => {
+            setDictation({
+              phase: update.phase,
+              preview: update.interimText || (update.phase === "listening" ? "正在倾听…" : "正在处理语音…"),
+            });
+          };
+      void api.startDictation(onUpdate)
         .then((result) => {
           if (!result.ok) {
             setError(result.error ?? "无法启动语音输入");
+            setDictation({ phase: "idle", preview: "" });
             return;
           }
           if (result.text) {
             setText((current) => `${current.trimEnd()}${current.trim() ? " " : ""}${result.text}`);
             requestAnimationFrame(() => textareaRef.current?.focus());
           }
+          setDictation({
+            phase: "complete",
+            preview: isDesktop ? "Windows 语音输入已打开" : result.text || "语音已识别",
+          });
+          resetDictationAfter(isDesktop ? 1600 : 900);
         })
-        .catch((error: unknown) => setError(error instanceof Error ? error.message : String(error)))
-        .finally(() => window.setTimeout(() => setDictationBusy(false), 650));
+        .catch((error: unknown) => {
+          setError(error instanceof Error ? error.message : String(error));
+          setDictation({ phase: "idle", preview: "" });
+        });
     }, 120);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (slashItems.length > 0) {
+    if (slashMenuOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setSlashIndex((index) => (index + 1) % slashItems.length);
@@ -234,14 +319,14 @@ export function Composer(): React.JSX.Element {
         setSlashIndex((index) => (index - 1 + slashItems.length) % slashItems.length);
         return;
       }
-      if (event.key === "Tab" || event.key === "Enter") {
+      if (event.key === "Tab") {
         event.preventDefault();
         applySlash(slashItems[slashIndex].command);
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setText("");
+        setSlashDismissed(true);
         return;
       }
     }
@@ -260,6 +345,15 @@ export function Composer(): React.JSX.Element {
       void abort();
     }
   };
+
+  const dictationBusy = dictation.phase !== "idle";
+  const dictationLabel = dictation.phase === "starting"
+    ? "准备语音输入"
+    : dictation.phase === "listening"
+      ? "正在倾听"
+      : dictation.phase === "processing"
+        ? "正在识别"
+        : "语音输入已就绪";
 
   return (
     <div className="composer-zone">
@@ -296,17 +390,48 @@ export function Composer(): React.JSX.Element {
 
         <ContextUsageSurface expanded={contextExpanded} onClose={() => setContextExpanded(false)} />
 
-        <div className="composer">
+        <div
+          className={`composer${dragActive ? " drag-active" : ""}`}
+          onDragEnter={onDragEnter}
+          onDragLeave={onDragLeave}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+        >
           <AnimatePresence>
-            {composerFocused && popover === "none" && slashItems.length > 0 && (
+            {dragActive && (
+              <motion.div
+                className="composer-drop-overlay"
+                role="status"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <span>释放以附加图片</span>
+                <small>PNG、JPEG、WebP 或 GIF · 单张不超过 10 MB</small>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <AnimatePresence>
+            {popover === "none" && slashMenuOpen && (
               <motion.div className="popover slash-popover" initial={{ opacity: 0, y: 5, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.99 }}>
-                <div className="popover-head">技能命令</div>
-                {slashItems.map((item, index) => (
-                  <button type="button" key={item.command} className={`popover-item${index === slashIndex ? " hl" : ""}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setSlashIndex(index)} onClick={() => applySlash(item.command)}>
-                    <div className="row-1"><span className="name">{item.command}</span><span className="tag">Skill</span></div>
-                    <div className="desc">{item.description}</div>
-                  </button>
-                ))}
+                <div className="slash-popover-list" role="listbox" aria-label="技能命令">
+                  {slashItems.map((item, index) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === slashIndex}
+                      key={item.command}
+                      className={`popover-item${index === slashIndex ? " hl" : ""}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setSlashIndex(index)}
+                      onClick={() => applySlash(item.command)}
+                    >
+                      <span className="name">{item.command}</span>
+                      <span className="desc">{item.description}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="slash-popover-hint">Tab 选择&nbsp;&nbsp;·&nbsp;&nbsp;Shift ↵ 换行</div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -330,7 +455,43 @@ export function Composer(): React.JSX.Element {
             </div>
           )}
 
-          <textarea ref={textareaRef} rows={1} value={text} placeholder={streaming ? "输入一条转向指令…" : "描述主诉、粘贴听力图，或让 Compass 执行任务"} onChange={(event) => setText(event.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={onKeyDown} onPaste={onPaste} spellCheck={false} />
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={text}
+            placeholder={streaming ? "输入一条转向指令…" : "描述主诉、粘贴听力图，或让 Compass 执行任务"}
+            onChange={(event) => setText(event.target.value)}
+            onFocus={() => {
+              setComposerFocused(true);
+              setPopover("none");
+            }}
+            onPointerDown={() => setPopover("none")}
+            onBlur={() => setComposerFocused(false)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            spellCheck={false}
+          />
+
+          <AnimatePresence initial={false}>
+            {dictationBusy && (
+              <motion.div
+                className={`dictation-status ${dictation.phase}`}
+                role="status"
+                aria-live="polite"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+              >
+                <span className="dictation-wave" aria-hidden="true">
+                  {Array.from({ length: 5 }, (_, index) => <i key={index} />)}
+                </span>
+                <span className="dictation-copy">
+                  <strong>{dictationLabel}</strong>
+                  <small title={dictation.preview}>{dictation.preview}</small>
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="composer-toolbar">
             <ActionsMenu open={popover === "actions"} onAddImage={() => imageInputRef.current?.click()} onClose={() => setPopover("none")} onToggle={() => togglePopover("actions")} />
@@ -341,7 +502,7 @@ export function Composer(): React.JSX.Element {
               setPopover("none");
               setContextExpanded((current) => !current);
             }} />
-            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={isDesktop ? "启动 Windows 语音输入" : "启动浏览器语音输入"} title={isDesktop ? "语音输入（Windows Win+H）" : "语音输入（浏览器麦克风）"} onClick={startDictation}>
+            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={dictationBusy ? dictationLabel : isDesktop ? "启动 Windows 语音输入" : "启动浏览器语音输入"} aria-pressed={dictationBusy} title={isDesktop ? "语音输入（Windows Win+H）" : "语音输入（浏览器麦克风）"} onClick={startDictation}>
               <Mic size={18} strokeWidth={1.75} />
             </button>
             {streaming && !text.trim() && attachments.length === 0 ? (

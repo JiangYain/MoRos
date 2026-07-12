@@ -7,6 +7,7 @@ import type {
   RuntimePrerequisites,
   ThinkingLevel,
   UiBlock,
+  UiApprovalRequest,
   UiImageAttachment,
   UiModel,
   UiProviderStatus,
@@ -17,8 +18,9 @@ import type {
 import { NO_MODEL_ERROR } from "@shared/messages";
 import { create } from "zustand";
 import { api } from "./ipc";
+import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
 
-export type SettingsSection = "general" | "models" | "skills";
+export type SettingsSection = "general" | "profile" | "models" | "skills";
 
 interface StreamingAssistant {
   id: string;
@@ -36,6 +38,8 @@ interface CompassState {
   sessions: UiSessionInfo[];
   stats?: AgentStats;
   thread: UiThreadItem[];
+  approvals: UiApprovalRequest[];
+  profileAvatar: string | null;
   streaming: boolean;
   queue: { steering: string[]; followUp: string[] };
   settingsSection: SettingsSection | null;
@@ -53,10 +57,12 @@ interface CompassState {
   seedComposer(text: string): void;
   clearComposerSeed(): void;
   setError(message: string | null): void;
+  setProfileAvatar(dataUrl: string | null): void;
 
   boot(): Promise<void>;
   send(text: string, images?: UiImageAttachment[]): Promise<void>;
   abort(): Promise<void>;
+  resolveApproval(id: string, allowed: boolean): Promise<void>;
   newSession(): Promise<void>;
   openSession(path: string): Promise<void>;
   refreshSessions(): Promise<void>;
@@ -65,6 +71,7 @@ interface CompassState {
   archiveSession(path: string): Promise<void>;
   setModel(provider: string, id: string): Promise<void>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void>;
+  setSummaryModel(provider: string, id: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
@@ -92,6 +99,24 @@ function blocksToArray(streaming: StreamingAssistant): UiBlock[] {
     .map(([, block]) => ({ ...block }));
 }
 
+function clientMessageId(): string {
+  return typeof crypto.randomUUID === "function"
+    ? `user-${crypto.randomUUID()}`
+    : `user-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const PROFILE_AVATAR_STORAGE_KEY = "compass.profile.avatar.v1";
+
+function loadProfileAvatar(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const avatar = window.localStorage.getItem(PROFILE_AVATAR_STORAGE_KEY);
+    return avatar?.startsWith("data:image/") ? avatar : null;
+  } catch {
+    return null;
+  }
+}
+
 export const useCompass = create<CompassState>((set, get) => {
   const runIpc = async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -110,6 +135,8 @@ export const useCompass = create<CompassState>((set, get) => {
   prerequisites: undefined,
   sessions: [],
   thread: [],
+  approvals: [],
+  profileAvatar: loadProfileAvatar(),
   streaming: false,
   queue: { steering: [], followUp: [] },
   settingsSection: null,
@@ -130,6 +157,7 @@ export const useCompass = create<CompassState>((set, get) => {
       sessions: payload.sessions,
       stats: payload.stats,
       thread: payload.thread,
+      approvals: payload.approvals ?? [],
       streaming: payload.stats.isStreaming,
       queue: { steering: [], followUp: [] },
       streamingBlocks: new Map(),
@@ -146,18 +174,36 @@ export const useCompass = create<CompassState>((set, get) => {
         set({ streaming: false, streamingBlocks: new Map() });
         break;
       case "user-message":
+        {
+          const existing = state.thread.some((item) => item.kind === "user" && item.id === event.id);
+          const thread = existing
+            ? state.thread.map((item) =>
+                item.kind === "user" && item.id === event.id
+                  ? { ...item, text: event.text, images: event.images, ts: event.ts }
+                  : item,
+              )
+            : [
+                ...state.thread,
+                {
+                  kind: "user" as const,
+                  id: event.id,
+                  text: event.text,
+                  images: event.images,
+                  ts: event.ts,
+                },
+              ];
         set({
-          thread: [
-            ...state.thread,
-            {
-              kind: "user",
-              id: event.id,
-              text: event.text,
-              images: event.images,
-              ts: event.ts,
-            },
-          ],
+            thread,
+            sessions: upsertActiveSession(
+              state.sessions,
+              state.stats,
+              thread,
+              event.text,
+              event.images,
+              event.ts,
+            ),
         });
+        }
         break;
       case "assistant-start": {
         const streamingBlocks = new Map(state.streamingBlocks);
@@ -260,6 +306,17 @@ export const useCompass = create<CompassState>((set, get) => {
           ),
         });
         break;
+      case "approval-request":
+        set({
+          approvals: [
+            ...state.approvals.filter((request) => request.id !== event.request.id),
+            event.request,
+          ],
+        });
+        break;
+      case "approval-resolved":
+        set({ approvals: state.approvals.filter((request) => request.id !== event.id) });
+        break;
       case "queue-update":
         set({ queue: { steering: event.steering, followUp: event.followUp } });
         break;
@@ -295,6 +352,16 @@ export const useCompass = create<CompassState>((set, get) => {
   seedComposer: (text) => set({ composerSeed: text, settingsSection: null }),
   clearComposerSeed: () => set({ composerSeed: null }),
   setError: (message) => set({ lastError: message }),
+  setProfileAvatar: (profileAvatar) => {
+    try {
+      if (profileAvatar) window.localStorage.setItem(PROFILE_AVATAR_STORAGE_KEY, profileAvatar);
+      else window.localStorage.removeItem(PROFILE_AVATAR_STORAGE_KEY);
+    } catch {
+      set({ lastError: "头像无法保存到本地存储。" });
+      return;
+    }
+    set({ profileAvatar });
+  },
 
   boot: () => runIpc(async () => {
     const payload = await api.init();
@@ -307,11 +374,36 @@ export const useCompass = create<CompassState>((set, get) => {
       set({ lastError: NO_MODEL_ERROR });
       throw new Error(NO_MODEL_ERROR);
     }
+    const id = clientMessageId();
+    const ts = Date.now();
+    const optimistic = appendOptimisticUser({
+      id,
+      images,
+      sessions: state.sessions,
+      stats: state.stats,
+      text,
+      thread: state.thread,
+      ts,
+    });
+    const hadActiveSession = state.sessions.some(
+      (session) => session.id === state.stats?.sessionId || session.path === state.stats?.sessionPath,
+    );
+    set({
+      thread: optimistic.thread,
+      sessions: optimistic.sessions,
+      lastError: null,
+    });
     try {
-      const result = await api.prompt(text, images);
+      const result = await api.prompt(text, images, id);
       if (!result.ok) throw new Error(result.error ?? "Compass could not send this message.");
     } catch (error) {
-      set({ lastError: sanitizeUnknownError(error) });
+      set((current) => ({
+        thread: current.thread.filter((item) => item.id !== id),
+        sessions: hadActiveSession
+          ? current.sessions
+          : current.sessions.filter((session) => session.id !== state.stats?.sessionId),
+        lastError: sanitizeUnknownError(error),
+      }));
       throw error;
     }
   },
@@ -369,6 +461,11 @@ export const useCompass = create<CompassState>((set, get) => {
     if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
   }),
 
+  resolveApproval: (id, allowed) => runIpc(async () => {
+    const result = await api.resolveApproval(id, allowed);
+    if (!result.ok) set({ lastError: result.error ?? "Approval request is no longer active." });
+  }),
+
   setModelEnabled: (provider, id, enabled) => runIpc(async () => {
     const payload = await api.setModelEnabled(provider, id, enabled);
     set({
@@ -377,6 +474,11 @@ export const useCompass = create<CompassState>((set, get) => {
       providers: payload.providers,
       stats: payload.stats,
     });
+  }),
+
+  setSummaryModel: (provider, id) => runIpc(async () => {
+    const settings = await api.setSummaryModel(provider, id);
+    set({ settings });
   }),
 
   setThinkingLevel: (level) => runIpc(async () => {

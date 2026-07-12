@@ -47,6 +47,16 @@ export interface UiModel {
   contextWindow: number;
 }
 
+export interface ModelSelection {
+  provider: string;
+  id: string;
+}
+
+export const DEFAULT_SUMMARY_MODEL: ModelSelection = {
+  provider: "openai-codex",
+  id: "gpt-5.3-codex-spark",
+};
+
 export function modelSelectionKey(provider: string, id: string): string {
   return `${provider}::${id}`;
 }
@@ -95,6 +105,15 @@ export interface UiUsage {
   cost: number;
 }
 
+export interface UiApprovalRequest {
+  id: string;
+  toolName: string;
+  message: string;
+  detail: string;
+  args?: unknown;
+  ts: number;
+}
+
 export type UiBlock =
   | { type: "thinking"; text: string }
   | { type: "text"; text: string };
@@ -126,6 +145,7 @@ export type UiThreadItem =
 
 export interface AgentStats {
   sessionId: string;
+  sessionPath?: string;
   sessionName?: string;
   model?: {
     provider: string;
@@ -172,6 +192,8 @@ export type AgentUiEvent =
   | { kind: "tool-start"; id: string; callId: string; name: string; args?: unknown; ts: number }
   | { kind: "tool-update"; callId: string; output: string }
   | { kind: "tool-end"; callId: string; output: string; isError: boolean }
+  | { kind: "approval-request"; request: UiApprovalRequest }
+  | { kind: "approval-resolved"; id: string }
   | { kind: "queue-update"; steering: string[]; followUp: string[] }
   | { kind: "notice"; tone: "info" | "warn"; text: string; ts: number }
   | { kind: "stats"; stats: AgentStats }
@@ -184,6 +206,7 @@ export interface AppSettingsView {
   disabledSkills: string[];
   permissionMode: PermissionMode;
   enabledModels: string[];
+  summaryModel: ModelSelection;
 }
 
 interface RuntimePrerequisiteActionBase {
@@ -220,6 +243,7 @@ export interface InitPayload {
   sessions: UiSessionInfo[];
   stats: AgentStats;
   thread: UiThreadItem[];
+  approvals: UiApprovalRequest[];
   version: string;
 }
 
@@ -230,11 +254,21 @@ export interface VoiceInputResult {
   text?: string;
 }
 
+export interface VoiceInputUpdate {
+  phase: "starting" | "listening" | "processing";
+  interimText?: string;
+}
+
 /** API exposed on window.compass by the preload script. */
 export interface CompassApi {
   init(): Promise<InitPayload>;
-  prompt(text: string, images?: UiImageAttachment[]): Promise<{ ok: boolean; error?: string }>;
+  prompt(
+    text: string,
+    images?: UiImageAttachment[],
+    clientMessageId?: string,
+  ): Promise<{ ok: boolean; error?: string }>;
   abort(): Promise<void>;
+  resolveApproval(id: string, allowed: boolean): Promise<{ ok: boolean; error?: string }>;
   newSession(): Promise<InitPayload>;
   openSession(path: string): Promise<InitPayload>;
   listSessions(): Promise<UiSessionInfo[]>;
@@ -243,6 +277,7 @@ export interface CompassApi {
   archiveSession(path: string): Promise<{ ok: boolean; error?: string }>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<InitPayload>;
+  setSummaryModel(provider: string, id: string): Promise<AppSettingsView>;
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
   setPermissionMode(mode: PermissionMode): Promise<AppSettingsView>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
@@ -254,7 +289,7 @@ export interface CompassApi {
   removeSkillDir(dir: string): Promise<InitPayload>;
   setWorkspaceDir(): Promise<InitPayload | null>;
   openPath(path: string): Promise<void>;
-  startDictation(): Promise<VoiceInputResult>;
+  startDictation(onUpdate?: (update: VoiceInputUpdate) => void): Promise<VoiceInputResult>;
   onAgentEvent(listener: (event: AgentUiEvent) => void): () => void;
   windowControl(action: "minimize" | "maximize" | "close"): void;
   onMaximizeChange(listener: (maximized: boolean) => void): () => void;

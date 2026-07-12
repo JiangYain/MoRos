@@ -1,7 +1,7 @@
 import { modelSelectionKey, type ThinkingLevel } from "@shared/types";
 import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../../store";
 
 const EFFORT_LABELS: Partial<Record<ThinkingLevel, string>> = {
@@ -15,6 +15,9 @@ const EFFORT_LABELS: Partial<Record<ThinkingLevel, string>> = {
 };
 
 type ModelMenuView = "root" | "model" | "effort" | "speed";
+type ModelSubmenuView = Exclude<ModelMenuView, "root">;
+
+const SUBMENU_HOVER_DELAY_MS = 260;
 
 interface ModelMenuProps {
   open: boolean;
@@ -30,10 +33,38 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
   const setModel = useCompass((state) => state.setModel);
   const setThinkingLevel = useCompass((state) => state.setThinkingLevel);
   const [view, setView] = useState<ModelMenuView>("root");
+  const pendingViewRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!open) setView("root");
+    if (!open) {
+      setView("root");
+      if (pendingViewRef.current !== null) window.clearTimeout(pendingViewRef.current);
+      pendingViewRef.current = null;
+    }
+    return () => {
+      if (pendingViewRef.current !== null) window.clearTimeout(pendingViewRef.current);
+      pendingViewRef.current = null;
+    };
   }, [open]);
+
+  const cancelScheduledView = (): void => {
+    if (pendingViewRef.current !== null) window.clearTimeout(pendingViewRef.current);
+    pendingViewRef.current = null;
+  };
+
+  const openView = (nextView: ModelSubmenuView): void => {
+    cancelScheduledView();
+    setView(nextView);
+  };
+
+  const scheduleView = (nextView: ModelSubmenuView): void => {
+    cancelScheduledView();
+    if (view === nextView) return;
+    pendingViewRef.current = window.setTimeout(() => {
+      pendingViewRef.current = null;
+      setView(nextView);
+    }, SUBMENU_HOVER_DELAY_MS);
+  };
 
   const thinkingLevels = stats?.model?.thinkingLevels ?? [];
   const supportsThinking = thinkingLevels.some((level) => level !== "off");
@@ -71,40 +102,24 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
       </button>
       <AnimatePresence>
         {open && (
-          <>
-            <motion.div
-              className="popover model-popover"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <div className="model-menu-main">
-                <MenuRow label="Model" value={stats?.model?.name ?? "Select"} active={view === "model"} onOpen={() => setView("model")} />
-                <MenuRow label="Effort" value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onOpen={() => setView("effort")} />
-                <MenuRow label="Speed" value="Standard" active={view === "speed"} onOpen={() => setView("speed")} />
-              </div>
-              <div className="model-menu-rule" />
-              <button
-                type="button"
-                className="model-add"
-                onClick={() => {
-                  onClose();
-                  onOpenSettings();
-                }}
-              >
-                <span>Add Model</span>
-                <Plus size={14} strokeWidth={1.55} />
-              </button>
-            </motion.div>
-
+          <motion.div
+            className="model-menu-layer"
+            initial={{ opacity: 0, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 2 }}
+            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+          >
             <AnimatePresence mode="wait">
               {view !== "root" && (
                 <motion.div
                   key={view}
                   className="popover model-submenu"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  data-model-submenu={view}
+                  onMouseEnter={cancelScheduledView}
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -3 }}
+                  transition={{ duration: 0.12 }}
                 >
                   <div className="model-submenu-title">
                     {view === "model" ? "Model" : view === "effort" ? "Effort" : "Speed"}
@@ -120,7 +135,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                             key={`${model.provider}/${model.id}`}
                             onClick={() => {
                               void setModel(model.provider, model.id);
-                              setView("root");
+                              onClose();
                             }}
                           >
                             <span>{model.name}</span>
@@ -139,7 +154,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                           key={option.level}
                           onClick={() => {
                             void setThinkingLevel(option.level);
-                            setView("root");
+                            onClose();
                           }}
                         >
                           <span>{option.label}</span>
@@ -150,7 +165,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                   )}
                   {view === "speed" && (
                     <div className="model-submenu-list">
-                      <button type="button" onClick={() => setView("root")}>
+                      <button type="button" onClick={onClose}>
                         <span>Standard</span>
                         <Check size={14} strokeWidth={1.65} />
                       </button>
@@ -159,7 +174,27 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                 </motion.div>
               )}
             </AnimatePresence>
-          </>
+
+            <div className="popover model-popover">
+              <div className="model-menu-main">
+                <MenuRow view="model" label="Model" value={stats?.model?.name ?? "Select"} active={view === "model"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="effort" label="Effort" value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="speed" label="Speed" value="Standard" active={view === "speed"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+              </div>
+              <div className="model-menu-rule" />
+              <button
+                type="button"
+                className="model-add"
+                onClick={() => {
+                  onClose();
+                  onOpenSettings();
+                }}
+              >
+                <span>Add Model</span>
+                <Plus size={14} strokeWidth={1.55} />
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -170,23 +205,31 @@ function MenuRow({
   active,
   disabled = false,
   label,
+  onHoverEnd,
+  onHoverStart,
   onOpen,
   value,
+  view,
 }: {
   active: boolean;
   disabled?: boolean;
   label: string;
-  onOpen(): void;
+  onHoverEnd(): void;
+  onHoverStart(view: ModelSubmenuView): void;
+  onOpen(view: ModelSubmenuView): void;
   value: string;
+  view: ModelSubmenuView;
 }): React.JSX.Element {
   return (
     <button
       type="button"
       disabled={disabled}
       className={active ? "active" : ""}
-      onMouseEnter={onOpen}
-      onFocus={onOpen}
-      onClick={onOpen}
+      data-model-menu-view={view}
+      onMouseEnter={() => onHoverStart(view)}
+      onMouseLeave={onHoverEnd}
+      onFocus={() => onOpen(view)}
+      onClick={() => onOpen(view)}
     >
       <span>{label}</span>
       <b>{value}</b>

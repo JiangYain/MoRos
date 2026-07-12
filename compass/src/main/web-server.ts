@@ -58,6 +58,13 @@ function booleanArg(args: unknown[], index: number, label: string): boolean {
   return value;
 }
 
+function optionalStringArg(args: unknown[], index: number, label: string): string | undefined {
+  const value = args[index];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new Error(`${label} must be a string.`);
+  return value;
+}
+
 function imageAttachmentsArg(args: unknown[], index: number): UiImageAttachment[] | undefined {
   const value = args[index];
   if (value === undefined || value === null) return undefined;
@@ -82,8 +89,18 @@ function imageAttachmentsArg(args: unknown[], index: number): UiImageAttachment[
 function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
   return {
     init: () => api.init(),
-    prompt: (args) => api.prompt(stringArg(args, 0, "text"), imageAttachmentsArg(args, 1)),
+    prompt: (args) =>
+      api.prompt(
+        stringArg(args, 0, "text"),
+        imageAttachmentsArg(args, 1),
+        optionalStringArg(args, 2, "clientMessageId"),
+      ),
     abort: () => api.abort(),
+    resolveApproval: (args) =>
+      api.resolveApproval(
+        stringArg(args, 0, "id"),
+        booleanArg(args, 1, "allowed"),
+      ),
     newSession: () => api.newSession(),
     openSession: (args) => api.openSession(stringArg(args, 0, "path")),
     listSessions: () => api.listSessions(),
@@ -99,6 +116,8 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
         stringArg(args, 1, "id"),
         booleanArg(args, 2, "enabled"),
       ),
+    setSummaryModel: (args) =>
+      api.setSummaryModel(stringArg(args, 0, "provider"), stringArg(args, 1, "id")),
     setThinkingLevel: (args) => {
       const level = args[0];
       if (!isThinkingLevel(level)) throw new Error("Invalid thinking level.");

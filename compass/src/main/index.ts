@@ -130,10 +130,15 @@ function registerIpc(api: CompassBackendApi): void {
   ipcMain.handle("runtime:prerequisite-action", (_event, actionId: string) =>
     api.runPrerequisiteAction(actionId),
   );
-  ipcMain.handle("agent:prompt", (_event, text: string, images?: UiImageAttachment[]) =>
-    api.prompt(text, images),
+  ipcMain.handle(
+    "agent:prompt",
+    (_event, text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
+      api.prompt(text, images, clientMessageId),
   );
   ipcMain.handle("agent:abort", () => api.abort());
+  ipcMain.handle("agent:resolve-approval", (_event, id: string, allowed: boolean) =>
+    api.resolveApproval(id, allowed),
+  );
   ipcMain.handle("agent:new-session", () => api.newSession());
   ipcMain.handle("agent:open-session", (_event, path: string) => api.openSession(path));
   ipcMain.handle("sessions:list", () => api.listSessions());
@@ -149,6 +154,9 @@ function registerIpc(api: CompassBackendApi): void {
     "models:set-enabled",
     (_event, provider: string, id: string, enabled: boolean) =>
       api.setModelEnabled(provider, id, enabled),
+  );
+  ipcMain.handle("models:set-summary", (_event, provider: string, id: string) =>
+    api.setSummaryModel(provider, id),
   );
   ipcMain.handle("thinking:set", (_event, level: ThinkingLevel) =>
     api.setThinkingLevel(level),

@@ -8,6 +8,7 @@ import type {
   UiImageAttachment,
   UiSessionInfo,
   VoiceInputResult,
+  VoiceInputUpdate,
   WebRpcMethod,
 } from "@shared/types";
 
@@ -17,8 +18,12 @@ interface RpcEnvelope<T> {
   error?: string;
 }
 
+interface SpeechRecognitionResultLike extends ArrayLike<{ transcript: string }> {
+  isFinal: boolean;
+}
+
 interface SpeechRecognitionResultEvent extends Event {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  results: ArrayLike<SpeechRecognitionResultLike>;
 }
 
 interface SpeechRecognitionErrorEvent extends Event {
@@ -33,6 +38,7 @@ interface SpeechRecognitionInstance {
   onend: (() => void) | null;
   onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
   onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
+  onstart: (() => void) | null;
   start(): void;
   stop(): void;
 }
@@ -77,7 +83,7 @@ async function initializeWebApi(): Promise<InitPayload> {
   throw lastError instanceof Error ? lastError : new Error("Compass Web API is unavailable.");
 }
 
-function startBrowserDictation(): Promise<VoiceInputResult> {
+function startBrowserDictation(onUpdate?: (update: VoiceInputUpdate) => void): Promise<VoiceInputResult> {
   const browserWindow = window as typeof window & {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
@@ -90,6 +96,7 @@ function startBrowserDictation(): Promise<VoiceInputResult> {
   return new Promise((resolveResult) => {
     const recognition = new Recognition();
     let settled = false;
+    let latestTranscript = "";
 
     const finish = (result: VoiceInputResult): void => {
       if (settled) return;
@@ -99,15 +106,22 @@ function startBrowserDictation(): Promise<VoiceInputResult> {
 
     recognition.lang = navigator.language || "zh-CN";
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
+    recognition.onstart = () => onUpdate?.({ phase: "listening" });
     recognition.onresult = (event) => {
-      const text = Array.from(event.results)
+      const results = Array.from(event.results);
+      const text = results
         .map((result) => result[0]?.transcript ?? "")
         .join(" ")
         .trim();
-      finish(text ? { ok: true, text } : { ok: false, error: "没有识别到语音内容。" });
-      recognition.stop();
+      latestTranscript = text;
+      const complete = results.some((result) => result.isFinal);
+      onUpdate?.({ phase: complete ? "processing" : "listening", interimText: text });
+      if (complete) {
+        finish(text ? { ok: true, text } : { ok: false, error: "没有识别到语音内容。" });
+        recognition.stop();
+      }
     };
     recognition.onerror = (event) => {
       const error =
@@ -116,9 +130,14 @@ function startBrowserDictation(): Promise<VoiceInputResult> {
           : `语音识别失败：${event.error}`;
       finish({ ok: false, error });
     };
-    recognition.onend = () => finish({ ok: false, error: "没有识别到语音内容。" });
+    recognition.onend = () => finish(
+      latestTranscript
+        ? { ok: true, text: latestTranscript }
+        : { ok: false, error: "没有识别到语音内容。" },
+    );
 
     try {
+      onUpdate?.({ phase: "starting" });
       recognition.start();
     } catch (error) {
       finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -129,8 +148,10 @@ function startBrowserDictation(): Promise<VoiceInputResult> {
 export function createWebApi(): CompassApi {
   return {
     init: initializeWebApi,
-    prompt: (text: string, images?: UiImageAttachment[]) => rpc("prompt", [text, images]),
+    prompt: (text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
+      rpc("prompt", [text, images, clientMessageId]),
     abort: () => rpc<void>("abort"),
+    resolveApproval: (id, allowed) => rpc("resolveApproval", [id, allowed]),
     newSession: () => rpc<InitPayload>("newSession"),
     openSession: (path) => rpc<InitPayload>("openSession", [path]),
     listSessions: () => rpc<UiSessionInfo[]>("listSessions"),
@@ -140,6 +161,7 @@ export function createWebApi(): CompassApi {
     setModel: (provider, id) => rpc("setModel", [provider, id]),
     setModelEnabled: (provider, id, enabled) =>
       rpc<InitPayload>("setModelEnabled", [provider, id, enabled]),
+    setSummaryModel: (provider, id) => rpc("setSummaryModel", [provider, id]),
     setThinkingLevel: (level: ThinkingLevel) => rpc<AgentStats>("setThinkingLevel", [level]),
     setPermissionMode: (mode: PermissionMode) => rpc("setPermissionMode", [mode]),
     setApiKey: (provider, key) => rpc<InitPayload>("setApiKey", [provider, key]),

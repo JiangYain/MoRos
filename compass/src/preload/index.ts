@@ -9,9 +9,10 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const api: CompassApi = {
   init: () => ipcRenderer.invoke("app:init"),
-  prompt: (text: string, images?: UiImageAttachment[]) =>
-    ipcRenderer.invoke("agent:prompt", text, images),
+  prompt: (text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
+    ipcRenderer.invoke("agent:prompt", text, images, clientMessageId),
   abort: () => ipcRenderer.invoke("agent:abort"),
+  resolveApproval: (id, allowed) => ipcRenderer.invoke("agent:resolve-approval", id, allowed),
   newSession: () => ipcRenderer.invoke("agent:new-session"),
   openSession: (path) => ipcRenderer.invoke("agent:open-session", path),
   listSessions: () => ipcRenderer.invoke("sessions:list"),
@@ -21,6 +22,7 @@ const api: CompassApi = {
   setModel: (provider, id) => ipcRenderer.invoke("models:set", provider, id),
   setModelEnabled: (provider, id, enabled) =>
     ipcRenderer.invoke("models:set-enabled", provider, id, enabled),
+  setSummaryModel: (provider, id) => ipcRenderer.invoke("models:set-summary", provider, id),
   setThinkingLevel: (level: ThinkingLevel) => ipcRenderer.invoke("thinking:set", level),
   setPermissionMode: (mode: PermissionMode) => ipcRenderer.invoke("permissions:set", mode),
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),

@@ -24,6 +24,10 @@ try {
     await page.screenshot({ path: join(outDir, `${name}.png`) });
     console.log(`shot: ${name}`);
   };
+  const onePixelPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlN4VIAAAAASUVORK5CYII=",
+    "base64",
+  );
 
   const invalidSessionResults = await page.evaluate(async () => {
     const invalidPath = "__compass_invalid_session__.jsonl";
@@ -40,9 +44,52 @@ try {
   await page.waitForTimeout(4200);
   await shot("01-hero");
 
+  const activeClientToggle = page.locator(
+    '.file-tree-item[data-active-client="true"] > .folder-row .file-item-main',
+  );
+  const activeClientToggleCount = await activeClientToggle.count();
+  if (activeClientToggleCount > 1) {
+    throw new Error(`Expected at most one active client group, found ${activeClientToggleCount}`);
+  }
+  if (activeClientToggleCount === 1) {
+    await activeClientToggle.click();
+    if ((await activeClientToggle.getAttribute("aria-expanded")) !== "false") {
+      throw new Error("Active client group ignored its collapsed state");
+    }
+    await activeClientToggle.click();
+    if ((await activeClientToggle.getAttribute("aria-expanded")) !== "true") {
+      throw new Error("Active client group did not expand again");
+    }
+  }
+
   await page.locator(".user-profile").click();
   await shot("02-profile-menu");
 
+  await page.locator(".profile-menu-head-button").click();
+  await page.getByRole("heading", { name: "Profile" }).waitFor();
+  await page.locator(".settings-profile-metrics").waitFor();
+  const previousProfileAvatar = await page.evaluate(() =>
+    window.localStorage.getItem("compass.profile.avatar.v1"),
+  );
+  await page.locator(".settings-profile-avatar-input").setInputFiles({
+    name: "profile-smoke.png",
+    mimeType: "image/png",
+    buffer: onePixelPng,
+  });
+  await page.locator(".settings-profile-avatar img").waitFor();
+  if (!String(await page.locator(".settings-profile-avatar img").getAttribute("src")).startsWith("data:image/")) {
+    throw new Error("Profile avatar upload did not produce a local image");
+  }
+  await shot("02b-profile-settings");
+  await page.locator(".settings-profile-photo-actions .remove").click();
+  if (previousProfileAvatar) {
+    await page.evaluate((avatar) => {
+      window.localStorage.setItem("compass.profile.avatar.v1", avatar);
+    }, previousProfileAvatar);
+  }
+  await page.getByRole("button", { name: "Back" }).click();
+
+  await page.locator(".user-profile").click();
   await page.locator(".profile-menu button").filter({ hasText: "技能库" }).click();
   await page.getByRole("heading", { name: "Skills" }).waitFor();
   await shot("03-skills-settings");
@@ -51,19 +98,135 @@ try {
   await page.locator(".user-profile").click();
   await page.locator(".profile-menu button").filter({ hasText: "设置" }).click();
   await page.getByRole("heading", { name: "General" }).waitFor();
+  const previousTheme = await page.evaluate(() => {
+    const value = window.localStorage.getItem("compass.theme.v1");
+    return value === "light" || value === "dark" || value === "system" ? value : "system";
+  });
+  await page.getByRole("radio", { name: /Dark/ }).click();
+  if ((await page.locator("html").getAttribute("data-theme")) !== "dark") {
+    throw new Error("Dark appearance preference did not update the document theme");
+  }
+  const darkColors = await page.evaluate(() => ({
+    page: getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim(),
+    text: getComputedStyle(document.documentElement).getPropertyValue("--color-text-primary").trim(),
+  }));
+  if (darkColors.page !== "#151719" || darkColors.text !== "#f2f4f5") {
+    throw new Error(`Dark theme tokens are not active: ${JSON.stringify(darkColors)}`);
+  }
+  await shot("04a-dark-theme");
+  const themeLabel = previousTheme === "light" ? /Light/ : previousTheme === "dark" ? /Dark/ : /System/;
+  await page.getByRole("radio", { name: themeLabel }).click();
   await shot("04-general-settings");
   await page.getByRole("button", { name: "Back" }).click();
 
   const textarea = page.locator(".composer textarea");
   await textarea.click();
-  await textarea.fill("/");
+  await textarea.fill("请帮我执行 /");
   await page.locator(".slash-popover").waitFor();
+  const slashPaletteLayout = await page.locator(".slash-popover").evaluate((popover) => {
+    const item = popover.querySelector(".popover-item");
+    const name = item?.querySelector(".name");
+    const description = item?.querySelector(".desc");
+    const hint = popover.querySelector(".slash-popover-hint");
+    const popoverStyle = getComputedStyle(popover);
+    const itemStyle = item ? getComputedStyle(item) : null;
+    const nameStyle = name ? getComputedStyle(name) : null;
+    const descriptionStyle = description ? getComputedStyle(description) : null;
+    const hintStyle = hint ? getComputedStyle(hint) : null;
+    return {
+      headerCount: popover.querySelectorAll(".popover-head").length,
+      tagCount: popover.querySelectorAll(".tag").length,
+      kbdCount: popover.querySelectorAll("kbd").length,
+      backdropFilter: popoverStyle.backdropFilter,
+      borderRadius: popoverStyle.borderRadius,
+      itemDisplay: itemStyle?.display,
+      itemHeight: item?.getBoundingClientRect().height,
+      itemMinHeight: itemStyle?.minHeight,
+      itemBorderBottom: itemStyle?.borderBottomWidth,
+      nameFontSize: nameStyle?.fontSize,
+      nameFontWeight: nameStyle?.fontWeight,
+      nameClientWidth: name?.clientWidth,
+      nameScrollWidth: name?.scrollWidth,
+      descriptionFontSize: descriptionStyle?.fontSize,
+      descriptionWhiteSpace: descriptionStyle?.whiteSpace,
+      descriptionOverflow: descriptionStyle?.overflow,
+      hintHeight: hintStyle?.height,
+      hintBorderTop: Number.parseFloat(hintStyle?.borderTopWidth ?? "0"),
+      hintFontSize: hintStyle?.fontSize,
+    };
+  });
+  if (
+    slashPaletteLayout.headerCount !== 0
+    || slashPaletteLayout.tagCount !== 0
+    || slashPaletteLayout.kbdCount !== 0
+    || !slashPaletteLayout.backdropFilter.includes("blur(12px)")
+    || slashPaletteLayout.itemDisplay !== "flex"
+    || slashPaletteLayout.itemMinHeight !== "32px"
+    || slashPaletteLayout.itemHeight > 34
+    || slashPaletteLayout.itemBorderBottom !== "0px"
+    || slashPaletteLayout.nameFontSize !== "12px"
+    || slashPaletteLayout.nameFontWeight !== "500"
+    || slashPaletteLayout.nameScrollWidth > slashPaletteLayout.nameClientWidth + 1
+    || slashPaletteLayout.descriptionFontSize !== "11px"
+    || slashPaletteLayout.descriptionWhiteSpace !== "nowrap"
+    || slashPaletteLayout.descriptionOverflow !== "hidden"
+    || slashPaletteLayout.hintHeight !== "24px"
+    || slashPaletteLayout.hintBorderTop < 0.5
+    || slashPaletteLayout.hintBorderTop > 1.1
+    || slashPaletteLayout.hintFontSize !== "9px"
+  ) {
+    throw new Error(`Slash command palette layout regressed: ${JSON.stringify(slashPaletteLayout)}`);
+  }
   await shot("05-slash-menu");
+  await page.keyboard.press("Escape");
+  await page.locator(".slash-popover").waitFor({ state: "detached" });
+  if ((await textarea.inputValue()) !== "请帮我执行 /") {
+    throw new Error("Dismissing slash suggestions modified the draft");
+  }
+  await textarea.fill("请帮我执行 ");
+  await textarea.fill("请帮我执行 /");
+  await page.locator(".slash-popover").waitFor();
+  await page.keyboard.press("Tab");
+  const appliedSlash = await textarea.inputValue();
+  if (!appliedSlash.startsWith("请帮我执行 /skill:")) {
+    throw new Error(`Inline slash command did not preserve prose: ${appliedSlash}`);
+  }
   await textarea.fill("");
 
   const modelButton = page.locator(".model-pill");
   await modelButton.click();
   await page.locator(".model-popover").waitFor();
+  await textarea.click();
+  await page.locator(".model-popover").waitFor({ state: "detached" });
+  await modelButton.click();
+  await page.locator(".model-popover").waitFor();
+  await page.locator(".composer-toolbar").click({ position: { x: 300, y: 18 } });
+  await page.locator(".model-popover").waitFor({ state: "detached" });
+  await modelButton.click();
+  await page.locator(".model-popover").waitFor();
+  await page.locator(".model-menu-main button").filter({ hasText: "Model" }).hover();
+  await page.locator(".model-submenu").waitFor();
+  const modelMenuBounds = await page.locator(".model-menu-layer").evaluate((menu) => {
+    const root = menu.querySelector(".model-popover")?.getBoundingClientRect();
+    const submenu = menu.querySelector(".model-submenu")?.getBoundingClientRect();
+    return root && submenu
+      ? {
+          rootLeft: root.left,
+          rootRight: root.right,
+          submenuLeft: submenu.left,
+          submenuRight: submenu.right,
+          submenuWidth: submenu.width,
+          viewport: window.innerWidth,
+        }
+      : null;
+  });
+  if (!modelMenuBounds) throw new Error("Model submenu bounds are unavailable");
+  if (modelMenuBounds.submenuLeft < modelMenuBounds.rootRight || modelMenuBounds.submenuWidth > 160) {
+    throw new Error(`Model submenu is not compact or right-opening: ${JSON.stringify(modelMenuBounds)}`);
+  }
+  if (modelMenuBounds.rootLeft < 0 || modelMenuBounds.submenuRight > modelMenuBounds.viewport) {
+    throw new Error(`Model menu is clipped: ${JSON.stringify(modelMenuBounds)}`);
+  }
   const initPayload = await page.evaluate(() => window.compass.init());
   const supportedLevels = new Set(initPayload.stats.model?.thinkingLevels ?? []);
   const supportsThinking = [...supportedLevels].some((level) => level !== "off");
@@ -74,16 +237,90 @@ try {
   }
   if (!effortDisabled) {
     await effortButton.hover();
+    await page.locator(".model-submenu [data-thinking-level]").first().waitFor();
     const renderedLevels = await page
       .locator(".model-submenu [data-thinking-level]")
       .evaluateAll((buttons) => buttons.map((button) => button.dataset.thinkingLevel));
     if (renderedLevels.length === 0 || renderedLevels.some((level) => !level || !supportedLevels.has(level))) {
       throw new Error(`Model menu rendered unsupported thinking levels: ${renderedLevels.join(", ")}`);
     }
+
+    const maxOption = page.locator('.model-submenu [data-thinking-level="max"]');
+    if (await maxOption.count()) {
+      const speedButton = page.locator('[data-model-menu-view="speed"]');
+      const effortBounds = await effortButton.boundingBox();
+      const speedBounds = await speedButton.boundingBox();
+      const maxBounds = await maxOption.boundingBox();
+      if (!effortBounds || !speedBounds || !maxBounds) {
+        throw new Error("Model menu intent bounds are unavailable");
+      }
+      await page.mouse.move(effortBounds.x + effortBounds.width / 2, effortBounds.y + effortBounds.height / 2);
+      await page.mouse.move(speedBounds.x + speedBounds.width / 2, speedBounds.y + speedBounds.height / 2);
+      await page.mouse.move(maxBounds.x + maxBounds.width / 2, maxBounds.y + maxBounds.height / 2);
+      await page.waitForTimeout(120);
+      if ((await page.locator(".model-submenu").getAttribute("data-model-submenu")) !== "effort") {
+        throw new Error("Crossing the Speed row incorrectly replaced the Effort submenu");
+      }
+    }
   }
   await shot("06-model-picker");
   await page.getByRole("button", { name: "Add Model" }).click();
-  await page.getByRole("heading", { name: "Models" }).waitFor();
+  await page.getByRole("heading", { name: "Provider & Model" }).waitFor();
+  const settingsSectionOrder = await page
+    .locator(".settings-models-page > section")
+    .evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
+  if (
+    JSON.stringify(settingsSectionOrder) !==
+    JSON.stringify(["Providers", "Conversation title summary model", "Models"])
+  ) {
+    throw new Error(`Provider & Model sections are out of order: ${settingsSectionOrder.join(", ")}`);
+  }
+  const summaryModelSelect = page.getByRole("combobox", { name: "Summary model" });
+  const expectedSummaryModel = `${initPayload.settings.summaryModel.provider}::${initPayload.settings.summaryModel.id}`;
+  if ((await summaryModelSelect.inputValue()) !== expectedSummaryModel) {
+    throw new Error("Conversation title summary model does not match persisted settings");
+  }
+  const providerToggle = page.locator(".settings-provider-toggle");
+  await providerToggle.click();
+  const providerRows = page.locator(".settings-provider-row");
+  if ((await providerRows.count()) !== initPayload.providers.length) {
+    throw new Error("Provider settings did not render the complete provider registry");
+  }
+  if ((await providerRows.locator("svg").count()) !== initPayload.providers.length) {
+    throw new Error("At least one provider is missing its icon");
+  }
+  const apiKeyProvider = initPayload.providers.find((provider) => provider.supportsApiKey);
+  if (apiKeyProvider) {
+    const providerRow = page.locator(`[data-provider-id="${apiKeyProvider.id}"]`);
+    await providerRow.getByRole("button", { name: apiKeyProvider.configured ? "Replace key" : "Set key" }).click();
+    const apiKeyInput = providerRow.getByRole("textbox", {
+      name: `${apiKeyProvider.name} API key`,
+      exact: true,
+    });
+    if ((await apiKeyInput.getAttribute("type")) !== "password") {
+      throw new Error("Provider API key is not masked by default");
+    }
+    await apiKeyInput.fill("compass-smoke-key");
+    const revealKey = providerRow.getByRole("button", { name: `Show ${apiKeyProvider.name} API key` });
+    await revealKey.click();
+    if ((await apiKeyInput.getAttribute("type")) !== "text") {
+      throw new Error("Provider API key reveal control did not expose the draft");
+    }
+    await providerRow.getByRole("button", { name: `Hide ${apiKeyProvider.name} API key` }).click();
+    if ((await apiKeyInput.getAttribute("type")) !== "password") {
+      throw new Error("Provider API key hide control did not restore masking");
+    }
+    const copyKey = providerRow.getByRole("button", { name: `Copy ${apiKeyProvider.name} API key` });
+    if (await copyKey.isDisabled()) throw new Error("Masked provider API key cannot be copied");
+    await apiKeyInput.press("Escape");
+    await providerRow.locator(".settings-provider-editor").waitFor({ state: "detached" });
+  }
+  await shot("07a-provider-icons");
+  await providerToggle.click();
+  const refreshButton = page.getByRole("button", { name: "Refresh providers and models" });
+  await refreshButton.click();
+  await page.locator(".settings-refresh-button.refreshing").waitFor();
+  await page.locator(".settings-refresh-button.refreshing").waitFor({ state: "detached" });
   const activeModelSwitch = page.locator(".settings-model-row.active [role=switch]");
   const activeModel = initPayload.stats.model;
   const activeModelIsAvailable = Boolean(
@@ -105,10 +342,60 @@ try {
   if (activeModelIsAvailable && enabledSwitchCount === 1 && !(await activeModelSwitch.isDisabled())) {
     throw new Error("The only active model can be disabled without a replacement");
   }
+
+  const togglableModelSwitch = page.locator('.settings-model-row:not(.active) [role=switch]:not(:disabled)').first();
+  if (await togglableModelSwitch.count()) {
+    const modelOrderBefore = await page.locator(".settings-model-row").evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute("data-model-key")),
+    );
+    const modelKey = await togglableModelSwitch.evaluate((button) =>
+      button.closest(".settings-model-row")?.getAttribute("data-model-key"),
+    );
+    const checkedBefore = await togglableModelSwitch.getAttribute("aria-checked");
+    await togglableModelSwitch.click();
+    await page.waitForFunction(
+      ({ key, checked }) => {
+        const row = Array.from(document.querySelectorAll(".settings-model-row"))
+          .find((element) => element.getAttribute("data-model-key") === key);
+        return row?.querySelector('[role="switch"]')?.getAttribute("aria-checked") !== checked;
+      },
+      { key: modelKey, checked: checkedBefore },
+    );
+    const modelOrderAfter = await page.locator(".settings-model-row").evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute("data-model-key")),
+    );
+    if (JSON.stringify(modelOrderAfter) !== JSON.stringify(modelOrderBefore)) {
+      throw new Error("Toggling a model reordered the visible model list");
+    }
+    await page.locator(".settings-model-row").evaluateAll((rows, key) => {
+      const row = rows.find((element) => element.getAttribute("data-model-key") === key);
+      (row?.querySelector('[role="switch"]'))?.click();
+    }, modelKey);
+  }
   await shot("07-models-settings");
+  await page.setViewportSize({ width: 600, height: 880 });
+  const responsiveLabels = [
+    page.locator(".settings-back span"),
+    page.locator(".settings-search input"),
+    page.locator(".settings-nav nav strong").first(),
+  ];
+  for (const label of responsiveLabels) {
+    if (!(await label.isVisible())) throw new Error("Responsive settings hid a required text label");
+  }
+  if (activeModelIsAvailable && !(await page.locator(".settings-active-model").isVisible())) {
+    throw new Error("Responsive settings hid the active-model indicator");
+  }
+  await shot("07b-responsive-settings");
+  await page.setViewportSize({ width: 1320, height: 880 });
   await page.getByRole("button", { name: "Back" }).click();
 
   await page.locator(".context-trigger").click();
+  const contextRingWidth = await page.locator(".context-trigger circle").first().evaluate((circle) =>
+    Number.parseFloat(getComputedStyle(circle).strokeWidth),
+  );
+  if (Math.abs(contextRingWidth - 3.4) > 0.05) {
+    throw new Error(`Context ring must be 3.4px: ${contextRingWidth}px`);
+  }
   await page.getByRole("region", { name: "Context usage" }).waitFor();
   await page.getByText("Estimated breakdown", { exact: true }).waitFor();
   if ((await page.locator(".workspace-context-surface .workspace-tab").count()) !== 1) {
@@ -129,10 +416,23 @@ try {
   await shot("10-permission-menu");
   await page.keyboard.press("Escape");
 
-  const onePixelPng = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlN4VIAAAAASUVORK5CYII=",
-    "base64",
-  );
+  await page.locator(".composer").evaluate((node, imageBase64) => {
+    const bytes = Uint8Array.from(atob(imageBase64), (character) => character.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], "dropped-smoke.png", { type: "image/png" }));
+    window.__compassSmokeTransfer = transfer;
+    node.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: transfer }));
+  }, onePixelPng.toString("base64"));
+  await page.locator(".composer-drop-overlay").waitFor();
+  await page.locator(".composer").evaluate((node) => {
+    const transfer = window.__compassSmokeTransfer;
+    node.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: transfer }));
+    delete window.__compassSmokeTransfer;
+  });
+  await page.locator(".composer-attachment").waitFor();
+  await shot("10b-image-drop");
+  await page.locator('.composer-attachment button[aria-label^="Remove image"]').click();
+
   await page.locator(".composer-image-input").setInputFiles({
     name: "smoke.png",
     mimeType: "image/png",
@@ -142,24 +442,385 @@ try {
   await shot("11-image-attachment");
   await page.locator('.composer-attachment button[aria-label^="Remove image"]').click();
 
-  await page.locator(".sidebar-nav-item").filter({ hasText: "搜索" }).click();
-  const sidebarSearch = page.locator(".sidebar-search input");
-  await sidebarSearch.fill("phonak");
-  await shot("12-sidebar-search");
-
-  await sidebarSearch.fill("");
-  const firstSession = page.locator(".thread-file-item").first();
-  if (await firstSession.count()) {
-    await firstSession.click({ button: "right" });
-    const sessionActions = await page
-      .locator(".context-menu button")
-      .evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim()));
-    const expectedActions = ["重命名", "归档", "删除", "复制 Session ID"];
-    if (JSON.stringify(sessionActions) !== JSON.stringify(expectedActions)) {
-      throw new Error(`Session actions do not match: ${sessionActions.join(", ")}`);
+  await page.keyboard.press("Control+P");
+  const sessionSearch = page.locator(".session-search-input input");
+  await sessionSearch.waitFor();
+  if (!(await sessionSearch.evaluate((input) => document.activeElement === input))) {
+    throw new Error("Session search shortcut did not transfer focus to the search input");
+  }
+  if ((await page.locator(".sidebar-search input").count()) !== 0) {
+    throw new Error("Search still renders as an inline sidebar field");
+  }
+  await sessionSearch.fill("phonak");
+  await shot("12-session-search-overlay");
+  await sessionSearch.fill("");
+  const searchResultCount = await page.locator('.session-search-result[role="option"]').count();
+  if (searchResultCount > 0) {
+    const selectedBefore = await sessionSearch.getAttribute("aria-activedescendant");
+    await sessionSearch.press("ArrowDown");
+    const selectedAfter = await sessionSearch.getAttribute("aria-activedescendant");
+    if (searchResultCount > 1 && selectedAfter === selectedBefore) {
+      throw new Error("ArrowDown did not move the session search selection");
     }
-    await shot("13-session-menu");
+    await sessionSearch.press("Enter");
+  } else {
     await page.keyboard.press("Escape");
+  }
+  await page.locator(".session-search-dialog").waitFor({ state: "detached" });
+
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "approval-request",
+      request: {
+        id: "smoke-approval",
+        toolName: "bash",
+        message: "Allow Compass to run a shell command?",
+        detail: "bash\\necho smoke",
+        args: { command: "echo smoke" },
+        ts: Date.now(),
+      },
+    });
+  });
+  await page.locator(".approval-request").waitFor();
+  await page.waitForTimeout(650);
+  if ((await page.locator(".approval-request-actions button").count()) !== 2) {
+    throw new Error("Inline approval must expose Allow and Deny actions");
+  }
+  await shot("12b-inline-approval");
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "approval-resolved",
+      id: "smoke-approval",
+    });
+  });
+  await page.locator(".approval-request").waitFor({ state: "detached" });
+
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    const tools = [
+      { id: "smoke-bash", callId: "smoke-bash-call", name: "bash", args: { command: "npm run check" }, output: "hidden command output" },
+      { id: "smoke-read", callId: "smoke-read-call", name: "read", args: { path: "C:/workspace/notes.md" }, output: "# Smoke read content\n\nLine two is visible." },
+      { id: "smoke-write", callId: "smoke-write-call", name: "write", args: { path: "C:/workspace/result.md" }, output: "Wrote result.md" },
+      { id: "smoke-edit", callId: "smoke-edit-call", name: "edit", args: { path: "C:/workspace/app.ts" }, output: "Edited app.ts" },
+    ];
+    for (const tool of tools) {
+      contents?.send("agent:event", {
+        kind: "tool-start",
+        id: tool.id,
+        callId: tool.callId,
+        name: tool.name,
+        args: tool.args,
+        ts: Date.now(),
+      });
+      contents?.send("agent:event", {
+        kind: "tool-end",
+        callId: tool.callId,
+        output: tool.output,
+        isError: false,
+      });
+    }
+  });
+
+  const activitySelector = [
+    '[data-tool-call-ids~="smoke-bash-call"] > .tool-activity-toggle',
+    '[data-tool-call-ids~="smoke-read-call"] > .tool-activity-toggle',
+    '[data-tool-call-ids~="smoke-write-call"] > .tool-activity-toggle',
+    '[data-tool-call-ids~="smoke-edit-call"] > .tool-activity-toggle',
+  ].join(", ");
+  const activityToggles = page.locator(activitySelector);
+  await activityToggles.first().waitFor();
+  const overflowAnchor = await page.locator(".thread-scroll").evaluate((element) =>
+    getComputedStyle(element).overflowAnchor,
+  );
+  if (overflowAnchor !== "auto") {
+    throw new Error(`Thread scroll anchoring is not enabled: ${overflowAnchor}`);
+  }
+  const threadScroll = page.locator(".thread-scroll");
+  const maxThreadScroll = await threadScroll.evaluate((element) => element.scrollHeight - element.clientHeight);
+  if (maxThreadScroll > 30) {
+    await threadScroll.evaluate((element) => {
+      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 31);
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    const jumpToLatest = page.getByRole("button", { name: "跳到最新消息" });
+    await jumpToLatest.waitFor();
+    await jumpToLatest.click();
+    await page.waitForFunction(() => {
+      const element = document.querySelector(".thread-scroll");
+      return element && element.scrollHeight - element.scrollTop - element.clientHeight <= 30;
+    });
+    await jumpToLatest.waitFor({ state: "detached" });
+  }
+  if ((await activityToggles.count()) !== 4) {
+    throw new Error("Read, Write, Edit and Bash did not render as four unified activity rows");
+  }
+  const activityStyles = await activityToggles.evaluateAll((buttons) => buttons.map((button) => {
+    const style = getComputedStyle(button);
+    return {
+      display: style.display,
+      fontSize: style.fontSize,
+      gap: style.gap,
+      left: button.getBoundingClientRect().left,
+      padding: style.padding,
+      parent: button.parentElement?.parentElement?.classList.contains("thread-inner") ?? false,
+    };
+  }));
+  const sharedStyles = new Set(activityStyles.map(({ left: _left, parent: _parent, ...style }) => JSON.stringify(style)));
+  const activityLefts = activityStyles.map(({ left }) => left);
+  if (sharedStyles.size !== 1 || activityLefts.some((left) => Math.abs(left - activityLefts[0]) > 1)) {
+    throw new Error(`Tool activity rows do not share one visual hierarchy: ${JSON.stringify(activityStyles)}`);
+  }
+  if (activityStyles.some(({ parent }) => !parent)) {
+    throw new Error("At least one tool activity row is nested below a different thread layer");
+  }
+
+  const readGroup = page.locator('[data-tool-call-ids~="smoke-read-call"]');
+  const readToggle = readGroup.locator(".tool-activity-toggle");
+  if ((await readToggle.getAttribute("aria-expanded")) !== "true") await readToggle.click();
+  await readGroup.locator(".tool-activity-output").waitFor();
+  if (!String(await readGroup.locator(".tool-activity-output").textContent()).includes("Line two is visible")) {
+    throw new Error("Expanded Read activity did not expose tool output");
+  }
+  await readGroup.getByRole("button", { name: "复制工具输出" }).click();
+  await readGroup.locator(".tool-copy-button.copied").waitFor();
+  await page.waitForTimeout(350);
+  await shot("12c-read-preview");
+
+  const commandGroup = page.locator('[data-tool-call-ids~="smoke-bash-call"]');
+  const commandToggle = commandGroup.locator(".tool-activity-toggle");
+  if ((await commandToggle.getAttribute("aria-expanded")) !== "true") await commandToggle.click();
+  await commandGroup.locator(".tool-activity-list").waitFor();
+  if ((await commandGroup.locator(".tool-activity-row").count()) === 0) {
+    throw new Error("Expanded command activity did not render command summaries");
+  }
+
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    contents?.send("agent:event", {
+      kind: "user-message",
+      id: "smoke-live-tools-turn",
+      text: "Inspect a live tool group",
+      ts: Date.now(),
+    });
+    contents?.send("agent:event", {
+      kind: "tool-start",
+      id: "smoke-live-read",
+      callId: "smoke-live-read-call",
+      name: "read",
+      args: { path: "C:/workspace/live.md" },
+      ts: Date.now(),
+    });
+  });
+  const liveReadGroup = page.locator('[data-tool-call-ids~="smoke-live-read-call"]');
+  const liveReadToggle = liveReadGroup.locator(".tool-activity-toggle");
+  await liveReadToggle.waitFor();
+  if ((await liveReadToggle.getAttribute("aria-expanded")) !== "true") {
+    throw new Error("A running tool activity group did not open automatically");
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "tool-end",
+      callId: "smoke-live-read-call",
+      output: "Live read complete",
+      isError: false,
+    });
+  });
+  await liveReadGroup.locator(".tool-activity-output").waitFor();
+  if ((await liveReadToggle.getAttribute("aria-expanded")) !== "true") {
+    throw new Error("A tool activity group collapsed as soon as execution completed");
+  }
+  await liveReadToggle.click();
+  if ((await liveReadToggle.getAttribute("aria-expanded")) !== "false") {
+    throw new Error("A completed tool activity group could not be collapsed manually");
+  }
+
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    contents?.send("agent:event", { kind: "assistant-start", id: "smoke-reasoning", ts: Date.now() });
+    contents?.send("agent:event", {
+      kind: "assistant-delta",
+      id: "smoke-reasoning",
+      blockType: "thinking",
+      contentIndex: 0,
+      delta: "Reasoning remains readable while the answer begins.",
+    });
+  });
+  const reasoningMessage = page.locator(".msg-assistant").filter({ hasText: "Reasoning remains readable" });
+  await reasoningMessage.locator(".thinking-content").waitFor();
+  const liveThinkingState = await reasoningMessage.locator(".thinking-block").evaluate((block) => {
+    const toggle = block.querySelector(".thinking-toggle");
+    const style = toggle ? getComputedStyle(toggle) : null;
+    return {
+      live: block.classList.contains("live"),
+      label: block.querySelector(".thinking-label")?.textContent?.trim(),
+      animationName: style?.animationName,
+    };
+  });
+  if (!liveThinkingState.live || liveThinkingState.label !== "Thinking" || liveThinkingState.animationName !== "thinking-breathe") {
+    throw new Error(`Live Thinking treatment is incomplete: ${JSON.stringify(liveThinkingState)}`);
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-end",
+      id: "smoke-reasoning",
+      blocks: [
+        { type: "thinking", text: "Reasoning remains readable while the answer begins." },
+        { type: "text", text: "The final answer is ready." },
+      ],
+      stopReason: "stop",
+    });
+  });
+  await page.waitForTimeout(120);
+  if ((await reasoningMessage.locator(".thinking-toggle").getAttribute("aria-expanded")) !== "true") {
+    throw new Error("Reasoning collapsed when streaming ended");
+  }
+  if (await reasoningMessage.locator(".thinking-block.live").count()) {
+    throw new Error("Thinking kept its live animation after streaming ended");
+  }
+  await reasoningMessage.getByRole("button", { name: "复制回复" }).click();
+  await reasoningMessage.locator(".assistant-copy-button.copied").waitFor();
+  await shot("12d-reasoning-copy");
+
+  const firstSession = page.locator(".thread-item-shell").first();
+  if (await firstSession.count()) {
+    const previousClientRegistry = await page.evaluate(() => localStorage.getItem("compass.clients.v1"));
+    try {
+      const smokeClientPrefix = `Smoke ${Date.now()}`;
+      const newClientButton = page.getByRole("button", { name: "新建客户档案" });
+      for (const suffix of ["Alpha", "Beta"]) {
+        await newClientButton.click();
+        const newClientDialog = page.getByRole("dialog", { name: "新建客户档案" });
+        await newClientDialog.getByLabel("姓名").fill(`${smokeClientPrefix} ${suffix}`);
+        await newClientDialog.getByLabel("年龄").fill("48");
+        await newClientDialog.getByLabel("联系方式").fill("smoke@example.test");
+        await newClientDialog.getByText("Phonak", { exact: true }).click();
+        await newClientDialog.getByRole("button", { name: "创建档案" }).click();
+        await newClientDialog.waitFor({ state: "detached" });
+      }
+
+      await firstSession.click({ button: "right" });
+      const sessionActions = await page
+        .locator(".sidebar-context-menu button")
+        .evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim()));
+      const expectedActions = ["关联到客户…", "重命名", "归档", "删除", "复制 Session ID"];
+      if (JSON.stringify(sessionActions) !== JSON.stringify(expectedActions)) {
+        throw new Error(`Session actions do not match: ${sessionActions.join(", ")}`);
+      }
+      const menuBounds = await page.locator(".sidebar-context-menu").evaluate((menu) => {
+        const bounds = menu.getBoundingClientRect();
+        return { left: bounds.left, top: bounds.top, right: bounds.right, bottom: bounds.bottom, width: innerWidth, height: innerHeight };
+      });
+      if (menuBounds.left < 0 || menuBounds.top < 0 || menuBounds.right > menuBounds.width || menuBounds.bottom > menuBounds.height) {
+        throw new Error(`Session menu escaped the viewport: ${JSON.stringify(menuBounds)}`);
+      }
+      await shot("13-session-menu");
+
+      const threadHeightBeforeConfirmation = await firstSession.evaluate((row) => row.getBoundingClientRect().height);
+      await page.getByRole("menuitem", { name: "删除" }).click();
+      const inlineConfirmation = firstSession.getByRole("alertdialog", { name: "确定删除会话" });
+      await inlineConfirmation.waitFor();
+      const confirmationLayout = await inlineConfirmation.evaluate((overlay) => ({
+        position: getComputedStyle(overlay).position,
+        inset: getComputedStyle(overlay).inset,
+        rowHeight: overlay.parentElement?.getBoundingClientRect().height,
+        seconds: overlay.querySelector(".thread-confirmation-countdown text")?.textContent,
+      }));
+      if (
+        confirmationLayout.position !== "absolute"
+        || confirmationLayout.inset !== "0px"
+        || confirmationLayout.rowHeight !== threadHeightBeforeConfirmation
+        || confirmationLayout.seconds !== "5"
+      ) {
+        throw new Error(`Inline confirmation shifted the thread row: ${JSON.stringify(confirmationLayout)}`);
+      }
+      await page.waitForTimeout(1_100);
+      if ((await inlineConfirmation.locator(".thread-confirmation-countdown text").textContent()) !== "4") {
+        throw new Error("Inline confirmation countdown did not advance from 5 to 4");
+      }
+      await shot("13a-inline-confirmation");
+      await inlineConfirmation.getByRole("button", { name: "取消" }).click();
+      await inlineConfirmation.waitFor({ state: "detached" });
+
+      await firstSession.click({ button: "right" });
+      await page.getByRole("menuitem", { name: "关联到客户…" }).click();
+      const clientDialog = page.getByRole("dialog", { name: "关联客户" });
+      const clientInput = clientDialog.getByPlaceholder("输入或搜索客户姓名");
+      await clientInput.fill(smokeClientPrefix);
+      if ((await clientDialog.getByRole("option").count()) !== 2) {
+        throw new Error("Client assignment filtering did not expose both keyboard candidates");
+      }
+      const clientBefore = await clientInput.getAttribute("aria-activedescendant");
+      await clientInput.press("ArrowDown");
+      const clientAfter = await clientInput.getAttribute("aria-activedescendant");
+      if (!clientAfter || clientAfter === clientBefore) {
+        throw new Error("ArrowDown did not move the client assignment selection");
+      }
+      await shot("13b-client-keyboard-selection");
+      await clientInput.press("Enter");
+      await clientDialog.waitFor({ state: "detached" });
+
+      await firstSession.click({ button: "right" });
+      await page.getByRole("menuitem", { name: "重命名" }).click();
+      await firstSession.getByRole("button", { name: "确认重命名" }).waitFor();
+      await firstSession.getByRole("button", { name: "取消重命名" }).click();
+
+      await firstSession.hover();
+      const moreButton = firstSession.locator(".thread-more-button");
+      if (!(await moreButton.isVisible())) {
+        throw new Error("Session action menu has no visible hover entry point");
+      }
+      const moreButtonStyle = await moreButton.evaluate((button) => {
+        const style = getComputedStyle(button);
+        return { opacity: Number(style.opacity), pointerEvents: style.pointerEvents };
+      });
+      if (moreButtonStyle.opacity < 0.99 || moreButtonStyle.pointerEvents === "none") {
+        throw new Error(`Session action entry is not interactable on hover: ${JSON.stringify(moreButtonStyle)}`);
+      }
+      await moreButton.click();
+      await page.locator(".sidebar-context-menu").waitFor();
+      if ((await page.locator(".sidebar-context-menu button").count()) !== expectedActions.length) {
+        throw new Error("Ellipsis entry did not open the complete session menu");
+      }
+      await page.keyboard.press("Escape");
+    } finally {
+      await page.evaluate((registry) => {
+        if (registry === null) localStorage.removeItem("compass.clients.v1");
+        else localStorage.setItem("compass.clients.v1", registry);
+      }, previousClientRegistry);
+    }
+  }
+
+  const sidebar = page.locator(".sidebar");
+  const sidebarResizer = page.locator(".sidebar-resizer");
+  if (await sidebar.evaluate((element) => element.classList.contains("collapsed"))) {
+    await page.locator(".sidebar-collapse-button").click();
+  }
+  const originalSidebarWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+  const resizeBox = await sidebarResizer.boundingBox();
+  if (!resizeBox) throw new Error("Sidebar resize handle is not visible");
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2 + 42, resizeBox.y + 120, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(220);
+  const resizedSidebarWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+  if (resizedSidebarWidth < originalSidebarWidth + 36) {
+    throw new Error(`Sidebar did not resize: ${originalSidebarWidth} -> ${resizedSidebarWidth}`);
+  }
+  const resizedBox = await sidebarResizer.boundingBox();
+  if (!resizedBox) throw new Error("Sidebar resize handle disappeared after resize");
+  await page.mouse.move(resizedBox.x + resizedBox.width / 2, resizedBox.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(
+    resizedBox.x + resizedBox.width / 2 - (resizedSidebarWidth - originalSidebarWidth),
+    resizedBox.y + 120,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  await page.waitForTimeout(220);
+  const restoredSidebarWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+  if (Math.abs(restoredSidebarWidth - originalSidebarWidth) > 2) {
+    throw new Error(`Sidebar width was not restored: ${restoredSidebarWidth}`);
   }
 
   await page.setViewportSize({ width: 600, height: 880 });

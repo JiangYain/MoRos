@@ -8,6 +8,7 @@ import { dialog, shell, type BrowserWindow, type OpenDialogOptions } from "elect
 import { spawn } from "node:child_process";
 import type { AgentService } from "./agent";
 import type { AuthLoginController } from "./auth-login-controller";
+import { focusWindowForDictation } from "./dictation-window";
 import { runPrerequisiteAction } from "./prerequisite-actions";
 
 interface CompassBackendOptions {
@@ -50,9 +51,7 @@ function startWindowsDictation(ownerWindow?: BrowserWindow): Promise<VoiceInputR
     return Promise.resolve({ ok: false, error: "Compass 主窗口不可用。" });
   }
 
-  ownerWindow.restore();
-  ownerWindow.focus();
-  ownerWindow.webContents.focus();
+  focusWindowForDictation(ownerWindow);
   const handleBuffer = ownerWindow.getNativeWindowHandle();
   const windowHandle =
     handleBuffer.length >= 8
@@ -111,8 +110,9 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
 
   return {
     init: () => service.buildInitPayload(),
-    prompt: (text, images) => service.prompt(text, images),
+    prompt: (text, images, clientMessageId) => service.prompt(text, images, clientMessageId),
     abort: () => service.abort(),
+    resolveApproval: async (id, allowed) => service.resolveApproval(id, allowed),
     newSession: async () => {
       await service.start();
       return buildAndPublish();
@@ -138,6 +138,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       await service.setModelEnabled(provider, id, enabled);
       return buildAndPublish();
     },
+    setSummaryModel: async (provider, id) => service.setSummaryModel(provider, id),
     setThinkingLevel: async (level) => {
       const stats = service.setThinkingLevel(level);
       emitEvent({ kind: "stats", stats });

@@ -16,6 +16,7 @@ import type {
   OAuthLoginCallbacks,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
   AgentStats,
   AgentUiEvent,
@@ -25,23 +26,26 @@ import type {
   RuntimePrerequisites,
   ThinkingLevel,
   UiImageAttachment,
+  UiApprovalRequest,
   UiModel,
   UiProviderStatus,
   UiSessionInfo,
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
-import { isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
-import { app, dialog } from "electron";
+import { DEFAULT_SUMMARY_MODEL, isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import { app } from "electron";
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { COMPASS_CONTEXT } from "./compass-context";
 import { buildEstimatedContextBreakdown } from "./context-usage";
 import { normalizeImages } from "./image-attachments";
-import { evaluateToolApproval } from "./permission-policy";
+import { evaluateToolApproval, type ToolApprovalRequest } from "./permission-policy";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { getRuntimePrerequisites } from "./prerequisites";
+import { mergeActiveSession } from "./session-list";
+import { buildSessionTitleTranscript, normalizeGeneratedSessionTitle } from "./session-title";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
 import {
@@ -57,6 +61,16 @@ import {
 } from "./thread-projector";
 
 type Emit = (event: AgentUiEvent) => void;
+
+type ToolApprovalDecision = undefined | { block: true; reason: string };
+
+interface PendingApproval {
+  request: UiApprovalRequest;
+  resolve(decision: ToolApprovalDecision): void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const APPROVAL_TIMEOUT_MS = 10 * 60 * 1_000;
 
 function normalizeThinkingLevels(levels: readonly unknown[]): ThinkingLevel[] {
   const normalized = [...new Set(levels.filter(isThinkingLevel))];
@@ -84,6 +98,9 @@ export class AgentService {
   private loader?: DefaultResourceLoader;
   private idCounter = 0;
   private currentAssistantId?: string;
+  private pendingUserMessageIds: string[] = [];
+  private pendingApprovals = new Map<string, PendingApproval>();
+  private sessionTitleRequests = new Set<string>();
 
   constructor(emit: Emit) {
     this.emit = emit;
@@ -108,25 +125,60 @@ export class AgentService {
           event.input,
         );
         if (!approval) return undefined;
-        try {
-          const result = await dialog.showMessageBox({
-            type: "question",
-            title: "Compass permission request",
-            message: approval.message,
-            detail: approval.detail,
-            buttons: ["Allow once", "Deny"],
-            defaultId: 0,
-            cancelId: 1,
-            noLink: true,
-          });
-          return result.response === 0
-            ? undefined
-            : { block: true, reason: "The operator denied this action." };
-        } catch {
-          return { block: true, reason: "Compass could not request approval for this action." };
-        }
+        return this.requestToolApproval(approval, event.toolName, event.input);
       });
     };
+  }
+
+  private requestToolApproval(
+    approval: ToolApprovalRequest,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<ToolApprovalDecision> {
+    const request: UiApprovalRequest = {
+      id: this.nextId("approval"),
+      toolName,
+      message: approval.message,
+      detail: approval.detail,
+      args: cloneForUi(args),
+      ts: Date.now(),
+    };
+
+    return new Promise<ToolApprovalDecision>((resolveDecision) => {
+      const timer = setTimeout(() => {
+        this.finishApproval(request.id, {
+          block: true,
+          reason: "The approval request expired before the operator responded.",
+        });
+      }, APPROVAL_TIMEOUT_MS);
+      timer.unref();
+      this.pendingApprovals.set(request.id, { request, resolve: resolveDecision, timer });
+      this.emit({ kind: "approval-request", request });
+    });
+  }
+
+  private finishApproval(id: string, decision: ToolApprovalDecision): boolean {
+    const pending = this.pendingApprovals.get(id);
+    if (!pending) return false;
+    clearTimeout(pending.timer);
+    this.pendingApprovals.delete(id);
+    this.emit({ kind: "approval-resolved", id });
+    pending.resolve(decision);
+    return true;
+  }
+
+  resolveApproval(id: string, allowed: boolean): { ok: boolean; error?: string } {
+    const resolved = this.finishApproval(
+      id,
+      allowed ? undefined : { block: true, reason: "The operator denied this action." },
+    );
+    return resolved ? { ok: true } : { ok: false, error: "Approval request is no longer active." };
+  }
+
+  private cancelPendingApprovals(reason: string): void {
+    for (const id of [...this.pendingApprovals.keys()]) {
+      this.finishApproval(id, { block: true, reason });
+    }
   }
 
   // ---------------------------------------------------------------- session
@@ -197,11 +249,13 @@ export class AgentService {
   }
 
   private disposeSession(): void {
+    this.cancelPendingApprovals("The session changed before approval was granted.");
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.session?.dispose();
     this.session = undefined;
     this.currentAssistantId = undefined;
+    this.pendingUserMessageIds = [];
   }
 
   async shutdown(): Promise<void> {
@@ -223,9 +277,18 @@ export class AgentService {
         this.emit({ kind: "agent-start" });
         break;
       case "agent_end":
+        this.emitStats();
+        this.emit({ kind: "sessions-changed" });
+        break;
+      case "agent_settled":
+        // AgentSession clears its run-active flag immediately before this
+        // event. `agent_end` can still be followed by retries, compaction, or
+        // queued continuations, so it is too early to clear the renderer's
+        // streaming state there.
         this.emit({ kind: "agent-end" });
         this.emitStats();
         this.emit({ kind: "sessions-changed" });
+        void this.generateMissingSessionTitle();
         break;
       case "message_start": {
         if (isAssistantMessage(event.message)) {
@@ -268,11 +331,12 @@ export class AgentService {
           if (text.trim() || images.length > 0) {
             this.emit({
               kind: "user-message",
-              id: this.nextId("u"),
+              id: this.pendingUserMessageIds.shift() ?? this.nextId("u"),
               text,
               images: images.length > 0 ? images : undefined,
               ts: message.timestamp,
             });
+            this.emit({ kind: "sessions-changed" });
           }
         } else if (isAssistantMessage(message) && this.currentAssistantId) {
           this.emit({
@@ -390,6 +454,7 @@ export class AgentService {
     }
     return {
       sessionId: session.sessionId,
+      sessionPath: session.sessionFile,
       sessionName: session.sessionName,
       model: model
         ? {
@@ -425,6 +490,10 @@ export class AgentService {
 
   getThread(): UiThreadItem[] {
     return projectThread(this.session);
+  }
+
+  getApprovals(): UiApprovalRequest[] {
+    return [...this.pendingApprovals.values()].map(({ request }) => ({ ...request }));
   }
 
   getSkills(): UiSkill[] {
@@ -584,8 +653,7 @@ export class AgentService {
   }
 
   async listSessions(): Promise<UiSessionInfo[]> {
-    const sessions = await SessionManager.list(this.settings.workspaceDir);
-    return sessions
+    const sessions = (await SessionManager.list(this.settings.workspaceDir))
       .map((info) => ({
         path: info.path,
         id: info.id,
@@ -594,8 +662,22 @@ export class AgentService {
         createdAt: info.created.getTime(),
         modifiedAt: info.modified.getTime(),
         messageCount: info.messageCount,
-      }))
-      .sort((a, b) => b.modifiedAt - a.modifiedAt);
+      }));
+    const projected = this.getThread();
+    const firstUser = projected.find((item) => item.kind === "user");
+    const sessionPath = this.session?.sessionFile;
+    const active = firstUser && sessionPath && this.session
+      ? {
+          path: sessionPath,
+          id: this.session.sessionId,
+          name: this.session.sessionName,
+          firstMessage: firstUser.text.trim() || (firstUser.images?.length ? "Image attachment" : "Untitled session"),
+          createdAt: firstUser.ts,
+          modifiedAt: projected.reduce((latest, item) => Math.max(latest, item.ts), firstUser.ts),
+          messageCount: projected.filter((item) => item.kind === "user" || item.kind === "assistant").length,
+        }
+      : undefined;
+    return mergeActiveSession(sessions, active);
   }
 
   private async resolveWorkspaceSessionDir(): Promise<string | null> {
@@ -643,6 +725,71 @@ export class AgentService {
     }
   }
 
+  private async generateMissingSessionTitle(): Promise<void> {
+    const session = this.session;
+    const sessionPath = session?.sessionFile;
+    if (!session || !sessionPath || session.sessionName || this.sessionTitleRequests.has(sessionPath)) return;
+
+    const thread = this.getThread();
+    const hasAssistantText = thread.some(
+      (item) => item.kind === "assistant" && item.blocks.some((block) => block.type === "text" && block.text.trim()),
+    );
+    if (!hasAssistantText) return;
+
+    const transcript = buildSessionTitleTranscript(thread);
+    if (!transcript) return;
+
+    const selection = this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL;
+    const model = this.modelRegistry.find(selection.provider, selection.id);
+    if (!model || !this.isModelConnectable(model)) return;
+
+    this.sessionTitleRequests.add(sessionPath);
+    try {
+      const auth = await this.modelRegistry.getApiKeyAndHeaders(model);
+      if (!auth.ok) return;
+      const response = await completeSimple(
+        model,
+        {
+          systemPrompt: [
+            "Generate a concise title for this conversation.",
+            "Match the conversation language.",
+            "Use 4-12 Chinese characters or 3-8 English words.",
+            "Return only the title with no quotes, markdown, labels, or punctuation.",
+          ].join(" "),
+          messages: [{ role: "user", content: transcript, timestamp: Date.now() }],
+        },
+        {
+          apiKey: auth.apiKey,
+          headers: auth.headers,
+          env: auth.env,
+          maxTokens: 80,
+          reasoning: "minimal",
+        },
+      );
+      if (response.stopReason === "error" || response.stopReason === "aborted") return;
+      const title = normalizeGeneratedSessionTitle(
+        response.content
+          .filter((content) => content.type === "text")
+          .map((content) => content.text)
+          .join("\n"),
+      );
+      if (!title) return;
+
+      const persistedSession = SessionManager.open(sessionPath);
+      if (persistedSession.getSessionName()) return;
+      if (this.session?.sessionFile === sessionPath && !this.session.sessionName) {
+        this.session.setSessionName(title);
+      } else {
+        persistedSession.appendSessionInfo(title);
+        this.emit({ kind: "sessions-changed" });
+      }
+    } catch {
+      // Title generation is best-effort and must never interrupt the conversation.
+    } finally {
+      this.sessionTitleRequests.delete(sessionPath);
+    }
+  }
+
   async archiveSession(path: string): Promise<{ ok: boolean; error?: string }> {
     const allowed = await this.assertListedSessionPath(path);
     if (!allowed.ok) return allowed;
@@ -682,6 +829,7 @@ export class AgentService {
       disabledSkills: [...this.settings.disabledSkills],
       permissionMode: this.settings.permissionMode,
       enabledModels: this.enabledModelKeys(),
+      summaryModel: { ...(this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL) },
     };
   }
 
@@ -717,15 +865,21 @@ export class AgentService {
       sessions: await this.listSessions(),
       stats: this.getStats(),
       thread: this.getThread(),
+      approvals: this.getApprovals(),
       version: this.appVersion(),
     };
   }
 
   // ---------------------------------------------------------------- actions
 
-  async prompt(text: string, images?: UiImageAttachment[]): Promise<{ ok: boolean; error?: string }> {
+  async prompt(
+    text: string,
+    images?: UiImageAttachment[],
+    clientMessageId?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
     if (!session) return { ok: false, error: "会话尚未就绪" };
+    if (clientMessageId) this.pendingUserMessageIds.push(clientMessageId);
     try {
       const normalizedImages = normalizeImages(images);
       if (session.isStreaming) {
@@ -735,11 +889,15 @@ export class AgentService {
       }
       return { ok: true };
     } catch (error) {
+      if (clientMessageId) {
+        this.pendingUserMessageIds = this.pendingUserMessageIds.filter((id) => id !== clientMessageId);
+      }
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async abort(): Promise<void> {
+    this.cancelPendingApprovals("The task was stopped before approval was granted.");
     await this.session?.abort();
   }
 
@@ -759,6 +917,14 @@ export class AgentService {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  setSummaryModel(provider: string, id: string): AppSettingsView {
+    const model = this.modelRegistry.find(provider, id);
+    if (!model) throw new Error("未找到该模型");
+    this.settings.summaryModel = { provider, id };
+    saveSettings(this.settings);
+    return this.getSettingsView();
   }
 
   setThinkingLevel(level: unknown): AgentStats {
