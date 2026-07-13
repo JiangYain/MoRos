@@ -329,8 +329,21 @@ try {
   const providerToggle = page.locator(".settings-provider-toggle");
   await providerToggle.click();
   const providerRows = page.locator(".settings-provider-row");
-  if ((await providerRows.count()) !== initPayload.providers.length) {
-    throw new Error("Provider settings did not render the complete provider registry");
+  try {
+    await page.waitForFunction(
+      ({ selector, expected }) => document.querySelectorAll(selector).length === expected,
+      { selector: ".settings-provider-row", expected: initPayload.providers.length },
+      { timeout: 5_000 },
+    );
+  } catch {
+    // Preserve a count-based assertion below so CI reports useful diagnostics
+    // instead of only a generic Playwright timeout.
+  }
+  const providerRowCount = await providerRows.count();
+  if (providerRowCount !== initPayload.providers.length) {
+    throw new Error(
+      `Provider settings did not render the complete provider registry: expected ${initPayload.providers.length}, got ${providerRowCount}`,
+    );
   }
   if ((await providerRows.locator("svg").count()) !== initPayload.providers.length) {
     throw new Error("At least one provider is missing its icon");
