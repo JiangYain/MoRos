@@ -326,8 +326,11 @@ try {
   if ((await summaryModelSelect.inputValue()) !== expectedSummaryModel) {
     throw new Error("Conversation title summary model does not match persisted settings");
   }
+  const providerSection = page.locator(".settings-provider-section");
   const providerToggle = page.locator(".settings-provider-toggle");
-  await providerToggle.click();
+  if (!(await providerSection.evaluate((section) => section.classList.contains("open")))) {
+    await providerToggle.click();
+  }
   const providerRows = page.locator(".settings-provider-row");
   try {
     await page.waitForFunction(
