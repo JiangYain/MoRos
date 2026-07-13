@@ -1,15 +1,16 @@
-import type { UiImageAttachment, VoiceInputUpdate } from "@shared/types";
-import { NO_MODEL_ERROR } from "@shared/messages";
-import { ArrowUp, Mic, Square, X } from "lucide-react";
+import type { UiImageAttachment, UiSkill, VoiceInputUpdate } from "@shared/types";
+import { parseSkillInvocation } from "@shared/skill-display";
+import { ArrowUp, Box, Mic, Square, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, isDesktop } from "../ipc";
+import { useI18n } from "../i18n";
 import { useCompass } from "../store";
 import { ActionsMenu } from "./composer/ActionsMenu";
 import { ContextUsageSurface, ContextUsageTrigger } from "./composer/ContextUsage";
 import { ModelMenu } from "./composer/ModelMenu";
 import { PermissionMenu } from "./composer/PermissionMenu";
-import { findSlashToken, replaceSlashToken } from "./composer/slash-token";
+import { findSlashToken } from "./composer/slash-token";
 
 type PopoverKind = "none" | "actions" | "permissions" | "model";
 
@@ -30,25 +31,25 @@ function attachmentId(): string {
     : `image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function readImageFile(file: File): Promise<ComposerAttachment> {
+function readImageFile(file: File, t: ReturnType<typeof useI18n>["t"]): Promise<ComposerAttachment> {
   const supported = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
   if (!supported.includes(file.type as (typeof supported)[number])) {
-    return Promise.reject(new Error("仅支持 PNG、JPEG、WebP 与 GIF 图片。"));
+    return Promise.reject(new Error(t("composer.imageOnly")));
   }
   if (file.size > 10 * 1024 * 1024) {
-    return Promise.reject(new Error("单张图片不能超过 10 MB。"));
+    return Promise.reject(new Error(t("composer.imageTooLarge")));
   }
   return new Promise((resolveImage, rejectImage) => {
     const reader = new FileReader();
-    reader.onerror = () => rejectImage(new Error(`无法读取图片：${file.name || "clipboard image"}`));
+    reader.onerror = () => rejectImage(new Error(t("composer.imageReadFailed", { name: file.name || "clipboard image" })));
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        rejectImage(new Error("图片数据无效。"));
+        rejectImage(new Error(t("composer.imageInvalid")));
         return;
       }
       const comma = reader.result.indexOf(",");
       if (comma < 0) {
-        rejectImage(new Error("图片数据无效。"));
+        rejectImage(new Error(t("composer.imageInvalid")));
         return;
       }
       resolveImage({
@@ -63,6 +64,7 @@ function readImageFile(file: File): Promise<ComposerAttachment> {
 }
 
 export function Composer(): React.JSX.Element {
+  const { t } = useI18n();
   const streaming = useCompass((state) => state.streaming);
   const stats = useCompass((state) => state.stats);
   const skills = useCompass((state) => state.skills);
@@ -76,6 +78,7 @@ export function Composer(): React.JSX.Element {
   const openSettings = useCompass((state) => state.openSettings);
 
   const [text, setText] = useState("");
+  const [selectedSkill, setSelectedSkill] = useState<UiSkill | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [popover, setPopover] = useState<PopoverKind>("none");
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -92,7 +95,12 @@ export function Composer(): React.JSX.Element {
 
   useEffect(() => {
     if (composerSeed === null) return;
-    setText(composerSeed);
+    const invocation = parseSkillInvocation(composerSeed);
+    const seededSkill = invocation
+      ? skills.find((skill) => skill.name === invocation.name && skill.enabled) ?? null
+      : null;
+    setSelectedSkill(seededSkill);
+    setText(seededSkill && invocation ? invocation.argumentsText : composerSeed);
     clearComposerSeed();
     requestAnimationFrame(() => {
       const node = textareaRef.current;
@@ -100,7 +108,7 @@ export function Composer(): React.JSX.Element {
       node.focus();
       node.setSelectionRange(node.value.length, node.value.length);
     });
-  }, [composerSeed, clearComposerSeed]);
+  }, [composerSeed, clearComposerSeed, skills]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -165,18 +173,18 @@ export function Composer(): React.JSX.Element {
   const addImageFiles = async (files: File[]): Promise<void> => {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) {
-      setError("请选择图片文件。");
+      setError(t("composer.selectImageFile"));
       return;
     }
     const available = Math.max(0, 8 - attachments.length);
     if (available === 0) {
-      setError("一次最多附加 8 张图片。");
+      setError(t("composer.maxImages"));
       return;
     }
     try {
-      const next = await Promise.all(imageFiles.slice(0, available).map(readImageFile));
+      const next = await Promise.all(imageFiles.slice(0, available).map((file) => readImageFile(file, t)));
       setAttachments((current) => [...current, ...next].slice(0, 8));
-      setError(imageFiles.length > available ? "一次最多附加 8 张图片。" : null);
+      setError(imageFiles.length > available ? t("composer.maxImages") : null);
       setPopover("none");
       requestAnimationFrame(() => textareaRef.current?.focus());
     } catch (error) {
@@ -221,10 +229,12 @@ export function Composer(): React.JSX.Element {
     if (files.length > 0) void addImageFiles(files);
   };
 
-  const applySlash = (command: string): void => {
+  const applySlash = (item: (typeof slashItems)[number]): void => {
     if (!slashToken) return;
-    const nextText = replaceSlashToken(text, slashToken, command);
-    const caret = slashToken.start + command.length + 1;
+    const nextText = `${text.slice(0, slashToken.start)}${text.slice(slashToken.end)}`
+      .replace(/[ \t]{2,}/g, " ");
+    const caret = slashToken.start;
+    setSelectedSkill(skills.find((skill) => skill.name === item.name) ?? null);
     setText(nextText);
     setComposerFocused(true);
     setSlashDismissed(true);
@@ -238,25 +248,31 @@ export function Composer(): React.JSX.Element {
 
   const doSend = (): void => {
     const trimmed = text.trim();
-    if (!trimmed && attachments.length === 0) return;
+    if (!trimmed && attachments.length === 0 && !selectedSkill) return;
     if (noModel) {
-      setError(NO_MODEL_ERROR);
+      setError(t("composer.configureModel"));
       return;
     }
     if (attachments.length > 0 && stats?.model && !stats.model.supportsImages) {
-      setError("当前模型不支持图像输入，请先切换到支持视觉的模型。");
+      setError(t("composer.imageUnsupported"));
       return;
     }
 
     const draftText = text;
+    const draftSkill = selectedSkill;
     const draftAttachments = attachments;
     const images = attachments.map(({ data, mimeType, name }) => ({ data, mimeType, name }));
     setError(null);
     setPopover("none");
     setText("");
+    setSelectedSkill(null);
     setAttachments([]);
-    void send(trimmed, images).catch(() => {
+    const promptText = selectedSkill
+      ? `/skill:${selectedSkill.name}${trimmed ? ` ${trimmed}` : ""}`
+      : trimmed;
+    void send(promptText, images).catch(() => {
       setText((current) => current || draftText);
+      setSelectedSkill((current) => current ?? draftSkill);
       setAttachments((current) => current.length > 0 ? current : draftAttachments);
     });
   };
@@ -273,20 +289,20 @@ export function Composer(): React.JSX.Element {
     if (dictation.phase !== "idle") return;
     setPopover("none");
     textareaRef.current?.focus();
-    setDictation({ phase: "starting", preview: isDesktop ? "正在打开 Windows 语音输入…" : "正在连接麦克风…" });
+    setDictation({ phase: "starting", preview: isDesktop ? t("composer.voiceOpening") : t("composer.micConnecting") });
     window.setTimeout(() => {
       const onUpdate = isDesktop
         ? undefined
         : (update: VoiceInputUpdate): void => {
             setDictation({
               phase: update.phase,
-              preview: update.interimText || (update.phase === "listening" ? "正在倾听…" : "正在处理语音…"),
+              preview: update.interimText || (update.phase === "listening" ? t("composer.voiceListening") : t("composer.voiceProcessingPreview")),
             });
           };
       void api.startDictation(onUpdate)
         .then((result) => {
           if (!result.ok) {
-            setError(result.error ?? "无法启动语音输入");
+            setError(result.error ?? t("composer.voiceStartFailed"));
             setDictation({ phase: "idle", preview: "" });
             return;
           }
@@ -296,7 +312,7 @@ export function Composer(): React.JSX.Element {
           }
           setDictation({
             phase: "complete",
-            preview: isDesktop ? "Windows 语音输入已打开" : result.text || "语音已识别",
+            preview: isDesktop ? t("composer.voiceOpened") : result.text || t("composer.voiceRecognized"),
           });
           resetDictationAfter(isDesktop ? 1600 : 900);
         })
@@ -308,6 +324,7 @@ export function Composer(): React.JSX.Element {
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.nativeEvent.isComposing) return;
     if (slashMenuOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -319,9 +336,9 @@ export function Composer(): React.JSX.Element {
         setSlashIndex((index) => (index - 1 + slashItems.length) % slashItems.length);
         return;
       }
-      if (event.key === "Tab") {
+      if (event.key === "Tab" || event.key === "Enter") {
         event.preventDefault();
-        applySlash(slashItems[slashIndex].command);
+        applySlash(slashItems[slashIndex]);
         return;
       }
       if (event.key === "Escape") {
@@ -348,12 +365,12 @@ export function Composer(): React.JSX.Element {
 
   const dictationBusy = dictation.phase !== "idle";
   const dictationLabel = dictation.phase === "starting"
-    ? "准备语音输入"
+    ? t("composer.voiceStart")
     : dictation.phase === "listening"
-      ? "正在倾听"
+      ? t("composer.voiceListening")
       : dictation.phase === "processing"
-        ? "正在识别"
-        : "语音输入已就绪";
+        ? t("composer.voiceProcessing")
+        : t("composer.voiceReady");
 
   return (
     <div className="composer-zone">
@@ -361,8 +378,8 @@ export function Composer(): React.JSX.Element {
         {noModel && (
           <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="model-banner-inner">
-              <span>{stats?.model ? "当前模型尚未配置凭据。" : "配置模型后即可开始对话。"}</span>
-              <button type="button" className="go" onClick={() => openSettings()}>打开设置</button>
+              <span>{stats?.model ? t("composer.noCredential") : t("composer.configureModel")}</span>
+              <button type="button" className="go" onClick={() => openSettings()}>{t("composer.openSettings")}</button>
             </div>
           </motion.div>
         )}
@@ -370,7 +387,7 @@ export function Composer(): React.JSX.Element {
           <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="model-banner-inner error">
               <span>{lastError}</span>
-              <button type="button" className="go" onClick={() => setError(null)}>关闭</button>
+              <button type="button" className="go" onClick={() => setError(null)}>{t("common.close")}</button>
             </div>
           </motion.div>
         )}
@@ -380,10 +397,10 @@ export function Composer(): React.JSX.Element {
         {(queue.steering.length > 0 || queue.followUp.length > 0) && (
           <div className="queue-chips">
             {queue.steering.map((message, index) => (
-              <span className="queue-chip" key={`s-${index}`}><span className="tag">转向</span><span className="txt">{message}</span></span>
+              <span className="queue-chip" key={`s-${index}`}><span className="tag">{t("composer.steer")}</span><span className="txt">{message}</span></span>
             ))}
             {queue.followUp.map((message, index) => (
-              <span className="queue-chip" key={`f-${index}`}><span className="tag">追问</span><span className="txt">{message}</span></span>
+              <span className="queue-chip" key={`f-${index}`}><span className="tag">{t("composer.followUp")}</span><span className="txt">{message}</span></span>
             ))}
           </div>
         )}
@@ -406,15 +423,15 @@ export function Composer(): React.JSX.Element {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
               >
-                <span>释放以附加图片</span>
-                <small>PNG、JPEG、WebP 或 GIF · 单张不超过 10 MB</small>
+                <span>{t("composer.dropImages")}</span>
+                <small>{t("composer.imageRules")}</small>
               </motion.div>
             )}
           </AnimatePresence>
           <AnimatePresence>
             {popover === "none" && slashMenuOpen && (
               <motion.div className="popover slash-popover" initial={{ opacity: 0, y: 5, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.99 }}>
-                <div className="slash-popover-list" role="listbox" aria-label="技能命令">
+                <div className="slash-popover-list" role="listbox" aria-label={t("composer.skillCommands")}>
                   {slashItems.map((item, index) => (
                     <button
                       type="button"
@@ -424,14 +441,13 @@ export function Composer(): React.JSX.Element {
                       className={`popover-item${index === slashIndex ? " hl" : ""}`}
                       onMouseDown={(event) => event.preventDefault()}
                       onMouseEnter={() => setSlashIndex(index)}
-                      onClick={() => applySlash(item.command)}
+                      onClick={() => applySlash(item)}
                     >
                       <span className="name">{item.command}</span>
                       <span className="desc">{item.description}</span>
                     </button>
                   ))}
                 </div>
-                <div className="slash-popover-hint">Tab 选择&nbsp;&nbsp;·&nbsp;&nbsp;Shift ↵ 换行</div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -442,12 +458,32 @@ export function Composer(): React.JSX.Element {
             if (files.length > 0) void addImageFiles(files);
           }} />
 
+          {selectedSkill && (
+            <div className="composer-skill-selection" role="group" aria-label={t("composer.selectedSkill")}>
+              <span className="composer-skill-chip">
+                <Box size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span>{selectedSkill.name}</span>
+              </span>
+              <button
+                type="button"
+                aria-label={t("composer.removeSkill", { name: selectedSkill.name })}
+                title={t("composer.removeSkill", { name: selectedSkill.name })}
+                onClick={() => {
+                  setSelectedSkill(null);
+                  requestAnimationFrame(() => textareaRef.current?.focus());
+                }}
+              >
+                <X size={13} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
           {attachments.length > 0 && (
             <div className="composer-attachments">
               {attachments.map((image, index) => (
                 <div className="composer-attachment" key={image.id}>
-                  <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name ?? `Attachment ${index + 1}`} />
-                  <button type="button" aria-label={`Remove image ${index + 1}`} onClick={() => setAttachments((current) => current.filter((item) => item.id !== image.id))}>
+                  <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name ?? t("composer.attachment", { number: index + 1 })} />
+                  <button type="button" aria-label={t("composer.removeImage", { number: index + 1 })} onClick={() => setAttachments((current) => current.filter((item) => item.id !== image.id))}>
                     <X size={12} strokeWidth={2} />
                   </button>
                 </div>
@@ -459,7 +495,7 @@ export function Composer(): React.JSX.Element {
             ref={textareaRef}
             rows={1}
             value={text}
-            placeholder={streaming ? "输入一条转向指令…" : "描述主诉、粘贴听力图，或让 Compass 执行任务"}
+            placeholder={streaming ? t("composer.steerPlaceholder") : t("composer.placeholder")}
             onChange={(event) => setText(event.target.value)}
             onFocus={() => {
               setComposerFocused(true);
@@ -502,13 +538,13 @@ export function Composer(): React.JSX.Element {
               setPopover("none");
               setContextExpanded((current) => !current);
             }} />
-            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={dictationBusy ? dictationLabel : isDesktop ? "启动 Windows 语音输入" : "启动浏览器语音输入"} aria-pressed={dictationBusy} title={isDesktop ? "语音输入（Windows Win+H）" : "语音输入（浏览器麦克风）"} onClick={startDictation}>
+            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={dictationBusy ? dictationLabel : isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} aria-pressed={dictationBusy} title={isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} onClick={startDictation}>
               <Mic size={18} strokeWidth={1.75} />
             </button>
-            {streaming && !text.trim() && attachments.length === 0 ? (
-              <button type="button" className="send-btn stop" aria-label="停止" onClick={() => void abort()}><Square size={13} fill="currentColor" strokeWidth={0} /></button>
+            {streaming && !text.trim() && attachments.length === 0 && !selectedSkill ? (
+              <button type="button" className="send-btn stop" aria-label={t("composer.stop")} onClick={() => void abort()}><Square size={13} fill="currentColor" strokeWidth={0} /></button>
             ) : (
-              <button type="button" className="send-btn" aria-label="发送" title={noModel ? "请先配置模型" : "发送"} disabled={(!text.trim() && attachments.length === 0) || noModel} onClick={doSend}>
+              <button type="button" className="send-btn" aria-label={t("composer.send")} title={noModel ? t("composer.configureFirst") : t("composer.send")} disabled={(!text.trim() && attachments.length === 0 && !selectedSkill) || noModel} onClick={doSend}>
                 <ArrowUp size={19} strokeWidth={1.8} />
               </button>
             )}

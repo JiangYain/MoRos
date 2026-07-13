@@ -1,6 +1,7 @@
 import type {
   AgentStats,
   AgentUiEvent,
+  AppLanguage,
   AppSettingsView,
   InitPayload,
   PermissionMode,
@@ -15,7 +16,13 @@ import type {
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
-import { NO_MODEL_ERROR } from "@shared/messages";
+import { isAppLanguage } from "@shared/types";
+import {
+  CLIENT_REGISTRY_STORAGE_KEY,
+  emptyClientRegistry,
+  type ClientProfileDraft,
+  type ClientRegistry,
+} from "@shared/client-registry";
 import { create } from "zustand";
 import { api } from "./ipc";
 import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
@@ -39,6 +46,7 @@ interface CompassState {
   stats?: AgentStats;
   thread: UiThreadItem[];
   approvals: UiApprovalRequest[];
+  clientRegistry: ClientRegistry;
   profileAvatar: string | null;
   streaming: boolean;
   queue: { steering: string[]; followUp: string[] };
@@ -63,17 +71,21 @@ interface CompassState {
   send(text: string, images?: UiImageAttachment[]): Promise<void>;
   abort(): Promise<void>;
   resolveApproval(id: string, allowed: boolean): Promise<void>;
-  newSession(): Promise<void>;
-  openSession(path: string): Promise<void>;
+  newSession(): Promise<boolean>;
+  openSession(path: string): Promise<boolean>;
   refreshSessions(): Promise<void>;
   renameSession(path: string, name: string): Promise<void>;
   deleteSession(path: string): Promise<void>;
   archiveSession(path: string): Promise<void>;
+  saveClientProfile(profile: ClientProfileDraft): Promise<void>;
+  assignSessionClient(sessionId: string, clientName: string): Promise<void>;
+  unassignSessionClient(sessionId: string): Promise<void>;
   setModel(provider: string, id: string): Promise<void>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void>;
   setSummaryModel(provider: string, id: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
+  setLanguage(language: AppLanguage): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
   loginProvider(provider: string): Promise<void>;
   removeApiKey(provider: string): Promise<void>;
@@ -84,8 +96,46 @@ interface CompassState {
   setWorkspaceDir(): Promise<void>;
 }
 
+type StoreMessageKey = "avatarStorage" | "workspaceChange" | "noModel" | "approvalInactive";
+
+const STORE_MESSAGES: Record<AppLanguage, Record<StoreMessageKey, string>> = {
+  "zh-CN": {
+    avatarStorage: "头像无法保存到本地存储。",
+    workspaceChange: "当前任务仍在运行。更换工作区会中止本次任务，是否继续？",
+    noModel: "请先在设置中配置 API Key，或切换到已配置的模型。",
+    approvalInactive: "该批准请求已失效。",
+  },
+  "zh-TW": {
+    avatarStorage: "無法將頭像儲存到本機。",
+    workspaceChange: "目前工作仍在執行。變更工作區會中止這項工作，是否繼續？",
+    noModel: "請先在設定中配置 API Key，或切換到已配置的模型。",
+    approvalInactive: "此核准請求已失效。",
+  },
+  en: {
+    avatarStorage: "The avatar could not be saved locally.",
+    workspaceChange: "A task is still running. Changing the workspace will stop it. Continue?",
+    noModel: "Configure an API key in Settings or switch to a configured model first.",
+    approvalInactive: "This approval request is no longer active.",
+  },
+  de: {
+    avatarStorage: "Der Avatar konnte nicht lokal gespeichert werden.",
+    workspaceChange: "Eine Aufgabe wird noch ausgeführt. Beim Wechsel des Arbeitsbereichs wird sie beendet. Fortfahren?",
+    noModel: "Konfigurieren Sie zuerst einen API-Schlüssel oder wechseln Sie zu einem konfigurierten Modell.",
+    approvalInactive: "Diese Freigabeanfrage ist nicht mehr aktiv.",
+  },
+};
+
+function currentDocumentLanguage(): AppLanguage {
+  const language = typeof document === "undefined" ? undefined : document.documentElement.lang;
+  return isAppLanguage(language) ? language : "zh-CN";
+}
+
+function storeMessage(key: StoreMessageKey): string {
+  return STORE_MESSAGES[currentDocumentLanguage()][key];
+}
+
 function sanitizeErrorMessage(message: string): string {
-  if (/No API key found/i.test(message)) return NO_MODEL_ERROR;
+  if (/No API key found/i.test(message)) return storeMessage("noModel");
   return message.replace(/[A-Za-z]:\\[^\s"'<>`]+/g, "[local path]");
 }
 
@@ -136,6 +186,7 @@ export const useCompass = create<CompassState>((set, get) => {
   sessions: [],
   thread: [],
   approvals: [],
+  clientRegistry: emptyClientRegistry(),
   profileAvatar: loadProfileAvatar(),
   streaming: false,
   queue: { steering: [], followUp: [] },
@@ -158,6 +209,7 @@ export const useCompass = create<CompassState>((set, get) => {
       stats: payload.stats,
       thread: payload.thread,
       approvals: payload.approvals ?? [],
+      clientRegistry: payload.clientRegistry,
       streaming: payload.stats.isStreaming,
       queue: { steering: [], followUp: [] },
       streamingBlocks: new Map(),
@@ -179,7 +231,7 @@ export const useCompass = create<CompassState>((set, get) => {
           const thread = existing
             ? state.thread.map((item) =>
                 item.kind === "user" && item.id === event.id
-                  ? { ...item, text: event.text, images: event.images, ts: event.ts }
+                  ? { ...item, text: event.text, skillName: event.skillName, images: event.images, ts: event.ts }
                   : item,
               )
             : [
@@ -188,6 +240,7 @@ export const useCompass = create<CompassState>((set, get) => {
                   kind: "user" as const,
                   id: event.id,
                   text: event.text,
+                  skillName: event.skillName,
                   images: event.images,
                   ts: event.ts,
                 },
@@ -198,7 +251,7 @@ export const useCompass = create<CompassState>((set, get) => {
               state.sessions,
               state.stats,
               thread,
-              event.text,
+              event.text || (event.skillName ? `Skill: ${event.skillName}` : ""),
               event.images,
               event.ts,
             ),
@@ -340,6 +393,9 @@ export const useCompass = create<CompassState>((set, get) => {
       case "sessions-changed":
         void get().refreshSessions();
         break;
+      case "client-registry-changed":
+        set({ clientRegistry: event.registry });
+        break;
       case "state-refresh":
         get().applyInit(event.payload);
         break;
@@ -357,7 +413,7 @@ export const useCompass = create<CompassState>((set, get) => {
       if (profileAvatar) window.localStorage.setItem(PROFILE_AVATAR_STORAGE_KEY, profileAvatar);
       else window.localStorage.removeItem(PROFILE_AVATAR_STORAGE_KEY);
     } catch {
-      set({ lastError: "头像无法保存到本地存储。" });
+      set({ lastError: storeMessage("avatarStorage") });
       return;
     }
     set({ profileAvatar });
@@ -366,13 +422,29 @@ export const useCompass = create<CompassState>((set, get) => {
   boot: () => runIpc(async () => {
     const payload = await api.init();
     get().applyInit(payload);
+    let legacyRegistry: string | null = null;
+    try {
+      legacyRegistry = window.localStorage.getItem(CLIENT_REGISTRY_STORAGE_KEY);
+    } catch {
+      // Database-backed profiles remain available even when localStorage is blocked.
+    }
+    if (legacyRegistry) {
+      const clientRegistry = await api.importLegacyClientRegistry(legacyRegistry);
+      set({ clientRegistry });
+      try {
+        window.localStorage.removeItem(CLIENT_REGISTRY_STORAGE_KEY);
+      } catch {
+        // Re-importing is idempotent if the legacy key cannot be removed.
+      }
+    }
   }),
 
   send: async (text, images) => {
     const state = get();
     if (!state.stats?.model || !state.stats.modelAuthConfigured) {
-      set({ lastError: NO_MODEL_ERROR });
-      throw new Error(NO_MODEL_ERROR);
+      const noModelError = storeMessage("noModel");
+      set({ lastError: noModelError });
+      throw new Error(noModelError);
     }
     const id = clientMessageId();
     const ts = Date.now();
@@ -412,15 +484,27 @@ export const useCompass = create<CompassState>((set, get) => {
     await api.abort();
   }),
 
-  newSession: () => runIpc(async () => {
-    const payload = await api.newSession();
-    get().applyInit(payload);
-  }),
+  newSession: async () => {
+    try {
+      const payload = await api.newSession();
+      get().applyInit(payload);
+      return true;
+    } catch (error) {
+      set({ lastError: sanitizeUnknownError(error) });
+      return false;
+    }
+  },
 
-  openSession: (path) => runIpc(async () => {
-    const payload = await api.openSession(path);
-    get().applyInit(payload);
-  }),
+  openSession: async (path) => {
+    try {
+      const payload = await api.openSession(path);
+      get().applyInit(payload);
+      return true;
+    } catch (error) {
+      set({ lastError: sanitizeUnknownError(error) });
+      return false;
+    }
+  },
 
   refreshSessions: () => runIpc(async () => {
     const sessions = await api.listSessions();
@@ -456,6 +540,21 @@ export const useCompass = create<CompassState>((set, get) => {
     get().applyInit(payload);
   }),
 
+  saveClientProfile: (profile) => runIpc(async () => {
+    const clientRegistry = await api.saveClientProfile(profile);
+    set({ clientRegistry });
+  }),
+
+  assignSessionClient: (sessionId, clientName) => runIpc(async () => {
+    const clientRegistry = await api.assignSessionClient(sessionId, clientName);
+    set({ clientRegistry });
+  }),
+
+  unassignSessionClient: (sessionId) => runIpc(async () => {
+    const clientRegistry = await api.unassignSessionClient(sessionId);
+    set({ clientRegistry });
+  }),
+
   setModel: (provider, id) => runIpc(async () => {
     const result = await api.setModel(provider, id);
     if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
@@ -463,7 +562,7 @@ export const useCompass = create<CompassState>((set, get) => {
 
   resolveApproval: (id, allowed) => runIpc(async () => {
     const result = await api.resolveApproval(id, allowed);
-    if (!result.ok) set({ lastError: result.error ?? "Approval request is no longer active." });
+    if (!result.ok) set({ lastError: result.error ?? storeMessage("approvalInactive") });
   }),
 
   setModelEnabled: (provider, id, enabled) => runIpc(async () => {
@@ -488,6 +587,12 @@ export const useCompass = create<CompassState>((set, get) => {
 
   setPermissionMode: (mode) => runIpc(async () => {
     const settings = await api.setPermissionMode(mode);
+    set({ settings });
+  }),
+
+  setLanguage: (language) => runIpc(async () => {
+    const settings = await api.setLanguage(language);
+    document.documentElement.lang = settings.language;
     set({ settings });
   }),
 
@@ -545,7 +650,7 @@ export const useCompass = create<CompassState>((set, get) => {
   setWorkspaceDir: () => runIpc(async () => {
     if (
       get().streaming &&
-      !window.confirm("当前任务仍在运行。更换工作区会中止本次任务，是否继续？")
+      !window.confirm(storeMessage("workspaceChange"))
     ) {
       return;
     }

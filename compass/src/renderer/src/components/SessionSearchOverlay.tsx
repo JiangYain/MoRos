@@ -2,6 +2,7 @@ import { MessageSquare, Search, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "../i18n";
 import { moveListSelection } from "./list-keyboard-navigation";
 
 export interface SessionSearchEntry {
@@ -26,22 +27,23 @@ export function SessionSearchOverlay({
   onClose,
   onSelect,
 }: SessionSearchOverlayProps): React.JSX.Element | null {
+  const { language, t } = useI18n();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const reduced = useReducedMotion();
   const visible = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("zh-CN");
+    const normalized = query.trim().toLocaleLowerCase(language);
     const matches = normalized
       ? entries.filter((entry) =>
           `${entry.title}\n${entry.client}\n${entry.time}`
-            .toLocaleLowerCase("zh-CN")
+            .toLocaleLowerCase(language)
             .includes(normalized),
         )
       : entries;
     return matches.slice(0, 12);
-  }, [entries, query]);
+  }, [entries, language, query]);
 
   useEffect(() => {
     setSelectedIndex((current) => (
@@ -118,7 +120,7 @@ export function SessionSearchOverlay({
             className="session-search-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="搜索对话"
+            aria-label={t("search.dialog")}
             initial={reduced ? false : { opacity: 0, y: -8, scale: 0.99 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduced ? undefined : { opacity: 0, y: -5, scale: 0.995 }}
@@ -135,8 +137,8 @@ export function SessionSearchOverlay({
                 aria-expanded={true}
                 aria-activedescendant={selectedIndex >= 0 ? `${listId}-option-${selectedIndex}` : undefined}
                 value={query}
-                placeholder="搜索对话"
-                aria-label="搜索对话"
+                placeholder={t("search.dialog")}
+                aria-label={t("search.dialog")}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setSelectedIndex(0);
@@ -144,7 +146,7 @@ export function SessionSearchOverlay({
                 onKeyDown={onInputKeyDown}
               />
               {query ? (
-                <button type="button" aria-label="清空搜索" onClick={() => {
+                <button type="button" aria-label={t("search.clear")} onClick={() => {
                   setQuery("");
                   setSelectedIndex(0);
                 }}>
@@ -155,8 +157,8 @@ export function SessionSearchOverlay({
               )}
             </label>
 
-            <div id={listId} className="session-search-results" role="listbox" aria-label="对话搜索结果">
-              <div className="session-search-caption">{query ? "Search results" : "Recent conversations"}</div>
+            <div id={listId} className="session-search-results" role="listbox" aria-label={t("search.results")}>
+              <div className="session-search-caption">{query ? t("search.results") : t("search.recent")}</div>
               {visible.map((entry, index) => (
                 <button
                   id={`${listId}-option-${index}`}
@@ -177,7 +179,7 @@ export function SessionSearchOverlay({
                   <time>{entry.time}</time>
                 </button>
               ))}
-              {visible.length === 0 && <div className="session-search-empty">没有匹配的对话</div>}
+              {visible.length === 0 && <div className="session-search-empty">{t("search.noMatches")}</div>}
             </div>
           </motion.section>
         </motion.div>

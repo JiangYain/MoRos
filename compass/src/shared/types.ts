@@ -1,3 +1,5 @@
+import type { ClientProfileDraft, ClientRegistry } from "./client-registry";
+
 /**
  * Shared IPC contract between the Electron main process (Pi agent host)
  * and the renderer (Compass UI). Everything here must be structured-clone safe.
@@ -19,6 +21,14 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === "string" && (PERMISSION_MODES as readonly string[]).includes(value);
 }
 
+export const APP_LANGUAGES = ["zh-CN", "zh-TW", "en", "de"] as const;
+
+export type AppLanguage = (typeof APP_LANGUAGES)[number];
+
+export function isAppLanguage(value: unknown): value is AppLanguage {
+  return typeof value === "string" && (APP_LANGUAGES as readonly string[]).includes(value);
+}
+
 export interface UiImageAttachment {
   /** Base64 payload without a data URL prefix. */
   data: string;
@@ -35,6 +45,25 @@ export interface ContextUsageBreakdown {
   subagents: number;
   conversation: number;
   estimated: boolean;
+}
+
+export interface DeveloperContextMessage {
+  index: number;
+  role: string;
+  content: unknown;
+}
+
+export interface DeveloperContextSnapshot {
+  sessionId: string;
+  sessionPath?: string;
+  clientName?: string;
+  clientContext?: string;
+  effectiveSystemPrompt: string;
+  contextTokens: number | null;
+  contextWindow: number;
+  contextPercent: number | null;
+  contextBreakdown?: ContextUsageBreakdown;
+  messages: DeveloperContextMessage[];
 }
 
 export interface UiModel {
@@ -119,7 +148,7 @@ export type UiBlock =
   | { type: "text"; text: string };
 
 export type UiThreadItem =
-  | { kind: "user"; id: string; text: string; images?: UiImageAttachment[]; ts: number }
+  | { kind: "user"; id: string; text: string; skillName?: string; images?: UiImageAttachment[]; ts: number }
   | {
       kind: "assistant";
       id: string;
@@ -172,7 +201,7 @@ export interface AgentStats {
 export type AgentUiEvent =
   | { kind: "agent-start" }
   | { kind: "agent-end" }
-  | { kind: "user-message"; id: string; text: string; images?: UiImageAttachment[]; ts: number }
+  | { kind: "user-message"; id: string; text: string; skillName?: string; images?: UiImageAttachment[]; ts: number }
   | { kind: "assistant-start"; id: string; ts: number }
   | {
       kind: "assistant-delta";
@@ -198,9 +227,11 @@ export type AgentUiEvent =
   | { kind: "notice"; tone: "info" | "warn"; text: string; ts: number }
   | { kind: "stats"; stats: AgentStats }
   | { kind: "sessions-changed" }
+  | { kind: "client-registry-changed"; registry: ClientRegistry }
   | { kind: "state-refresh"; payload: InitPayload };
 
 export interface AppSettingsView {
+  language: AppLanguage;
   workspaceDir: string;
   skillDirs: string[];
   disabledSkills: string[];
@@ -244,6 +275,7 @@ export interface InitPayload {
   stats: AgentStats;
   thread: UiThreadItem[];
   approvals: UiApprovalRequest[];
+  clientRegistry: ClientRegistry;
   version: string;
 }
 
@@ -262,6 +294,7 @@ export interface VoiceInputUpdate {
 /** API exposed on window.compass by the preload script. */
 export interface CompassApi {
   init(): Promise<InitPayload>;
+  getDeveloperContext(): Promise<DeveloperContextSnapshot>;
   prompt(
     text: string,
     images?: UiImageAttachment[],
@@ -275,11 +308,16 @@ export interface CompassApi {
   renameSession(path: string, name: string): Promise<{ ok: boolean; error?: string }>;
   deleteSession(path: string): Promise<{ ok: boolean; error?: string }>;
   archiveSession(path: string): Promise<{ ok: boolean; error?: string }>;
+  importLegacyClientRegistry(serializedRegistry: string): Promise<ClientRegistry>;
+  saveClientProfile(profile: ClientProfileDraft): Promise<ClientRegistry>;
+  assignSessionClient(sessionId: string, clientName: string): Promise<ClientRegistry>;
+  unassignSessionClient(sessionId: string): Promise<ClientRegistry>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<InitPayload>;
   setSummaryModel(provider: string, id: string): Promise<AppSettingsView>;
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
   setPermissionMode(mode: PermissionMode): Promise<AppSettingsView>;
+  setLanguage(language: AppLanguage): Promise<AppSettingsView>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
   loginProvider(provider: string): Promise<InitPayload>;
   removeApiKey(provider: string): Promise<InitPayload>;

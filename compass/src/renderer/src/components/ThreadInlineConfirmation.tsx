@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 import {
   remainingConfirmationSeconds,
   startThreadConfirmationTimeout,
@@ -11,6 +12,7 @@ export type ThreadConfirmationAction = "archive" | "delete";
 interface ThreadInlineConfirmationProps {
   action: ThreadConfirmationAction;
   busy: boolean;
+  sessionTitle: string;
   onCancel(): void;
   onConfirm(): void | Promise<void>;
 }
@@ -20,9 +22,11 @@ const COUNTDOWN_TICK_MS = 100;
 export function ThreadInlineConfirmation({
   action,
   busy,
+  sessionTitle,
   onCancel,
   onConfirm,
 }: ThreadInlineConfirmationProps): React.JSX.Element {
+  const { t } = useI18n();
   const reducedMotion = useReducedMotion();
   const deadlineRef = useRef(Date.now() + THREAD_CONFIRMATION_DURATION_MS);
   const cancelAutoCommitRef = useRef<(() => void) | null>(null);
@@ -79,13 +83,13 @@ export function ThreadInlineConfirmation({
     return clearTimers;
   }, [busy, clearTimers, confirm]);
 
-  const actionLabel = action === "delete" ? "删除" : "归档";
+  const actionLabel = t(action === "delete" ? "thread.delete" : "thread.archive");
 
   return (
     <motion.div
       className={`thread-inline-confirmation ${action}`}
       role="alertdialog"
-      aria-label={`确定${actionLabel}会话`}
+      aria-label={t("thread.confirmAction", { action: actionLabel })}
       initial={reducedMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -103,18 +107,15 @@ export function ThreadInlineConfirmation({
           <circle className="thread-confirmation-countdown-progress" cx="9" cy="9" r="6.75" />
           <text x="9" y="9">{Math.max(1, remainingSeconds)}</text>
         </svg>
-        <span className="thread-confirmation-copy">确定{actionLabel}？</span>
+        <span className="thread-confirmation-copy">{sessionTitle}</span>
         <span className="thread-confirmation-sr-only" aria-live="polite">
           {remainingSeconds > 0
-            ? `${remainingSeconds} 秒后自动${actionLabel}`
-            : `正在${actionLabel}`}
+            ? t("thread.autoAction", { seconds: remainingSeconds, action: actionLabel })
+            : t("thread.doingAction", { action: actionLabel })}
         </span>
         <div className="thread-confirmation-actions">
-          <button type="button" autoFocus disabled={busy} onClick={cancel}>
-            取消
-          </button>
-          <button type="button" className="confirm" disabled={busy} onClick={confirm}>
-            {busy ? "处理中…" : "立即确认"}
+          <button type="button" className="undo-btn" autoFocus disabled={busy} onClick={cancel}>
+            {busy ? t("thread.processing") : t("thread.undo")}
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { Check, Link2, Plus, Unlink, X } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
+import { useI18n } from "../i18n";
 import { moveListSelection } from "./list-keyboard-navigation";
 
 interface ClientAssignmentDialogProps {
@@ -19,6 +20,7 @@ export function ClientAssignmentDialog({
   onSave,
   onUnassign,
 }: ClientAssignmentDialogProps): React.JSX.Element {
+  const { language, t } = useI18n();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(() => {
     const currentIndex = currentClient ? clients.indexOf(currentClient) : -1;
@@ -26,9 +28,9 @@ export function ClientAssignmentDialog({
   });
   const listId = useId();
   const filteredClients = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("zh-CN");
-    return clients.filter((client) => !normalized || client.toLocaleLowerCase("zh-CN").includes(normalized));
-  }, [clients, query]);
+    const normalized = query.trim().toLocaleLowerCase(language);
+    return clients.filter((client) => !normalized || client.toLocaleLowerCase(language).includes(normalized));
+  }, [clients, language, query]);
 
   useEffect(() => {
     setActiveIndex((current) => (
@@ -84,10 +86,10 @@ export function ClientAssignmentDialog({
       <section className="client-dialog" role="dialog" aria-modal="true" aria-labelledby="client-dialog-title">
         <header>
           <div>
-            <span>{sessionTitle ? "CLIENT ASSIGNMENT" : "CLIENT PROFILE"}</span>
-            <h2 id="client-dialog-title">{sessionTitle ? "关联客户" : "新建客户档案"}</h2>
+            <span>{sessionTitle ? t("client.assignmentEyebrow") : t("client.profileEyebrow")}</span>
+            <h2 id="client-dialog-title">{sessionTitle ? t("client.assign") : t("client.newProfile")}</h2>
           </div>
-          <button type="button" className="client-dialog-close" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="client-dialog-close" aria-label={t("common.close")} onClick={onClose}>
             <X size={15} strokeWidth={1.65} />
           </button>
         </header>
@@ -102,7 +104,7 @@ export function ClientAssignmentDialog({
             aria-expanded={clients.length > 0}
             aria-activedescendant={activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
             value={query}
-            placeholder="输入或搜索客户姓名"
+            placeholder={t("client.searchName")}
             onChange={(event) => {
               setQuery(event.target.value);
               setActiveIndex(0);
@@ -111,11 +113,11 @@ export function ClientAssignmentDialog({
           />
           <button type="button" disabled={!query.trim()} onClick={save}>
             <Plus size={14} strokeWidth={1.7} />
-            {sessionTitle ? "新建并关联" : "新建"}
+            {sessionTitle ? t("client.createAssign") : t("client.create")}
           </button>
         </label>
         {clients.length > 0 && (
-          <div id={listId} className="client-dialog-list" role="listbox" aria-label="已有客户">
+          <div id={listId} className="client-dialog-list" role="listbox" aria-label={t("client.existing")}>
             {filteredClients.map((client, index) => (
               <button
                 id={`${listId}-option-${index}`}
@@ -131,13 +133,13 @@ export function ClientAssignmentDialog({
                 {client === currentClient && <Check size={14} strokeWidth={1.7} />}
               </button>
             ))}
-            {filteredClients.length === 0 && <div className="client-dialog-empty">没有匹配的客户</div>}
+            {filteredClients.length === 0 && <div className="client-dialog-empty">{t("client.noMatches")}</div>}
           </div>
         )}
         {sessionTitle && currentClient && onUnassign && (
           <button type="button" className="client-dialog-unassign" onClick={onUnassign}>
             <Unlink size={14} strokeWidth={1.6} />
-            移至未关联客户
+            {t("client.moveUnassigned")}
           </button>
         )}
       </section>

@@ -31,8 +31,8 @@ import WorkersAIIcon from "@lobehub/icons/es/WorkersAI/components/Color";
 import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
-import type { RuntimePrerequisites, UiModel, UiProviderStatus } from "@shared/types";
-import { DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
+import type { AppLanguage, RuntimePrerequisites, UiModel, UiProviderStatus } from "@shared/types";
+import { APP_LANGUAGES, DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
 import {
   ArrowLeft,
   Box,
@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { api } from "../ipc";
+import { localeFor, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
 import { type ThemePreference, useThemePreference } from "../theme";
 import { PERMISSION_OPTIONS } from "./permissions";
@@ -70,25 +71,21 @@ import { Toggle } from "./ui/Toggle";
 
 const NAV_ITEMS: Array<{
   id: SettingsSection;
-  label: string;
-  description: string;
   icon: typeof Settings2;
 }> = [
-  { id: "general", label: "General", description: "Workspace and permissions", icon: Settings2 },
-  { id: "profile", label: "Profile", description: "Identity and local activity", icon: UserRound },
-  { id: "models", label: "Provider & Model", description: "Provider access and model selection", icon: Box },
-  { id: "skills", label: "Skills", description: "Agent capabilities", icon: Puzzle },
+  { id: "general", icon: Settings2 },
+  { id: "profile", icon: UserRound },
+  { id: "models", icon: Box },
+  { id: "skills", icon: Puzzle },
 ];
 
 const THEME_OPTIONS: Array<{
   id: ThemePreference;
-  label: string;
-  description: string;
   icon: typeof Sun;
 }> = [
-  { id: "system", label: "System", description: "跟随操作系统", icon: Monitor },
-  { id: "light", label: "Light", description: "高对比浅色", icon: Sun },
-  { id: "dark", label: "Dark", description: "低亮度深色", icon: Moon },
+  { id: "system", icon: Monitor },
+  { id: "light", icon: Sun },
+  { id: "dark", icon: Moon },
 ];
 
 function ModelBrandIcon({ model, provider, size = 19 }: { model: string; provider: string; size?: number }): React.JSX.Element {
@@ -149,17 +146,29 @@ function ProviderBrandIcon({ provider, size = 18 }: { provider: string; size?: n
   return <Box size={size - 1} strokeWidth={1.45} />;
 }
 
-function formatContextWindow(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M context`;
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K context`;
-  return tokens > 0 ? `${tokens} context` : "";
+function formatContextWindow(tokens: number, language: AppLanguage, t: ReturnType<typeof useI18n>["t"]): string {
+  const value = tokens >= 1_000_000
+    ? `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`
+    : tokens >= 1_000 ? `${Math.round(tokens / 1_000)}K` : String(tokens);
+  void language;
+  return tokens > 0 ? t("settings.context", { value }) : "";
 }
 
 function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }): React.JSX.Element | null {
+  const { t } = useI18n();
   const runPrerequisiteAction = useCompass((state) => state.runPrerequisiteAction);
   const [busy, setBusy] = useState<string | null>(null);
   const shell = prerequisites?.shell;
   if (!shell) return null;
+
+  const detail = shell.ok
+    ? t(shell.detail.includes("settings.json") ? "settings.runtimeConfigured" : "settings.runtimeAvailable")
+    : t("settings.runtimeMissing");
+  const actionKeys: Record<string, TranslationKey> = {
+    "refresh-prerequisites": "settings.runtimeRefresh",
+    "install-git-with-winget": "settings.runtimeInstall",
+    "open-git-download": "settings.runtimeDownload",
+  };
 
   const run = async (actionId: string): Promise<void> => {
     setBusy(actionId);
@@ -175,11 +184,11 @@ function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }
       <div className="settings-row-icon"><Terminal size={16} strokeWidth={1.55} /></div>
       <div className="settings-row-copy">
         <strong>{shell.name}</strong>
-        <span>{shell.detail}</span>
+        <span>{detail}</span>
         {shell.shellPath && <code>{shell.shellPath}</code>}
       </div>
       <span className={`settings-status${shell.ok ? " ready" : " required"}`}>
-        {shell.ok ? "Ready" : "Required"}
+        {shell.ok ? t("common.ready") : t("common.required")}
       </span>
       {!shell.ok && shell.actions.map((action) => (
         <button
@@ -189,7 +198,7 @@ function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }
           key={action.id}
           onClick={() => void run(action.id)}
         >
-          {busy === action.id ? "Working…" : action.label}
+          {busy === action.id ? t("common.working") : t(actionKeys[action.id] ?? "settings.runtimeRefresh")}
         </button>
       ))}
     </div>
@@ -197,26 +206,50 @@ function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }
 }
 
 function GeneralSettings(): React.JSX.Element {
+  const { language, t } = useI18n();
   const settings = useCompass((state) => state.settings);
   const prerequisites = useCompass((state) => state.prerequisites);
   const version = useCompass((state) => state.version);
   const setPermissionMode = useCompass((state) => state.setPermissionMode);
+  const setLanguage = useCompass((state) => state.setLanguage);
   const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
   const [theme, setTheme] = useThemePreference();
 
   return (
     <div className="settings-page">
       <header className="settings-page-head">
-        <span className="settings-eyebrow">Compass preferences</span>
-        <h1>General</h1>
-        <p>管理工作区、权限策略与运行环境。</p>
+        <span className="settings-eyebrow">{t("settings.preferences")}</span>
+        <h1>{t("settings.general")}</h1>
+        <p>{t("settings.generalDescription")}</p>
       </header>
+
+      <section className="settings-section-block settings-language-block">
+        <div className="settings-section-title">
+          <div><h2>{t("language.label")}</h2><p>{t("language.description")}</p></div>
+        </div>
+        <div className="settings-language-options" role="radiogroup" aria-label={t("language.label")}>
+          {APP_LANGUAGES.map((option) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={language === option}
+              className={language === option ? "selected" : ""}
+              key={option}
+              lang={option}
+              onClick={() => void setLanguage(option)}
+            >
+              <span>{t(`language.${option}` as TranslationKey)}</span>
+              {language === option && <Check size={14} strokeWidth={1.7} />}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="settings-section-block settings-appearance-block">
         <div className="settings-section-title">
-          <div><h2>Appearance</h2><p>选择高对比浅色、深色，或自动跟随系统。</p></div>
+          <div><h2>{t("settings.appearance")}</h2><p>{t("settings.appearanceDescription")}</p></div>
         </div>
-        <div className="settings-theme-options" role="radiogroup" aria-label="Color theme">
+        <div className="settings-theme-options" role="radiogroup" aria-label={t("settings.colorTheme")}>
           {THEME_OPTIONS.map((option) => {
             const Icon = option.icon;
             return (
@@ -229,7 +262,10 @@ function GeneralSettings(): React.JSX.Element {
                 onClick={() => setTheme(option.id)}
               >
                 <Icon size={15} strokeWidth={1.55} />
-                <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                <span>
+                  <strong>{t(`settings.theme.${option.id}` as TranslationKey)}</strong>
+                  <small>{t(`settings.theme.${option.id}Description` as TranslationKey)}</small>
+                </span>
                 {theme === option.id && <Check size={14} strokeWidth={1.7} />}
               </button>
             );
@@ -239,23 +275,23 @@ function GeneralSettings(): React.JSX.Element {
 
       <section className="settings-section-block">
         <div className="settings-section-title">
-          <div><h2>Workspace</h2><p>Compass 读取文件和执行任务的默认目录。</p></div>
+          <div><h2>{t("settings.workspace")}</h2><p>{t("settings.workspaceDescription")}</p></div>
         </div>
         <div className="settings-card settings-workspace-row">
           <div className="settings-row-icon"><FolderOpen size={16} strokeWidth={1.55} /></div>
           <div className="settings-row-copy">
-            <strong>Working directory</strong>
+            <strong>{t("settings.workingDirectory")}</strong>
             <code>{settings?.workspaceDir ?? ""}</code>
           </div>
           <button type="button" className="settings-small-btn" onClick={() => void setWorkspaceDir()}>
-            Change
+            {t("common.change")}
           </button>
         </div>
       </section>
 
       <section className="settings-section-block">
         <div className="settings-section-title">
-          <div><h2>Permission mode</h2><p>决定 Compass 何时需要在执行操作前征求确认。</p></div>
+          <div><h2>{t("settings.permissionMode")}</h2><p>{t("settings.permissionDescription")}</p></div>
         </div>
         <div className="settings-card settings-permission-list">
           {PERMISSION_OPTIONS.map((choice) => {
@@ -268,7 +304,10 @@ function GeneralSettings(): React.JSX.Element {
                 onClick={() => void setPermissionMode(choice.id)}
               >
                 <ShieldCheck size={16} strokeWidth={1.5} />
-                <span><strong>{choice.label}</strong><small>{choice.description}</small></span>
+                <span>
+                  <strong>{t(`settings.permission.${choice.id}` as TranslationKey)}</strong>
+                  <small>{t(`settings.permission.${choice.id}Description` as TranslationKey)}</small>
+                </span>
                 {selected && <Check size={15} strokeWidth={1.7} />}
               </button>
             );
@@ -278,7 +317,7 @@ function GeneralSettings(): React.JSX.Element {
 
       <section className="settings-section-block">
         <div className="settings-section-title">
-          <div><h2>Runtime</h2><p>执行本地 Agent 工作所需的运行环境。</p></div>
+          <div><h2>{t("settings.runtime")}</h2><p>{t("settings.runtimeDescription")}</p></div>
         </div>
         <RuntimeCard prerequisites={prerequisites} />
       </section>
@@ -288,14 +327,15 @@ function GeneralSettings(): React.JSX.Element {
   );
 }
 
-function formatCompactMetric(value: number): string {
-  return new Intl.NumberFormat("en", {
+function formatCompactMetric(value: number, language: AppLanguage): string {
+  return new Intl.NumberFormat(localeFor(language), {
     maximumFractionDigits: value >= 10_000 ? 0 : 1,
     notation: value >= 1_000 ? "compact" : "standard",
   }).format(value);
 }
 
 function ProfileSettings(): React.JSX.Element {
+  const { language, t } = useI18n();
   const sessions = useCompass((state) => state.sessions);
   const skills = useCompass((state) => state.skills);
   const stats = useCompass((state) => state.stats);
@@ -307,13 +347,13 @@ function ProfileSettings(): React.JSX.Element {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const sessionTokens = (stats?.tokensIn ?? 0) + (stats?.tokensOut ?? 0);
-  const permission = PERMISSION_OPTIONS.find((option) => option.id === settings?.permissionMode);
+  const permission = settings?.permissionMode;
 
   const metrics = [
-    { label: "Local sessions", value: formatCompactMetric(sessions.length) },
-    { label: "Session tokens", value: formatCompactMetric(sessionTokens) },
-    { label: "Context used", value: stats?.contextPercent === null || stats?.contextPercent === undefined ? "—" : `${Math.round(stats.contextPercent)}%` },
-    { label: "Enabled skills", value: formatCompactMetric(enabledSkills) },
+    { label: t("settings.localSessions"), value: formatCompactMetric(sessions.length, language) },
+    { label: t("settings.sessionTokens"), value: formatCompactMetric(sessionTokens, language) },
+    { label: t("settings.contextUsed"), value: stats?.contextPercent === null || stats?.contextPercent === undefined ? "—" : `${Math.round(stats.contextPercent)}%` },
+    { label: t("settings.enabledSkills"), value: formatCompactMetric(enabledSkills, language) },
   ];
 
   const uploadAvatar = async (file: File | undefined): Promise<void> => {
@@ -321,9 +361,15 @@ function ProfileSettings(): React.JSX.Element {
     setAvatarBusy(true);
     setError(null);
     try {
-      setProfileAvatar(await prepareProfileImage(file));
+      setProfileAvatar(await prepareProfileImage(file, {
+        read: t("error.imageRead"),
+        type: t("error.imageType"),
+        size: t("error.imageSize"),
+        dimensions: t("error.imageDimensions"),
+        processing: t("error.imageProcessing"),
+      }));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "头像上传失败。");
+      setError(error instanceof Error ? error.message : t("common.unknown"));
     } finally {
       setAvatarBusy(false);
       if (avatarInput.current) avatarInput.current.value = "";
@@ -333,15 +379,15 @@ function ProfileSettings(): React.JSX.Element {
   return (
     <div className="settings-page settings-profile-page">
       <header className="settings-profile-head">
-        <h1>Profile</h1>
-        <span>Local identity</span>
+        <h1>{t("settings.profile")}</h1>
+        <span>{t("settings.localIdentity")}</span>
       </header>
 
-      <section className="settings-profile-identity" aria-label="Profile identity">
+      <section className="settings-profile-identity" aria-label={t("settings.profileIdentity")}>
         <button
           type="button"
           className="settings-profile-avatar-button"
-          aria-label="Upload profile photo"
+          aria-label={t("settings.uploadPhoto")}
           disabled={avatarBusy}
           onClick={() => avatarInput.current?.click()}
         >
@@ -361,17 +407,17 @@ function ProfileSettings(): React.JSX.Element {
         <p>@chord_jiang</p>
         <div className="settings-profile-photo-actions">
           <button type="button" onClick={() => avatarInput.current?.click()}>
-            {avatarBusy ? "Processing…" : profileAvatar ? "Change photo" : "Add photo"}
+            {avatarBusy ? t("settings.processing") : profileAvatar ? t("settings.changePhoto") : t("settings.addPhoto")}
           </button>
           {profileAvatar && (
             <button type="button" className="remove" onClick={() => setProfileAvatar(null)}>
-              <Trash2 size={12} strokeWidth={1.6} /> Remove
+              <Trash2 size={12} strokeWidth={1.6} /> {t("common.remove")}
             </button>
           )}
         </div>
       </section>
 
-      <section className="settings-profile-metrics" aria-label="Local activity">
+      <section className="settings-profile-metrics" aria-label={t("settings.localActivity")}>
         {metrics.map((metric) => (
           <div key={metric.label}>
             <strong>{metric.value}</strong>
@@ -382,21 +428,21 @@ function ProfileSettings(): React.JSX.Element {
 
       <section className="settings-profile-environment">
         <div className="settings-profile-environment-head">
-          <h2>Environment</h2>
-          <span>Current local configuration</span>
+          <h2>{t("settings.environment")}</h2>
+          <span>{t("settings.currentConfiguration")}</span>
         </div>
         <div className="settings-profile-details">
           <div>
-            <strong>Workspace</strong>
-            <code>{settings?.workspaceDir || "Not selected"}</code>
+            <strong>{t("settings.workspace")}</strong>
+            <code>{settings?.workspaceDir || t("common.notSelected")}</code>
           </div>
           <div>
-            <strong>Active model</strong>
-            <small>{stats?.model?.name ?? "Not configured"}</small>
+            <strong>{t("settings.activeModel")}</strong>
+            <small>{stats?.model?.name ?? t("common.notConfigured")}</small>
           </div>
           <div>
-            <strong>Permission mode</strong>
-            <small>{permission?.label ?? "Not configured"}</small>
+            <strong>{t("settings.permissionMode")}</strong>
+            <small>{permission ? t(`settings.permission.${permission}` as TranslationKey) : t("common.notConfigured")}</small>
           </div>
         </div>
       </section>
@@ -405,6 +451,7 @@ function ProfileSettings(): React.JSX.Element {
 }
 
 function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.Element {
+  const { t } = useI18n();
   const setApiKey = useCompass((state) => state.setApiKey);
   const loginProvider = useCompass((state) => state.loginProvider);
   const removeApiKey = useCompass((state) => state.removeApiKey);
@@ -454,16 +501,16 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
         <span>
           {provider.configurationIssue ??
             (provider.configured
-              ? [provider.source, provider.sourceLabel].filter(Boolean).join(" · ") || "Connected"
-              : provider.authNote || "Not configured")}
+              ? [provider.source, provider.sourceLabel].filter(Boolean).join(" · ") || t("common.connected")
+              : provider.authNote || t("common.notConfigured"))}
         </span>
       </div>
       <span className={`settings-provider-state${provider.configured ? " connected" : ""}`}>
-        {provider.configured ? "Connected" : "Not set"}
+        {provider.configured ? t("common.connected") : t("common.notSet")}
       </span>
       {provider.supportsOAuth && (
         <button type="button" className="settings-text-btn" disabled={busy} onClick={() => void login()}>
-          {provider.configured ? "Reconnect" : "Sign in"}
+          {provider.configured ? t("settings.reconnect") : t("settings.signIn")}
         </button>
       )}
       {provider.supportsApiKey && (
@@ -475,12 +522,12 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
             return !open;
           })}
         >
-          {provider.configured ? "Replace key" : "Set key"}
+          {provider.configured ? t("settings.replaceKey") : t("settings.setKey")}
         </button>
       )}
       {provider.configured && provider.source === "stored" && (
         <button type="button" className="settings-text-btn muted" onClick={() => void removeApiKey(provider.id)}>
-          Remove
+          {t("common.remove")}
         </button>
       )}
       {editing && provider.supportsApiKey && (
@@ -510,7 +557,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
             <button
               type="button"
               className="settings-secret-action"
-              aria-label={keyVisible ? `Hide ${provider.name} API key` : `Show ${provider.name} API key`}
+              aria-label={keyVisible ? t("settings.hideKey", { name: provider.name }) : t("settings.showKey", { name: provider.name })}
               aria-pressed={keyVisible}
               disabled={!key}
               onClick={() => setKeyVisible((visible) => !visible)}
@@ -521,12 +568,12 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
             </button>
             <CopyButton
               className="settings-secret-copy-button"
-              label={`Copy ${provider.name} API key`}
+              label={t("settings.copyKey", { name: provider.name })}
               text={key}
             />
           </div>
           <button type="button" className="settings-small-btn primary" disabled={busy || !key.trim()} onClick={() => void save()}>
-            {busy ? "Saving…" : "Save"}
+            {busy ? t("common.saving") : t("common.save")}
           </button>
         </div>
       )}
@@ -535,6 +582,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
 }
 
 function ModelRow({ model, enabledCount }: { model: UiModel; enabledCount: number }): React.JSX.Element {
+  const { language, t } = useI18n();
   const settings = useCompass((state) => state.settings);
   const stats = useCompass((state) => state.stats);
   const setModel = useCompass((state) => state.setModel);
@@ -553,13 +601,13 @@ function ModelRow({ model, enabledCount }: { model: UiModel; enabledCount: numbe
       </div>
       <div className="settings-model-copy">
         <strong>{model.name}</strong>
-        <span>{model.providerName}{model.contextWindow > 0 ? ` · ${formatContextWindow(model.contextWindow)}` : ""}</span>
+        <span>{model.providerName}{model.contextWindow > 0 ? ` · ${formatContextWindow(model.contextWindow, language, t)}` : ""}</span>
       </div>
       {active ? (
-        <span className="settings-active-model"><Check size={12} strokeWidth={1.8} /> Active</span>
+        <span className="settings-active-model"><Check size={12} strokeWidth={1.8} /> {t("common.active")}</span>
       ) : enabled ? (
         <button type="button" className="settings-text-btn" onClick={() => void setModel(model.provider, model.id)}>
-          Use
+          {t("common.use")}
         </button>
       ) : null}
       <Toggle
@@ -572,6 +620,7 @@ function ModelRow({ model, enabledCount }: { model: UiModel; enabledCount: numbe
 }
 
 function ModelsSettings({ search }: { search: string }): React.JSX.Element {
+  const { t } = useI18n();
   const models = useCompass((state) => state.models);
   const providers = useCompass((state) => state.providers);
   const settings = useCompass((state) => state.settings);
@@ -615,22 +664,22 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
   return (
     <div className="settings-page settings-models-page">
       <header className="settings-page-head">
-        <span className="settings-eyebrow">AI configuration</span>
-        <h1>Provider &amp; Model</h1>
-        <p>只有启用的模型会出现在对话框的模型选择器中。</p>
+        <span className="settings-eyebrow">{t("settings.aiConfiguration")}</span>
+        <h1>{t("settings.models")}</h1>
+        <p>{t("settings.modelsDescription")}</p>
       </header>
 
-      <section className={`settings-provider-section${providersOpen ? " open" : ""}`} aria-label="Providers">
+      <section className={`settings-provider-section${providersOpen ? " open" : ""}`} aria-label={t("settings.providersKeys")}>
         <button type="button" className="settings-provider-toggle" onClick={() => setProvidersOpen((open) => !open)}>
-          <span><KeyRound size={15} strokeWidth={1.55} /><strong>Providers &amp; API Keys</strong></span>
-          <span>{providers.filter((provider) => provider.configured).length} connected</span>
+          <span><KeyRound size={15} strokeWidth={1.55} /><strong>{t("settings.providersKeys")}</strong></span>
+          <span>{t("settings.connectedCount", { count: providers.filter((provider) => provider.configured).length })}</span>
           {providersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         {providersOpen && (
           <div className="settings-provider-content">
             <div className="settings-inline-search">
               <Search size={13} strokeWidth={1.55} />
-              <input value={providerQuery} placeholder="Search providers" onChange={(event) => setProviderQuery(event.target.value)} />
+              <input value={providerQuery} placeholder={t("settings.searchProviders")} onChange={(event) => setProviderQuery(event.target.value)} />
             </div>
             <div className="settings-provider-list">
               {visibleProviders.map((provider) => <ProviderRow provider={provider} key={provider.id} />)}
@@ -639,21 +688,21 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
         )}
       </section>
 
-      <section className="settings-summary-model" aria-label="Conversation title summary model">
+      <section className="settings-summary-model" aria-label={t("settings.titleModel")}>
         <div className="settings-summary-model-icon">
           {selectedSummaryModel
             ? <ModelBrandIcon model={selectedSummaryModel.id} provider={selectedSummaryModel.provider} size={17} />
             : <Sparkles size={16} strokeWidth={1.55} />}
         </div>
         <div className="settings-summary-model-copy">
-          <strong>Conversation title model</strong>
+          <strong>{t("settings.titleModel")}</strong>
           <span>
-            Automatically summarizes the first exchange into a short title
-            {summaryProviderConfigured ? "" : " · Provider not connected"}
+            {t("settings.titleModelDescription")}
+            {summaryProviderConfigured ? "" : ` · ${t("settings.providerNotConnected")}`}
           </span>
         </div>
         <select
-          aria-label="Summary model"
+          aria-label={t("settings.summaryModel")}
           value={summaryModelKey}
           disabled={models.length === 0}
           onChange={(event) => {
@@ -676,25 +725,25 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
         </select>
       </section>
 
-      <section className="settings-model-surface" aria-label="Models">
+      <section className="settings-model-surface" aria-label={t("settings.models")}>
         <div className="settings-model-search">
           <Search size={14} strokeWidth={1.55} />
           <input
             value={modelQuery}
-            placeholder="Search models"
-            aria-label="Search models"
+            placeholder={t("settings.searchModels")}
+            aria-label={t("settings.searchModels")}
             onChange={(event) => setModelQuery(event.target.value)}
           />
           <button
             type="button"
             className={`settings-refresh-button${refreshing ? " refreshing" : ""}`}
-            aria-label="Refresh providers and models"
+            aria-label={t("settings.refreshModels")}
             aria-busy={refreshing}
             disabled={refreshing}
             onClick={() => void refreshProvidersAndModels()}
           >
             <RotateCw size={12} strokeWidth={1.6} />
-            <span>Refresh</span>
+            <span>{t("common.refresh")}</span>
           </button>
         </div>
         <div className="settings-model-list">
@@ -708,8 +757,8 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
           {visibleModels.length === 0 && (
             <div className="settings-empty-state">
               <Box size={19} strokeWidth={1.45} />
-              <strong>No available models</strong>
-              <span>配置下方的 Provider 后，可用模型会显示在这里。</span>
+              <strong>{t("settings.noModels")}</strong>
+              <span>{t("settings.noModelsDescription")}</span>
             </div>
           )}
         </div>
@@ -720,6 +769,7 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
 }
 
 function SkillsSettings({ search }: { search: string }): React.JSX.Element {
+  const { t } = useI18n();
   const skills = useCompass((state) => state.skills);
   const settings = useCompass((state) => state.settings);
   const setSkillEnabled = useCompass((state) => state.setSkillEnabled);
@@ -733,12 +783,12 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
     <div className="settings-page">
       <header className="settings-page-head settings-page-head-with-action">
         <div>
-          <span className="settings-eyebrow">Agent capabilities</span>
-          <h1>Skills</h1>
-          <p>管理 Compass 可以调用的本地技能与额外技能目录。</p>
+          <span className="settings-eyebrow">{t("settings.skillsEyebrow")}</span>
+          <h1>{t("settings.nav.skills")}</h1>
+          <p>{t("settings.skillsDescription")}</p>
         </div>
         <button type="button" className="settings-small-btn primary" onClick={() => void addSkillDir()}>
-          Add directory
+          {t("settings.addDirectory")}
         </button>
       </header>
 
@@ -753,31 +803,31 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
             </div>
             {skill.filePath && (
               <button type="button" className="settings-text-btn" onClick={() => void api.openPath(skill.baseDir)}>
-                Open
+                {t("common.open")}
               </button>
             )}
             {skill.enabled && (
               <button type="button" className="settings-text-btn" onClick={() => seedComposer(`/skill:${skill.name} `)}>
-                Insert
+                {t("common.insert")}
               </button>
             )}
             <Toggle on={skill.enabled} onChange={(next) => void setSkillEnabled(skill.name, next)} />
           </div>
         ))}
         {visible.length === 0 && (
-          <div className="settings-empty-state"><Puzzle size={19} /><strong>No skills found</strong></div>
+          <div className="settings-empty-state"><Puzzle size={19} /><strong>{t("settings.noSkills")}</strong></div>
         )}
       </section>
 
       {settings && settings.skillDirs.length > 0 && (
         <section className="settings-section-block">
-          <div className="settings-section-title"><div><h2>Additional directories</h2></div></div>
+          <div className="settings-section-title"><div><h2>{t("settings.additionalDirectories")}</h2></div></div>
           <div className="settings-directory-list">
             {settings.skillDirs.map((dir) => (
               <div className="settings-directory-row" key={dir}>
                 <FolderOpen size={15} strokeWidth={1.55} />
                 <code>{dir}</code>
-                <button type="button" className="settings-text-btn muted" onClick={() => void removeSkillDir(dir)}>Remove</button>
+                <button type="button" className="settings-text-btn muted" onClick={() => void removeSkillDir(dir)}>{t("common.remove")}</button>
               </div>
             ))}
           </div>
@@ -788,6 +838,7 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
 }
 
 export function SettingsWorkspace(): React.JSX.Element {
+  const { t } = useI18n();
   const section = useCompass((state) => state.settingsSection) ?? "general";
   const openSettings = useCompass((state) => state.openSettings);
   const closeSettings = useCompass((state) => state.closeSettings);
@@ -798,18 +849,18 @@ export function SettingsWorkspace(): React.JSX.Element {
       <aside className="settings-nav">
         <button type="button" className="settings-back" onClick={closeSettings}>
           <ArrowLeft size={15} strokeWidth={1.55} />
-          <span>Back</span>
+          <span>{t("common.back")}</span>
         </button>
         <label className="settings-search">
           <Search size={14} strokeWidth={1.55} />
           <input
             value={search}
-            placeholder="Search Settings"
-            aria-label="Search Settings"
+            placeholder={t("settings.search")}
+            aria-label={t("settings.search")}
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <nav aria-label="Settings navigation">
+        <nav aria-label={t("settings.navigation")}>
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             return (
@@ -820,7 +871,10 @@ export function SettingsWorkspace(): React.JSX.Element {
                 onClick={() => openSettings(item.id)}
               >
                 <Icon size={15} strokeWidth={1.55} />
-                <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                <span>
+                  <strong>{t(`settings.nav.${item.id}` as TranslationKey)}</strong>
+                  <small>{t(`settings.nav.${item.id}Description` as TranslationKey)}</small>
+                </span>
               </button>
             );
           })}

@@ -1,4 +1,5 @@
 import {
+  isAppLanguage,
   isPermissionMode,
   isThinkingLevel,
   type AgentUiEvent,
@@ -6,6 +7,7 @@ import {
   type UiImageAttachment,
   type WebRpcMethod,
 } from "@shared/types";
+import type { ClientProfileDraft } from "@shared/client-registry";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
@@ -58,6 +60,14 @@ function booleanArg(args: unknown[], index: number, label: string): boolean {
   return value;
 }
 
+function clientProfileArg(args: unknown[], index: number): ClientProfileDraft {
+  const value = args[index];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("profile must be an object.");
+  }
+  return value as ClientProfileDraft;
+}
+
 function optionalStringArg(args: unknown[], index: number, label: string): string | undefined {
   const value = args[index];
   if (value === undefined || value === null) return undefined;
@@ -89,6 +99,7 @@ function imageAttachmentsArg(args: unknown[], index: number): UiImageAttachment[
 function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
   return {
     init: () => api.init(),
+    getDeveloperContext: () => api.getDeveloperContext(),
     prompt: (args) =>
       api.prompt(
         stringArg(args, 0, "text"),
@@ -108,6 +119,16 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
       api.renameSession(stringArg(args, 0, "path"), stringArg(args, 1, "name")),
     deleteSession: (args) => api.deleteSession(stringArg(args, 0, "path")),
     archiveSession: (args) => api.archiveSession(stringArg(args, 0, "path")),
+    importLegacyClientRegistry: (args) =>
+      api.importLegacyClientRegistry(stringArg(args, 0, "serializedRegistry")),
+    saveClientProfile: (args) => api.saveClientProfile(clientProfileArg(args, 0)),
+    assignSessionClient: (args) =>
+      api.assignSessionClient(
+        stringArg(args, 0, "sessionId"),
+        stringArg(args, 1, "clientName"),
+      ),
+    unassignSessionClient: (args) =>
+      api.unassignSessionClient(stringArg(args, 0, "sessionId")),
     setModel: (args) =>
       api.setModel(stringArg(args, 0, "provider"), stringArg(args, 1, "id")),
     setModelEnabled: (args) =>
@@ -127,6 +148,11 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
       const mode = args[0];
       if (!isPermissionMode(mode)) throw new Error("Invalid permission mode.");
       return api.setPermissionMode(mode);
+    },
+    setLanguage: (args) => {
+      const language = args[0];
+      if (!isAppLanguage(language)) throw new Error("Invalid application language.");
+      return api.setLanguage(language);
     },
     setApiKey: (args) =>
       api.setApiKey(stringArg(args, 0, "provider"), stringArg(args, 1, "key")),

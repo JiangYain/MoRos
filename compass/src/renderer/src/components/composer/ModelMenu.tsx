@@ -3,16 +3,7 @@ import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../../store";
-
-const EFFORT_LABELS: Partial<Record<ThinkingLevel, string>> = {
-  off: "Light",
-  minimal: "Light",
-  low: "Light",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra High",
-  max: "Max",
-};
+import { useI18n } from "../../i18n";
 
 type ModelMenuView = "root" | "model" | "effort" | "speed";
 type ModelSubmenuView = Exclude<ModelMenuView, "root">;
@@ -27,6 +18,7 @@ interface ModelMenuProps {
 }
 
 export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenuProps): React.JSX.Element {
+  const { t } = useI18n();
   const stats = useCompass((state) => state.stats);
   const settings = useCompass((state) => state.settings);
   const models = useCompass((state) => state.models);
@@ -67,22 +59,29 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
   };
 
   const thinkingLevels = stats?.model?.thinkingLevels ?? [];
+  const effortLabel = (level: ThinkingLevel): string => {
+    if (level === "medium") return t("composer.medium");
+    if (level === "high") return t("composer.high");
+    if (level === "xhigh") return t("composer.extraHigh");
+    if (level === "max") return t("composer.max");
+    return t("composer.light");
+  };
   const supportsThinking = thinkingLevels.some((level) => level !== "off");
   const effortOptions = useMemo(() => {
     const options: Array<{ level: ThinkingLevel; label: string }> = [];
     const light = (["low", "minimal", "off"] as ThinkingLevel[]).find((level) =>
       thinkingLevels.includes(level),
     );
-    if (light) options.push({ level: light, label: "Light" });
+    if (light) options.push({ level: light, label: effortLabel(light) });
     for (const level of ["medium", "high", "xhigh", "max"] as ThinkingLevel[]) {
-      if (thinkingLevels.includes(level)) options.push({ level, label: EFFORT_LABELS[level] ?? level });
+      if (thinkingLevels.includes(level)) options.push({ level, label: effortLabel(level) });
     }
     if (options.length === 0 && thinkingLevels[0]) {
-      options.push({ level: thinkingLevels[0], label: EFFORT_LABELS[thinkingLevels[0]] ?? thinkingLevels[0] });
+      options.push({ level: thinkingLevels[0], label: effortLabel(thinkingLevels[0]) });
     }
     return options;
-  }, [thinkingLevels]);
-  const activeEffortLabel = EFFORT_LABELS[stats?.thinkingLevel ?? "off"] ?? "Light";
+  }, [thinkingLevels, t]);
+  const activeEffortLabel = effortLabel(stats?.thinkingLevel ?? "off");
   const enabledModels = useMemo(() => {
     const enabled = new Set(settings?.enabledModels ?? []);
     return models.filter((model) => enabled.has(modelSelectionKey(model.provider, model.id)));
@@ -96,7 +95,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
         aria-expanded={open}
         onClick={onToggle}
       >
-        <span className="model-pill-name">{stats?.model?.name ?? "Select model"}</span>
+        <span className="model-pill-name">{stats?.model?.name ?? t("composer.selectModel")}</span>
         {supportsThinking && <span className="model-pill-thinking">{activeEffortLabel}</span>}
         <ChevronDown size={12} strokeWidth={1.6} />
       </button>
@@ -122,11 +121,11 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                   transition={{ duration: 0.12 }}
                 >
                   <div className="model-submenu-title">
-                    {view === "model" ? "Model" : view === "effort" ? "Effort" : "Speed"}
+                    {view === "model" ? t("composer.model") : view === "effort" ? t("composer.effort") : t("composer.speed")}
                   </div>
                   {view === "model" && (
                     <div className="model-submenu-list model-options-list">
-                      {enabledModels.length === 0 && <div className="popover-empty">Add a model in Settings.</div>}
+                      {enabledModels.length === 0 && <div className="popover-empty">{t("composer.addModelInSettings")}</div>}
                       {enabledModels.map((model) => {
                         const current = stats?.model?.provider === model.provider && stats.model.id === model.id;
                         return (
@@ -166,7 +165,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                   {view === "speed" && (
                     <div className="model-submenu-list">
                       <button type="button" onClick={onClose}>
-                        <span>Standard</span>
+                        <span>{t("composer.standard")}</span>
                         <Check size={14} strokeWidth={1.65} />
                       </button>
                     </div>
@@ -177,9 +176,9 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
 
             <div className="popover model-popover">
               <div className="model-menu-main">
-                <MenuRow view="model" label="Model" value={stats?.model?.name ?? "Select"} active={view === "model"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
-                <MenuRow view="effort" label="Effort" value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
-                <MenuRow view="speed" label="Speed" value="Standard" active={view === "speed"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="model" label={t("composer.model")} value={stats?.model?.name ?? t("composer.select")} active={view === "model"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="effort" label={t("composer.effort")} value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="speed" label={t("composer.speed")} value={t("composer.standard")} active={view === "speed"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
               </div>
               <div className="model-menu-rule" />
               <button
@@ -190,7 +189,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                   onOpenSettings();
                 }}
               >
-                <span>Add Model</span>
+                <span>{t("composer.addModel")}</span>
                 <Plus size={14} strokeWidth={1.55} />
               </button>
             </div>

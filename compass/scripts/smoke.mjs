@@ -2,7 +2,7 @@
  * Built Electron smoke test for the current Compass navigation and composer.
  * Usage: node scripts/smoke.mjs [outDir]
  */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron } from "playwright-core";
@@ -10,16 +10,55 @@ import { _electron as electron } from "playwright-core";
 const defaultOutDir = process.env.CI ? "smoke-out" : join(tmpdir(), "compass-smoke");
 const outDir = resolve(process.argv[2] ?? defaultOutDir);
 mkdirSync(outDir, { recursive: true });
+const smokeUserDataDir = mkdtempSync(join(tmpdir(), "compass-smoke-profile-"));
 
 const app = await electron.launch({
   args: ["out/main/index.js"],
   cwd: resolve(import.meta.dirname, ".."),
-  env: { ...process.env, COMPASS_WEB_PORT: "0" },
+  env: {
+    ...process.env,
+    COMPASS_WEB_PORT: "0",
+    COMPASS_USER_DATA_DIR: smokeUserDataDir,
+  },
 });
 
 try {
   const page = await app.firstWindow();
   await page.setViewportSize({ width: 1320, height: 880 });
+  const migratedClientName = `Migrated Smoke ${Date.now()}`;
+  await page.evaluate(({ key, name }) => {
+    localStorage.setItem(key, JSON.stringify({
+      clients: [name],
+      assignments: {},
+      profiles: {
+        [name]: {
+          name,
+          gender: "unspecified",
+          age: null,
+          contact: "legacy@example.test",
+          notes: "legacy migration",
+          hearingAidBrands: ["unitron", "oticon", "other", "phonak"],
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      },
+    }));
+  }, { key: "compass.clients.v1", name: migratedClientName });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(async ({ key, name }) => {
+    const payload = await window.compass.init();
+    return localStorage.getItem(key) === null && payload.clientRegistry.clients.includes(name);
+  }, { key: "compass.clients.v1", name: migratedClientName });
+  const migratedBrands = await page.evaluate(async (name) => {
+    const payload = await window.compass.init();
+    return payload.clientRegistry.profiles[name.toLocaleLowerCase("zh-CN")]?.hearingAidBrands ?? [];
+  }, migratedClientName);
+  if (!migratedBrands.includes("unitron") || !migratedBrands.includes("oticon") || !migratedBrands.includes("other")) {
+    throw new Error(`Legacy client migration dropped retired brands: ${migratedBrands.join(", ")}`);
+  }
+  await page.evaluate(() => window.compass.setLanguage("en"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(async () => (await window.compass.init()).settings.language === "en");
   const shot = async (name) => {
     await page.screenshot({ path: join(outDir, `${name}.png`) });
     console.log(`shot: ${name}`);
@@ -43,6 +82,17 @@ try {
 
   await page.waitForTimeout(4200);
   await shot("01-hero");
+
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Developer: Current Context" }).click();
+  const contextDialog = page.getByRole("dialog", { name: "Current conversation context" });
+  await contextDialog.waitFor();
+  await contextDialog.getByRole("button", { name: "Effective system prompt" }).click();
+  if (!String(await contextDialog.locator("pre").textContent()).includes("Compass 工作守则")) {
+    throw new Error("Developer context viewer did not expose the effective system prompt");
+  }
+  await contextDialog.getByRole("button", { name: "Close context viewer" }).click();
+  await contextDialog.waitFor({ state: "detached" });
 
   const activeClientToggle = page.locator(
     '.file-tree-item[data-active-client="true"] > .folder-row .file-item-main',
@@ -87,16 +137,16 @@ try {
       window.localStorage.setItem("compass.profile.avatar.v1", avatar);
     }, previousProfileAvatar);
   }
-  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   await page.locator(".user-profile").click();
-  await page.locator(".profile-menu button").filter({ hasText: "技能库" }).click();
+  await page.locator(".profile-menu button").filter({ hasText: "Skill library" }).click();
   await page.getByRole("heading", { name: "Skills" }).waitFor();
   await shot("03-skills-settings");
-  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   await page.locator(".user-profile").click();
-  await page.locator(".profile-menu button").filter({ hasText: "设置" }).click();
+  await page.locator(".profile-menu button").filter({ hasText: "Settings" }).click();
   await page.getByRole("heading", { name: "General" }).waitFor();
   const previousTheme = await page.evaluate(() => {
     const value = window.localStorage.getItem("compass.theme.v1");
@@ -117,7 +167,7 @@ try {
   const themeLabel = previousTheme === "light" ? /Light/ : previousTheme === "dark" ? /Dark/ : /System/;
   await page.getByRole("radio", { name: themeLabel }).click();
   await shot("04-general-settings");
-  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   const textarea = page.locator(".composer textarea");
   await textarea.click();
@@ -127,16 +177,15 @@ try {
     const item = popover.querySelector(".popover-item");
     const name = item?.querySelector(".name");
     const description = item?.querySelector(".desc");
-    const hint = popover.querySelector(".slash-popover-hint");
     const popoverStyle = getComputedStyle(popover);
     const itemStyle = item ? getComputedStyle(item) : null;
     const nameStyle = name ? getComputedStyle(name) : null;
     const descriptionStyle = description ? getComputedStyle(description) : null;
-    const hintStyle = hint ? getComputedStyle(hint) : null;
     return {
       headerCount: popover.querySelectorAll(".popover-head").length,
       tagCount: popover.querySelectorAll(".tag").length,
       kbdCount: popover.querySelectorAll("kbd").length,
+      hintCount: popover.querySelectorAll(".slash-popover-hint").length,
       backdropFilter: popoverStyle.backdropFilter,
       borderRadius: popoverStyle.borderRadius,
       itemDisplay: itemStyle?.display,
@@ -150,15 +199,13 @@ try {
       descriptionFontSize: descriptionStyle?.fontSize,
       descriptionWhiteSpace: descriptionStyle?.whiteSpace,
       descriptionOverflow: descriptionStyle?.overflow,
-      hintHeight: hintStyle?.height,
-      hintBorderTop: Number.parseFloat(hintStyle?.borderTopWidth ?? "0"),
-      hintFontSize: hintStyle?.fontSize,
     };
   });
   if (
     slashPaletteLayout.headerCount !== 0
     || slashPaletteLayout.tagCount !== 0
     || slashPaletteLayout.kbdCount !== 0
+    || slashPaletteLayout.hintCount !== 0
     || !slashPaletteLayout.backdropFilter.includes("blur(12px)")
     || slashPaletteLayout.itemDisplay !== "flex"
     || slashPaletteLayout.itemMinHeight !== "32px"
@@ -170,10 +217,6 @@ try {
     || slashPaletteLayout.descriptionFontSize !== "11px"
     || slashPaletteLayout.descriptionWhiteSpace !== "nowrap"
     || slashPaletteLayout.descriptionOverflow !== "hidden"
-    || slashPaletteLayout.hintHeight !== "24px"
-    || slashPaletteLayout.hintBorderTop < 0.5
-    || slashPaletteLayout.hintBorderTop > 1.1
-    || slashPaletteLayout.hintFontSize !== "9px"
   ) {
     throw new Error(`Slash command palette layout regressed: ${JSON.stringify(slashPaletteLayout)}`);
   }
@@ -188,9 +231,12 @@ try {
   await page.locator(".slash-popover").waitFor();
   await page.keyboard.press("Tab");
   const appliedSlash = await textarea.inputValue();
-  if (!appliedSlash.startsWith("请帮我执行 /skill:")) {
-    throw new Error(`Inline slash command did not preserve prose: ${appliedSlash}`);
+  const selectedSkillChip = page.locator(".composer-skill-selection");
+  if (appliedSlash.trim() !== "请帮我执行" || (await selectedSkillChip.count()) !== 1) {
+    throw new Error(`Skill selection did not become a structured chip: ${appliedSlash}`);
   }
+  await shot("05b-skill-chip");
+  await selectedSkillChip.getByRole("button", { name: /Remove skill/ }).click();
   await textarea.fill("");
 
   const modelButton = page.locator(".model-pill");
@@ -271,7 +317,7 @@ try {
     .evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
   if (
     JSON.stringify(settingsSectionOrder) !==
-    JSON.stringify(["Providers", "Conversation title summary model", "Models"])
+    JSON.stringify(["Providers & API Keys", "Conversation title model", "Provider & Model"])
   ) {
     throw new Error(`Provider & Model sections are out of order: ${settingsSectionOrder.join(", ")}`);
   }
@@ -387,7 +433,7 @@ try {
   }
   await shot("07b-responsive-settings");
   await page.setViewportSize({ width: 1320, height: 880 });
-  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   await page.locator(".context-trigger").click();
   const contextRingWidth = await page.locator(".context-trigger circle").first().evaluate((circle) =>
@@ -404,7 +450,7 @@ try {
   await shot("08-context-usage");
   await page.getByRole("button", { name: "Close context usage" }).click();
 
-  await page.locator('.composer-icon-btn[aria-label="更多操作"]').click();
+  await page.locator('.composer-icon-btn[aria-label="More actions"]').click();
   await page.locator(".action-popover").waitFor();
   await shot("09-action-menu");
   await page.keyboard.press("Escape");
@@ -542,7 +588,7 @@ try {
       element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 31);
       element.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    const jumpToLatest = page.getByRole("button", { name: "跳到最新消息" });
+    const jumpToLatest = page.getByRole("button", { name: "Jump to latest message" });
     await jumpToLatest.waitFor();
     await jumpToLatest.click();
     await page.waitForFunction(() => {
@@ -577,12 +623,13 @@ try {
   const readGroup = page.locator('[data-tool-call-ids~="smoke-read-call"]');
   const readToggle = readGroup.locator(".tool-activity-toggle");
   if ((await readToggle.getAttribute("aria-expanded")) !== "true") await readToggle.click();
-  await readGroup.locator(".tool-activity-output").waitFor();
-  if (!String(await readGroup.locator(".tool-activity-output").textContent()).includes("Line two is visible")) {
+  const readItem = readGroup.locator('[data-tool-call-id="smoke-read-call"]');
+  await readItem.locator(".tool-activity-output").waitFor();
+  if (!String(await readItem.locator(".tool-activity-output").textContent()).includes("Line two is visible")) {
     throw new Error("Expanded Read activity did not expose tool output");
   }
-  await readGroup.getByRole("button", { name: "复制工具输出" }).click();
-  await readGroup.locator(".tool-copy-button.copied").waitFor();
+  await readItem.getByRole("button", { name: "Copy tool output" }).click();
+  await readItem.locator(".tool-copy-button.copied").waitFor();
   await page.waitForTimeout(350);
   await shot("12c-read-preview");
 
@@ -611,6 +658,18 @@ try {
       ts: Date.now(),
     });
   });
+  const plainUserBubble = page.locator(".msg-user-bubble").filter({ hasText: "Inspect a live tool group" });
+  await plainUserBubble.waitFor();
+  if ((await plainUserBubble.count()) !== 1) {
+    throw new Error("Plain user message did not render as one bubble");
+  }
+  if ((await plainUserBubble.locator(".msg-user-skill-arguments").count()) !== 0) {
+    throw new Error("Plain user message inherited the Skill argument divider");
+  }
+  const plainBubbleHeight = await plainUserBubble.evaluate((element) => element.getBoundingClientRect().height);
+  if (plainBubbleHeight > 48) {
+    throw new Error(`Plain user message bubble is too tall: ${plainBubbleHeight}`);
+  }
   const liveReadGroup = page.locator('[data-tool-call-ids~="smoke-live-read-call"]');
   const liveReadToggle = liveReadGroup.locator(".tool-activity-toggle");
   await liveReadToggle.waitFor();
@@ -646,17 +705,22 @@ try {
     });
   });
   const reasoningMessage = page.locator(".msg-assistant").filter({ hasText: "Reasoning remains readable" });
-  await reasoningMessage.locator(".thinking-content").waitFor();
-  const liveThinkingState = await reasoningMessage.locator(".thinking-block").evaluate((block) => {
-    const toggle = block.querySelector(".thinking-toggle");
-    const style = toggle ? getComputedStyle(toggle) : null;
+  await reasoningMessage.locator(".thinking-content-wrapper").waitFor();
+  const liveThinkingState = await reasoningMessage.locator(".thinking-block-capsule").evaluate((block) => {
+    const style = getComputedStyle(block);
     return {
       live: block.classList.contains("live"),
-      label: block.querySelector(".thinking-label")?.textContent?.trim(),
-      animationName: style?.animationName,
+      label: block.querySelector(".thinking-title-cn")?.textContent?.trim(),
+      liveDotCount: block.querySelectorAll(".thinking-live-dot").length,
+      animationName: style.animationName,
     };
   });
-  if (!liveThinkingState.live || liveThinkingState.label !== "Thinking" || liveThinkingState.animationName !== "thinking-breathe") {
+  if (
+    !liveThinkingState.live
+    || liveThinkingState.label !== "Thinking"
+    || liveThinkingState.liveDotCount !== 1
+    || liveThinkingState.animationName !== "thinking-pulse"
+  ) {
     throw new Error(`Live Thinking treatment is incomplete: ${JSON.stringify(liveThinkingState)}`);
   }
   await app.evaluate(({ BrowserWindow }) => {
@@ -671,13 +735,20 @@ try {
     });
   });
   await page.waitForTimeout(120);
-  if ((await reasoningMessage.locator(".thinking-toggle").getAttribute("aria-expanded")) !== "true") {
+  if ((await reasoningMessage.locator(".thinking-toggle-button").getAttribute("aria-expanded")) !== "true") {
     throw new Error("Reasoning collapsed when streaming ended");
   }
-  if (await reasoningMessage.locator(".thinking-block.live").count()) {
+  if (await reasoningMessage.locator(".thinking-block-capsule.live").count()) {
     throw new Error("Thinking kept its live animation after streaming ended");
   }
-  await reasoningMessage.getByRole("button", { name: "复制回复" }).click();
+  const assistantCopyButton = reasoningMessage.getByRole("button", { name: "Copy response" });
+  if ((await assistantCopyButton.locator("span").count()) !== 0) {
+    throw new Error("Assistant copy action must remain icon-only");
+  }
+  if ((await assistantCopyButton.evaluate((element) => getComputedStyle(element).alignSelf)) !== "flex-start") {
+    throw new Error("Assistant copy action is not aligned to the left");
+  }
+  await assistantCopyButton.click();
   await reasoningMessage.locator(".assistant-copy-button.copied").waitFor();
   await shot("12d-reasoning-copy");
 
@@ -686,23 +757,28 @@ try {
     const previousClientRegistry = await page.evaluate(() => localStorage.getItem("compass.clients.v1"));
     try {
       const smokeClientPrefix = `Smoke ${Date.now()}`;
-      const newClientButton = page.getByRole("button", { name: "新建客户档案" });
+      const newClientButton = page.getByRole("button", { name: "New client profile" });
       for (const suffix of ["Alpha", "Beta"]) {
+        const clientName = `${smokeClientPrefix} ${suffix}`;
         await newClientButton.click();
-        const newClientDialog = page.getByRole("dialog", { name: "新建客户档案" });
-        await newClientDialog.getByLabel("姓名").fill(`${smokeClientPrefix} ${suffix}`);
-        await newClientDialog.getByLabel("年龄").fill("48");
-        await newClientDialog.getByLabel("联系方式").fill("smoke@example.test");
-        await newClientDialog.getByText("Phonak", { exact: true }).click();
-        await newClientDialog.getByRole("button", { name: "创建档案" }).click();
+        const newClientDialog = page.getByRole("dialog", { name: "New client profile" });
+        await newClientDialog.getByLabel("Name").fill(clientName);
+        await newClientDialog.getByLabel("Age").fill("48");
+        await newClientDialog.getByLabel("Contact").fill("smoke@example.test");
+        await newClientDialog.locator('input[name="client-hearing-aid-brand"][value="phonak"]').check({ force: true });
+        await newClientDialog.getByRole("button", { name: "Create profile" }).click();
         await newClientDialog.waitFor({ state: "detached" });
+        await page.waitForFunction(async (expectedName) => {
+          const payload = await window.compass.init();
+          return payload.clientRegistry.clients.includes(expectedName);
+        }, clientName);
       }
 
       await firstSession.click({ button: "right" });
       const sessionActions = await page
         .locator(".sidebar-context-menu button")
         .evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim()));
-      const expectedActions = ["关联到客户…", "重命名", "归档", "删除", "复制 Session ID"];
+      const expectedActions = ["Assign to client…", "Rename", "Archive", "Delete", "Copy Session ID"];
       if (JSON.stringify(sessionActions) !== JSON.stringify(expectedActions)) {
         throw new Error(`Session actions do not match: ${sessionActions.join(", ")}`);
       }
@@ -716,8 +792,8 @@ try {
       await shot("13-session-menu");
 
       const threadHeightBeforeConfirmation = await firstSession.evaluate((row) => row.getBoundingClientRect().height);
-      await page.getByRole("menuitem", { name: "删除" }).click();
-      const inlineConfirmation = firstSession.getByRole("alertdialog", { name: "确定删除会话" });
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+      const inlineConfirmation = firstSession.getByRole("alertdialog", { name: "Confirm delete conversation" });
       await inlineConfirmation.waitFor();
       const confirmationLayout = await inlineConfirmation.evaluate((overlay) => ({
         position: getComputedStyle(overlay).position,
@@ -738,13 +814,13 @@ try {
         throw new Error("Inline confirmation countdown did not advance from 5 to 4");
       }
       await shot("13a-inline-confirmation");
-      await inlineConfirmation.getByRole("button", { name: "取消" }).click();
+      await inlineConfirmation.getByRole("button", { name: "Undo" }).click();
       await inlineConfirmation.waitFor({ state: "detached" });
 
       await firstSession.click({ button: "right" });
-      await page.getByRole("menuitem", { name: "关联到客户…" }).click();
-      const clientDialog = page.getByRole("dialog", { name: "关联客户" });
-      const clientInput = clientDialog.getByPlaceholder("输入或搜索客户姓名");
+      await page.getByRole("menuitem", { name: "Assign to client…" }).click();
+      const clientDialog = page.getByRole("dialog", { name: "Assign client" });
+      const clientInput = clientDialog.getByPlaceholder("Enter or search for a client name");
       await clientInput.fill(smokeClientPrefix);
       if ((await clientDialog.getByRole("option").count()) !== 2) {
         throw new Error("Client assignment filtering did not expose both keyboard candidates");
@@ -760,9 +836,9 @@ try {
       await clientDialog.waitFor({ state: "detached" });
 
       await firstSession.click({ button: "right" });
-      await page.getByRole("menuitem", { name: "重命名" }).click();
-      await firstSession.getByRole("button", { name: "确认重命名" }).waitFor();
-      await firstSession.getByRole("button", { name: "取消重命名" }).click();
+      await page.getByRole("menuitem", { name: "Rename" }).click();
+      await firstSession.getByRole("button", { name: "Confirm rename" }).waitFor();
+      await firstSession.getByRole("button", { name: "Cancel rename" }).click();
 
       await firstSession.hover();
       const moreButton = firstSession.locator(".thread-more-button");
@@ -782,6 +858,38 @@ try {
         throw new Error("Ellipsis entry did not open the complete session menu");
       }
       await page.keyboard.press("Escape");
+
+      const assignedClientName = `${smokeClientPrefix} Alpha`;
+      if (await page.locator(".sidebar").evaluate((element) => element.classList.contains("collapsed"))) {
+        await page.locator(".titlebar-sidebar-toggle").click();
+      }
+      const clientSectionToggle = page.locator(".file-section-header-main");
+      if ((await clientSectionToggle.getAttribute("aria-expanded")) !== "true") {
+        await clientSectionToggle.click();
+      }
+      const assignedClientGroup = page.locator(".file-tree-item").filter({ hasText: assignedClientName });
+      await assignedClientGroup.scrollIntoViewIfNeeded();
+      await assignedClientGroup.hover();
+      await assignedClientGroup.locator(".file-action-btn").click();
+      const composerText = await page.locator(".composer textarea").inputValue();
+      if (composerText !== "") {
+        throw new Error(`Client session leaked assignment text into composer: ${JSON.stringify(composerText)}`);
+      }
+      await page.waitForFunction(async (expectedName) => {
+        const payload = await window.compass.init();
+        return Boolean(
+          payload.stats.sessionId
+          && payload.clientRegistry.assignments[payload.stats.sessionId] === expectedName
+        );
+      }, assignedClientName);
+      const assignedContext = await page.evaluate(() => window.compass.getDeveloperContext());
+      if (
+        assignedContext.clientName !== assignedClientName
+        || !assignedContext.clientContext?.includes(`Name: ${assignedClientName}`)
+        || !assignedContext.effectiveSystemPrompt.includes(`Name: ${assignedClientName}`)
+      ) {
+        throw new Error(`Assigned client was not injected into context: ${JSON.stringify(assignedContext)}`);
+      }
     } finally {
       await page.evaluate((registry) => {
         if (registry === null) localStorage.removeItem("compass.clients.v1");
@@ -793,7 +901,7 @@ try {
   const sidebar = page.locator(".sidebar");
   const sidebarResizer = page.locator(".sidebar-resizer");
   if (await sidebar.evaluate((element) => element.classList.contains("collapsed"))) {
-    await page.locator(".sidebar-collapse-button").click();
+    await page.locator(".titlebar-sidebar-toggle").click();
   }
   const originalSidebarWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
   const resizeBox = await sidebarResizer.boundingBox();
@@ -831,4 +939,5 @@ try {
   console.log(`done, outDir=${outDir}`);
 } finally {
   await app.close();
+  rmSync(smokeUserDataDir, { recursive: true, force: true });
 }

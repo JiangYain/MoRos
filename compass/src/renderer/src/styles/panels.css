@@ -449,6 +449,39 @@
   white-space: nowrap;
 }
 
+.settings-language-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.settings-language-options > button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-control);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 10.5px;
+  text-align: left;
+}
+
+.settings-language-options > button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.settings-language-options > button.selected {
+  border-color: var(--color-border-focus);
+  background: var(--color-surface-active);
+  color: var(--color-text-primary);
+}
+
 .settings-status,
 .settings-provider-state,
 .settings-active-model {
@@ -1227,6 +1260,10 @@
 
   .settings-theme-options {
     grid-template-columns: 1fr;
+  }
+
+  .settings-language-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .settings-theme-options > button {

@@ -1,5 +1,11 @@
-import { X } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { Check, Mars, Venus, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useI18n } from "../i18n";
+import phonakLogo from "../assets/hearing-aid-phonak.svg";
+import resoundLogo from "../assets/hearing-aid-resound.svg";
+import signiaLogo from "../assets/hearing-aid-signia.svg";
+import starkeyLogo from "../assets/hearing-aid-starkey.svg";
+import widexLogo from "../assets/hearing-aid-widex.svg";
 import {
   clientProfileDisplayName,
   HEARING_AID_BRANDS,
@@ -7,6 +13,7 @@ import {
   type ClientGender,
   type ClientHearingAidBrand,
   type ClientProfileDraft,
+  type SelectableClientHearingAidBrand,
 } from "./client-registry";
 
 interface ClientProfileDialogProps {
@@ -20,31 +27,36 @@ const EMPTY_PROFILE: ClientProfileDraft = {
   gender: "unspecified",
   age: null,
   contact: "",
+  notes: "",
   hearingAidBrands: [],
 };
 
-const GENDER_OPTIONS: Array<{ value: ClientGender; label: string }> = [
-  { value: "female", label: "女" },
-  { value: "male", label: "男" },
-  { value: "non-binary", label: "其他" },
-  { value: "unspecified", label: "未说明" },
-];
+const GENDER_OPTIONS: ClientGender[] = ["female", "male"];
+
+const BRAND_LOGOS: Record<SelectableClientHearingAidBrand, string> = {
+  phonak: phonakLogo,
+  widex: widexLogo,
+  signia: signiaLogo,
+  resound: resoundLogo,
+  starkey: starkeyLogo,
+};
 
 export function ClientProfileDialog({
   existingClients,
   onClose,
   onSave,
 }: ClientProfileDialogProps): React.JSX.Element {
+  const { language, t } = useI18n();
   const [profile, setProfile] = useState<ClientProfileDraft>(EMPTY_PROFILE);
+  const formRef = useRef<HTMLFormElement>(null);
   const titleId = useId();
-  const helpId = useId();
   const displayName = clientProfileDisplayName(profile);
   const duplicate = useMemo(() => {
-    const key = normalizeClientName(displayName).toLocaleLowerCase("zh-CN");
+    const key = normalizeClientName(displayName).toLocaleLowerCase(language);
     return Boolean(key) && existingClients.some(
-      (client) => normalizeClientName(client).toLocaleLowerCase("zh-CN") === key,
+      (client) => normalizeClientName(client).toLocaleLowerCase(language) === key,
     );
-  }, [displayName, existingClients]);
+  }, [displayName, existingClients, language]);
   const canSave = Boolean(displayName) && !duplicate;
 
   useEffect(() => {
@@ -62,13 +74,63 @@ export function ClientProfileDialog({
     setProfile((current) => ({ ...current, [field]: value }));
   };
 
-  const toggleBrand = (brand: ClientHearingAidBrand): void => {
+  const selectBrand = (brand: ClientHearingAidBrand): void => {
     setProfile((current) => ({
       ...current,
-      hearingAidBrands: current.hearingAidBrands.includes(brand)
-        ? current.hearingAidBrands.filter((candidate) => candidate !== brand)
-        : [...current.hearingAidBrands, brand],
+      hearingAidBrands: [brand],
     }));
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLFormElement>): void => {
+    if (event.nativeEvent.isComposing) return;
+    const target = event.target as HTMLElement;
+
+    if (event.key === "Enter") {
+      if (target.tagName === "INPUT") {
+        const inputType = (target as HTMLInputElement).type;
+        if (inputType === "checkbox" || inputType === "radio") {
+          event.preventDefault();
+          (target as HTMLInputElement).click();
+          return;
+        }
+        if (inputType === "text" || inputType === "number" || inputType === "tel") {
+          event.preventDefault();
+          if (canSave) {
+            onSave(profile);
+          }
+          return;
+        }
+      }
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (target.tagName === "INPUT" && (target as HTMLInputElement).type === "number") {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (!formRef.current) return;
+      const focusableElements = Array.from(
+        formRef.current.querySelectorAll<HTMLElement>(
+          'input[type="text"], input[type="number"], input[type="tel"], input[type="radio"], input[type="checkbox"], button:not([disabled])'
+        )
+      );
+
+      const currentIndex = focusableElements.indexOf(target);
+      if (currentIndex === -1) return;
+
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      let nextIndex = currentIndex + direction;
+
+      if (nextIndex < 0) {
+        nextIndex = focusableElements.length - 1;
+      } else if (nextIndex >= focusableElements.length) {
+        nextIndex = 0;
+      }
+
+      focusableElements[nextIndex]?.focus();
+    }
   };
 
   return (
@@ -79,23 +141,20 @@ export function ClientProfileDialog({
       }}
     >
       <form
+        ref={formRef}
         className="client-profile-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={helpId}
+        onKeyDown={handleKeyDown}
         onSubmit={(event) => {
           event.preventDefault();
           if (canSave) onSave(profile);
         }}
       >
         <header>
-          <div>
-            <span>CLIENT PROFILE</span>
-            <h2 id={titleId}>新建客户档案</h2>
-            <p id={helpId}>记录验配工作所需的核心客户信息。</p>
-          </div>
-          <button type="button" className="client-dialog-close" aria-label="关闭" onClick={onClose}>
+          <h2 id={titleId}>{t("client.newProfile")}</h2>
+          <button type="button" className="client-dialog-close" aria-label={t("common.close")} onClick={onClose}>
             <X size={15} strokeWidth={1.65} />
           </button>
         </header>
@@ -103,25 +162,49 @@ export function ClientProfileDialog({
         <div className="client-profile-body">
           <div className="client-profile-compact-grid">
             <label className="client-profile-field client-profile-name">
-              <span>姓名</span>
+              <span>{t("client.name")}</span>
               <input
                 autoFocus
                 value={profile.name}
-                placeholder="输入客户姓名"
+                placeholder={t("client.namePlaceholder")}
                 autoComplete="name"
                 onChange={(event) => update("name", event.target.value)}
               />
             </label>
 
+            <fieldset className="client-profile-field client-profile-gender">
+              <legend>{t("client.gender")}</legend>
+              <div data-selected-gender={profile.gender}>
+                <span className="client-profile-gender-thumb" aria-hidden="true" />
+                {GENDER_OPTIONS.map((option) => (
+                  <label key={option} data-gender-option={option}>
+                    <input
+                      type="radio"
+                      name="client-gender"
+                      value={option}
+                      checked={profile.gender === option}
+                      onChange={() => update("gender", option)}
+                    />
+                    {option === "female" ? (
+                      <Venus className="client-profile-gender-symbol" size={12} strokeWidth={1.75} aria-hidden="true" />
+                    ) : (
+                      <Mars className="client-profile-gender-symbol" size={12} strokeWidth={1.75} aria-hidden="true" />
+                    )}
+                    <span>{t(option === "female" ? "client.female" : "client.male")}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
             <label className="client-profile-field client-profile-age-input">
-              <span>年龄</span>
+              <span>{t("client.age")}</span>
               <input
                 type="number"
                 min={0}
                 max={130}
                 inputMode="numeric"
                 value={profile.age ?? ""}
-                placeholder="可选"
+                aria-label={t("client.agePlaceholder")}
                 onChange={(event) => {
                   const value = event.target.valueAsNumber;
                   update("age", Number.isFinite(value) ? Math.min(130, Math.max(0, Math.round(value))) : null);
@@ -129,45 +212,49 @@ export function ClientProfileDialog({
               />
             </label>
 
-            <fieldset className="client-profile-field client-profile-gender">
-              <legend>性别</legend>
-              <div>
-                {GENDER_OPTIONS.map((option) => (
-                  <label key={option.value}>
-                    <input
-                      type="radio"
-                      name="client-gender"
-                      value={option.value}
-                      checked={profile.gender === option.value}
-                      onChange={() => update("gender", option.value)}
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            <div className="client-profile-contact-row">
+              <label className="client-profile-field client-profile-contact">
+                <span>{t("client.contact")}</span>
+                <input
+                  value={profile.contact}
+                  placeholder={t("client.contactPlaceholder")}
+                  autoComplete="tel"
+                  onChange={(event) => update("contact", event.target.value)}
+                />
+              </label>
 
-            <label className="client-profile-field client-profile-contact">
-              <span>联系方式</span>
-              <input
-                value={profile.contact}
-                placeholder="手机号、邮箱或其他联系方式"
-                autoComplete="tel"
-                onChange={(event) => update("contact", event.target.value)}
-              />
-            </label>
+              <label className="client-profile-field client-profile-notes">
+                <span>{t("client.notes")}</span>
+                <input
+                  value={profile.notes}
+                  placeholder={t("client.notesPlaceholder")}
+                  onChange={(event) => update("notes", event.target.value)}
+                />
+              </label>
+            </div>
 
             <fieldset className="client-profile-field client-profile-brands">
-              <legend>助听器品牌 <small>可多选</small></legend>
+              <legend>{t("client.brand")} <small>{t("client.singleSelect")}</small></legend>
               <div>
                 {HEARING_AID_BRANDS.map((brand) => (
-                  <label key={brand.value}>
+                  <label key={brand.value} title={brand.label}>
                     <input
-                      type="checkbox"
+                      type="radio"
+                      name="client-hearing-aid-brand"
+                      value={brand.value}
+                      aria-label={brand.label}
                       checked={profile.hearingAidBrands.includes(brand.value)}
-                      onChange={() => toggleBrand(brand.value)}
+                      onChange={() => selectBrand(brand.value)}
                     />
-                    <span>{brand.label}</span>
+                    <img
+                      className={`client-profile-brand-logo brand-${brand.value}`}
+                      src={BRAND_LOGOS[brand.value]}
+                      alt={brand.label}
+                      draggable={false}
+                    />
+                    <span className="client-profile-brand-check" aria-hidden="true">
+                      <Check size={9} strokeWidth={2.4} />
+                    </span>
                   </label>
                 ))}
               </div>
@@ -178,14 +265,14 @@ export function ClientProfileDialog({
         <footer>
           <p className={duplicate ? "client-profile-status error" : "client-profile-status"} aria-live="polite">
             {duplicate
-              ? `“${displayName}”已存在`
+              ? t("client.exists", { name: displayName })
               : displayName
-                ? `将创建“${displayName}”的客户档案`
-                : "姓名为必填项"}
+                ? t("client.willCreate", { name: displayName })
+                : t("client.nameRequired")}
           </p>
           <div>
-            <button type="button" className="client-profile-cancel" onClick={onClose}>取消</button>
-            <button type="submit" className="client-profile-save" disabled={!canSave}>创建档案</button>
+            <button type="button" className="client-profile-cancel" onClick={onClose}>{t("common.cancel")}</button>
+            <button type="submit" className="client-profile-save" disabled={!canSave}>{t("client.createProfile")}</button>
           </div>
         </footer>
       </form>

@@ -6,6 +6,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { TitleBar } from "./components/TitleBar";
 import { api, isDesktop } from "./ipc";
+import { useI18n } from "./i18n";
 import { type SettingsSection, useCompass } from "./store";
 import { useThemePreference } from "./theme";
 
@@ -21,6 +22,7 @@ interface NavigationAvailability {
 
 export default function App(): React.JSX.Element {
   useThemePreference();
+  const { language, t } = useI18n();
   const ready = useCompass((s) => s.ready);
   const thread = useCompass((s) => s.thread);
   const approvals = useCompass((s) => s.approvals);
@@ -73,7 +75,7 @@ export default function App(): React.JSX.Element {
     });
   }, []);
 
-  const openNavigationTarget = useCallback((target: NavigationTarget): Promise<void> | void => {
+  const openNavigationTarget = useCallback((target: NavigationTarget): Promise<boolean> | void => {
     if (target.kind === "settings") {
       openSettings(target.section);
       return;
@@ -94,12 +96,15 @@ export default function App(): React.JSX.Element {
     syncNavigationAvailability();
     const navigation = openNavigationTarget(target);
     if (!navigation) return;
-    void navigation.catch(() => {
+    const rollback = (): void => {
       if (pendingNavigationKeyRef.current !== target.key) return;
       pendingNavigationKeyRef.current = null;
       historyIndexRef.current = previousIndex;
       syncNavigationAvailability();
-    });
+    };
+    void navigation.then((opened) => {
+      if (!opened) rollback();
+    }).catch(rollback);
   }, [openNavigationTarget, syncNavigationAvailability]);
 
   useEffect(() => {
@@ -127,6 +132,10 @@ export default function App(): React.JSX.Element {
     compactViewport.addEventListener("change", syncSidebarForViewport);
     return () => compactViewport.removeEventListener("change", syncSidebarForViewport);
   }, [setSidebarOpen]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   useEffect(() => {
     if (!ready) return;
@@ -191,7 +200,12 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="app-frame">
-      <TitleBar />
+      <TitleBar
+        canNavigateBack={navigationAvailability.canGoBack}
+        canNavigateForward={navigationAvailability.canGoForward}
+        onNavigateBack={() => navigateHistory(-1)}
+        onNavigateForward={() => navigateHistory(1)}
+      />
       <div className={`app-body${settingsSection ? " settings-open" : ""}`}>
         {settingsSection ? (
           <SettingsWorkspace />
@@ -201,16 +215,11 @@ export default function App(): React.JSX.Element {
               <button
                 type="button"
                 className="mobile-sidebar-scrim"
-                aria-label="关闭导航"
+                aria-label={t("common.close")}
                 onClick={() => setSidebarOpen(false)}
               />
             )}
-            <Sidebar
-              canNavigateBack={navigationAvailability.canGoBack}
-              canNavigateForward={navigationAvailability.canGoForward}
-              onNavigateBack={() => navigateHistory(-1)}
-              onNavigateForward={() => navigateHistory(1)}
-            />
+            <Sidebar />
             <main className="main-col">
               {ready && thread.length === 0 && approvals.length === 0 ? <Hero /> : <Thread />}
               <Composer />

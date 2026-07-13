@@ -6,7 +6,7 @@ import {
   assignSessionToClient,
   parseClientRegistry,
   unassignSession,
-} from "../src/renderer/src/components/client-registry.ts";
+} from "../src/shared/client-registry.ts";
 
 test("client registry safely parses and normalizes persisted data", () => {
   const registry = parseClientRegistry(JSON.stringify({
@@ -33,7 +33,8 @@ test("compact profiles normalize clinical essentials and remain assignable", () 
     gender: "male",
     age: 42,
     contact: " 13800000000 ",
-    hearingAidBrands: ["phonak", "unitron", "phonak"],
+    notes: " 首次验配 ",
+    hearingAidBrands: ["phonak", "widex", "phonak"],
   }, 1234);
 
   assert.deepEqual(created.clients, ["王小明"]);
@@ -43,7 +44,8 @@ test("compact profiles normalize clinical essentials and remain assignable", () 
     gender: "male",
     age: 42,
     contact: "13800000000",
-    hearingAidBrands: ["phonak", "unitron"],
+    notes: "首次验配",
+    hearingAidBrands: ["phonak", "widex"],
     createdAt: 1234,
     updatedAt: 1234,
   });
@@ -64,6 +66,7 @@ test("legacy detailed profiles migrate into the compact profile shape", () => {
         dateOfBirth: "1984-03-02",
         email: "patient@example.com",
         homePhone: "021-12345678",
+        hearingAidBrands: ["unitron", "oticon", "other", "phonak"],
         createdAt: 10,
         updatedAt: 20,
       },
@@ -74,5 +77,9 @@ test("legacy detailed profiles migrate into the compact profile shape", () => {
   assert.equal(registry.profiles["王小明"].gender, "male");
   assert.match(registry.profiles["王小明"].contact, /021-12345678/);
   assert.match(registry.profiles["王小明"].contact, /patient@example.com/);
+  assert.deepEqual(
+    registry.profiles["王小明"].hearingAidBrands,
+    ["unitron", "oticon", "other", "phonak"],
+  );
   assert.ok((registry.profiles["王小明"].age ?? 0) > 0);
 });

@@ -1,0 +1,98 @@
+{
+  "probe": "#mark-direction computed transform and opacity",
+  "samples": [
+    {
+      "time_ms": 440,
+      "opacity": 0.236273,
+      "translate_x": 19.5108,
+      "translate_y": 21.9667,
+      "matrix": "matrix(0.999779, 0.0210237, -0.0210237, 0.999779, 19.5108, 21.9667)"
+    },
+    {
+      "time_ms": 500,
+      "opacity": 0.632049,
+      "translate_x": 11.9911,
+      "translate_y": 8.5104,
+      "matrix": "matrix(0.999923, 0.0123905, -0.0123905, 0.999923, 11.9911, 8.51035)"
+    },
+    {
+      "time_ms": 560,
+      "opacity": 0.844461,
+      "translate_x": 7.9553,
+      "translate_y": 1.2883,
+      "matrix": "matrix(0.99997, 0.00775659, -0.00775659, 0.99997, 7.95525, 1.28834)"
+    },
+    {
+      "time_ms": 620,
+      "opacity": 0.956124,
+      "translate_x": 5.8336,
+      "translate_y": -2.5082,
+      "matrix": "matrix(0.999986, 0.00532053, -0.00532053, 0.999986, 5.83365, -2.50821)"
+    },
+    {
+      "time_ms": 680,
+      "opacity": 0.998213,
+      "translate_x": 5.0339,
+      "translate_y": -3.9393,
+      "matrix": "matrix(0.99999, 0.00440229, -0.00440229, 0.99999, 5.03395, -3.93926)"
+    },
+    {
+      "time_ms": 696,
+      "opacity": 1,
+      "translate_x": 5,
+      "translate_y": -4,
+      "matrix": "matrix(0.99999, 0.00436331, -0.00436331, 0.99999, 5, -4)"
+    },
+    {
+      "time_ms": 716,
+      "opacity": 1,
+      "translate_x": 4.8475,
+      "translate_y": -3.9564,
+      "matrix": "matrix(0.999991, 0.00421121, -0.00421121, 0.999991, 4.8475, -3.95643)"
+    },
+    {
+      "time_ms": 892,
+      "opacity": 1,
+      "translate_x": -1.9663,
+      "translate_y": -2.0096,
+      "matrix": "matrix(0.999997, -0.00258441, 0.00258441, 0.999997, -1.96633, -2.00962)"
+    },
+    {
+      "time_ms": 912,
+      "opacity": 1,
+      "translate_x": -2,
+      "translate_y": -2,
+      "matrix": "matrix(0.999997, -0.00261799, 0.00261799, 0.999997, -2, -2)"
+    },
+    {
+      "time_ms": 932,
+      "opacity": 1,
+      "translate_x": -1.9232,
+      "translate_y": -1.9232,
+      "matrix": "matrix(0.999997, -0.00251746, 0.00251746, 0.999997, -1.9232, -1.9232)"
+    }
+  ],
+  "easing_check_at_500ms": {
+    "designed_curve": "cubic-bezier(0,0,0.2,1)",
+    "computed": {
+      "time_ms": 500,
+      "opacity": 0.632049,
+      "translate_x": 11.9911,
+      "translate_y": 8.5104,
+      "matrix": "matrix(0.999923, 0.0123905, -0.0123905, 0.999923, 11.9911, 8.51035)"
+    },
+    "linear_reference": {
+      "translate_x": 18.492753623188406,
+      "translate_y": 20.144927536231883
+    },
+    "distance_from_linear_px": 13.3279,
+    "verdict": "non-linear easing applied"
+  },
+  "handoff_speed_px_per_ms": {
+    "before_696": 0.0043,
+    "after_696": 0.0079,
+    "before_912": 0.0018,
+    "after_912": 0.0054
+  },
+  "note": "No stroke draw or split-fill handoff is used; ink-delta sweep is not applicable."
+}

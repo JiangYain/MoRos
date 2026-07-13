@@ -20,7 +20,9 @@ import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
   AgentStats,
   AgentUiEvent,
+  AppLanguage,
   AppSettingsView,
+  DeveloperContextSnapshot,
   InitPayload,
   PermissionMode,
   RuntimePrerequisites,
@@ -33,12 +35,13 @@ import type {
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
-import { DEFAULT_SUMMARY_MODEL, isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import { DEFAULT_SUMMARY_MODEL, isAppLanguage, isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import { compactSkillText } from "../shared/skill-display.ts";
 import { app } from "electron";
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { COMPASS_CONTEXT } from "./compass-context";
+import { buildClientContext, buildLanguageContext, COMPASS_CONTEXT } from "./compass-context";
 import { buildEstimatedContextBreakdown } from "./context-usage";
 import { normalizeImages } from "./image-attachments";
 import { evaluateToolApproval, type ToolApprovalRequest } from "./permission-policy";
@@ -63,6 +66,46 @@ import {
 type Emit = (event: AgentUiEvent) => void;
 
 type ToolApprovalDecision = undefined | { block: true; reason: string };
+
+type AgentMessageKey =
+  | "compacting" | "compactionFailed" | "compactionComplete" | "retrying"
+  | "sessionInvalid" | "sessionDirectory" | "sessionOutside" | "nameEmpty"
+  | "sessionArchived" | "sessionNotReady" | "modelNotFound" | "thinkingInvalid"
+  | "modelUnavailable" | "modelRequired";
+
+const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
+  "zh-CN": {
+    compacting: "正在压缩会话上下文…", compactionFailed: "上下文压缩失败：{error}", compactionComplete: "上下文压缩完成。",
+    retrying: "请求失败，正在自动重试（第 {attempt}/{max} 次）…", sessionInvalid: "会话不存在或路径无效", sessionDirectory: "无法解析会话目录",
+    sessionOutside: "路径不在会话目录内", nameEmpty: "名称不能为空", sessionArchived: "会话已在归档目录中", sessionNotReady: "会话尚未就绪",
+    modelNotFound: "未找到该模型", thinkingInvalid: "无效的思考深度", modelUnavailable: "该模型当前不可用，请先配置对应 Provider。", modelRequired: "至少需要保留一个可用模型。",
+  },
+  "zh-TW": {
+    compacting: "正在壓縮對話上下文…", compactionFailed: "上下文壓縮失敗：{error}", compactionComplete: "上下文壓縮完成。",
+    retrying: "要求失敗，正在自動重試（第 {attempt}/{max} 次）…", sessionInvalid: "對話不存在或路徑無效", sessionDirectory: "無法解析對話目錄",
+    sessionOutside: "路徑不在對話目錄內", nameEmpty: "名稱不可為空", sessionArchived: "對話已在封存目錄中", sessionNotReady: "對話尚未就緒",
+    modelNotFound: "找不到該模型", thinkingInvalid: "無效的思考深度", modelUnavailable: "此模型目前無法使用，請先設定對應的 Provider。", modelRequired: "至少必須保留一個可用模型。",
+  },
+  en: {
+    compacting: "Compacting conversation context…", compactionFailed: "Context compaction failed: {error}", compactionComplete: "Context compaction complete.",
+    retrying: "Request failed. Retrying automatically ({attempt}/{max})…", sessionInvalid: "The conversation does not exist or its path is invalid", sessionDirectory: "Could not resolve the conversation directory",
+    sessionOutside: "The path is outside the conversation directory", nameEmpty: "The name cannot be empty", sessionArchived: "The conversation is already archived", sessionNotReady: "The conversation is not ready",
+    modelNotFound: "Model not found", thinkingInvalid: "Invalid thinking level", modelUnavailable: "This model is unavailable. Configure its provider first.", modelRequired: "At least one available model must remain enabled.",
+  },
+  de: {
+    compacting: "Unterhaltungskontext wird komprimiert…", compactionFailed: "Kontextkomprimierung fehlgeschlagen: {error}", compactionComplete: "Kontextkomprimierung abgeschlossen.",
+    retrying: "Anfrage fehlgeschlagen. Automatischer Neuversuch ({attempt}/{max})…", sessionInvalid: "Die Unterhaltung existiert nicht oder der Pfad ist ungültig", sessionDirectory: "Unterhaltungsverzeichnis konnte nicht aufgelöst werden",
+    sessionOutside: "Der Pfad liegt außerhalb des Unterhaltungsverzeichnisses", nameEmpty: "Der Name darf nicht leer sein", sessionArchived: "Die Unterhaltung ist bereits archiviert", sessionNotReady: "Die Unterhaltung ist noch nicht bereit",
+    modelNotFound: "Modell nicht gefunden", thinkingInvalid: "Ungültige Denktiefe", modelUnavailable: "Dieses Modell ist nicht verfügbar. Konfigurieren Sie zuerst den Provider.", modelRequired: "Mindestens ein verfügbares Modell muss aktiviert bleiben.",
+  },
+};
+
+function agentMessage(language: AppLanguage, key: AgentMessageKey, values: Record<string, string | number> = {}): string {
+  return Object.entries(values).reduce(
+    (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+    AGENT_COPY[language][key],
+  );
+}
 
 interface PendingApproval {
   request: UiApprovalRequest;
@@ -101,9 +144,11 @@ export class AgentService {
   private pendingUserMessageIds: string[] = [];
   private pendingApprovals = new Map<string, PendingApproval>();
   private sessionTitleRequests = new Set<string>();
+  private getClientRegistry: () => InitPayload["clientRegistry"];
 
-  constructor(emit: Emit) {
+  constructor(emit: Emit, getClientRegistry: () => InitPayload["clientRegistry"]) {
     this.emit = emit;
+    this.getClientRegistry = getClientRegistry;
     this.settings = loadSettings();
     this.authStorage = AuthStorage.create();
     this.modelRegistry = ModelRegistry.create(this.authStorage);
@@ -128,6 +173,25 @@ export class AgentService {
         return this.requestToolApproval(approval, event.toolName, event.input);
       });
     };
+  }
+
+  private clientContextExtension(): ExtensionFactory {
+    return (pi) => {
+      pi.on("before_agent_start", (event) => {
+        const languageContext = buildLanguageContext(this.settings.language);
+        const clientContext = this.currentClientContext();
+        return {
+          systemPrompt: [event.systemPrompt, languageContext, clientContext].filter(Boolean).join("\n\n"),
+        };
+      });
+    };
+  }
+
+  private currentClientContext(): string | undefined {
+    const sessionId = this.session?.sessionId;
+    return sessionId
+      ? buildClientContext(this.getClientRegistry(), sessionId, this.settings.language)
+      : undefined;
   }
 
   private requestToolApproval(
@@ -199,6 +263,7 @@ export class AgentService {
       additionalSkillPaths: [...new Set(skillDirs)],
       extensionFactories: [
         { name: "compass-permission-policy", factory: this.permissionExtension() },
+        { name: "compass-client-context", factory: this.clientContextExtension() },
       ],
       skillsOverride: (base) => ({
         skills: base.skills.filter((skill) => !this.settings.disabledSkills.includes(skill.name)),
@@ -326,13 +391,15 @@ export class AgentService {
       case "message_end": {
         const message = event.message;
         if (isUserMessage(message)) {
-          const text = textOfContent(message.content);
+          const expandedText = textOfContent(message.content);
+          const display = compactSkillText(expandedText);
           const images = imagesOfContent(message.content);
-          if (text.trim() || images.length > 0) {
+          if (display.text.trim() || display.skillName || images.length > 0) {
             this.emit({
               kind: "user-message",
               id: this.pendingUserMessageIds.shift() ?? this.nextId("u"),
-              text,
+              text: display.text,
+              skillName: display.skillName,
               images: images.length > 0 ? images : undefined,
               ts: message.timestamp,
             });
@@ -390,7 +457,7 @@ export class AgentService {
         this.emit({
           kind: "notice",
           tone: "info",
-          text: "正在压缩会话上下文…",
+          text: agentMessage(this.settings.language, "compacting"),
           ts: Date.now(),
         });
         break;
@@ -398,7 +465,9 @@ export class AgentService {
         this.emit({
           kind: "notice",
           tone: event.errorMessage ? "warn" : "info",
-          text: event.errorMessage ? `上下文压缩失败：${event.errorMessage}` : "上下文压缩完成。",
+          text: event.errorMessage
+            ? agentMessage(this.settings.language, "compactionFailed", { error: event.errorMessage })
+            : agentMessage(this.settings.language, "compactionComplete"),
           ts: Date.now(),
         });
         this.emitStats();
@@ -407,7 +476,10 @@ export class AgentService {
         this.emit({
           kind: "notice",
           tone: "warn",
-          text: `请求失败，正在自动重试（第 ${event.attempt}/${event.maxAttempts} 次）…`,
+          text: agentMessage(this.settings.language, "retrying", {
+            attempt: event.attempt,
+            max: event.maxAttempts,
+          }),
           ts: Date.now(),
         });
         break;
@@ -654,15 +726,23 @@ export class AgentService {
 
   async listSessions(): Promise<UiSessionInfo[]> {
     const sessions = (await SessionManager.list(this.settings.workspaceDir))
-      .map((info) => ({
+      .map((info) => {
+        const displayName = info.name ? compactSkillText(info.name) : undefined;
+        return {
         path: info.path,
         id: info.id,
-        name: info.name,
-        firstMessage: info.firstMessage,
+        name: displayName
+          ? displayName.text || (displayName.skillName ? `Skill: ${displayName.skillName}` : info.name)
+          : info.name,
+        firstMessage: (() => {
+          const display = compactSkillText(info.firstMessage);
+          return display.text || (display.skillName ? `Skill: ${display.skillName}` : info.firstMessage);
+        })(),
         createdAt: info.created.getTime(),
         modifiedAt: info.modified.getTime(),
         messageCount: info.messageCount,
-      }));
+        };
+      });
     const projected = this.getThread();
     const firstUser = projected.find((item) => item.kind === "user");
     const sessionPath = this.session?.sessionFile;
@@ -692,15 +772,15 @@ export class AgentService {
     const sessions = await SessionManager.list(this.settings.workspaceDir);
     const listed = sessions.some((session) => session.path === path);
     if (!listed) {
-      return { ok: false, error: "会话不存在或路径无效" };
+      return { ok: false, error: agentMessage(this.settings.language, "sessionInvalid") };
     }
     const sessionDir = await this.resolveWorkspaceSessionDir();
     if (!sessionDir) {
-      return { ok: false, error: "无法解析会话目录" };
+      return { ok: false, error: agentMessage(this.settings.language, "sessionDirectory") };
     }
     const normalizedPath = resolve(path);
     if (!normalizedPath.startsWith(sessionDir + sep)) {
-      return { ok: false, error: "路径不在会话目录内" };
+      return { ok: false, error: agentMessage(this.settings.language, "sessionOutside") };
     }
     return { ok: true, sessionDir };
   }
@@ -714,7 +794,7 @@ export class AgentService {
     const allowed = await this.assertListedSessionPath(path);
     if (!allowed.ok) return allowed;
     const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: "名称不能为空" };
+    if (!trimmed) return { ok: false, error: agentMessage(this.settings.language, "nameEmpty") };
     try {
       const manager = SessionManager.open(path);
       manager.appendSessionInfo(trimmed);
@@ -798,7 +878,7 @@ export class AgentService {
       await mkdir(archiveDir, { recursive: true });
       const targetPath = join(archiveDir, basename(path));
       if (resolve(targetPath) === resolve(path)) {
-        return { ok: false, error: "会话已在归档目录中" };
+        return { ok: false, error: agentMessage(this.settings.language, "sessionArchived") };
       }
       await this.detachIfActiveSession(path);
       await rename(path, targetPath);
@@ -824,6 +904,7 @@ export class AgentService {
 
   getSettingsView(): AppSettingsView {
     return {
+      language: this.settings.language,
       workspaceDir: this.settings.workspaceDir,
       skillDirs: [...this.settings.skillDirs],
       disabledSkills: [...this.settings.disabledSkills],
@@ -866,6 +947,7 @@ export class AgentService {
       stats: this.getStats(),
       thread: this.getThread(),
       approvals: this.getApprovals(),
+      clientRegistry: this.getClientRegistry(),
       version: this.appVersion(),
     };
   }
@@ -878,10 +960,10 @@ export class AgentService {
     clientMessageId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
-    if (!session) return { ok: false, error: "会话尚未就绪" };
+    if (!session) return { ok: false, error: agentMessage(this.settings.language, "sessionNotReady") };
     if (clientMessageId) this.pendingUserMessageIds.push(clientMessageId);
     try {
-      const normalizedImages = normalizeImages(images);
+      const normalizedImages = normalizeImages(images, this.settings.language);
       if (session.isStreaming) {
         await session.prompt(text, { images: normalizedImages, streamingBehavior: "steer" });
       } else {
@@ -904,7 +986,7 @@ export class AgentService {
   async setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
     const model = this.modelRegistry.find(provider, id);
-    if (!session || !model) return { ok: false, error: "未找到该模型" };
+    if (!session || !model) return { ok: false, error: agentMessage(this.settings.language, "modelNotFound") };
     try {
       await session.setModel(model);
       this.settings.defaultModel = { provider, id };
@@ -921,15 +1003,48 @@ export class AgentService {
 
   setSummaryModel(provider: string, id: string): AppSettingsView {
     const model = this.modelRegistry.find(provider, id);
-    if (!model) throw new Error("未找到该模型");
+    if (!model) throw new Error(agentMessage(this.settings.language, "modelNotFound"));
     this.settings.summaryModel = { provider, id };
     saveSettings(this.settings);
     return this.getSettingsView();
   }
 
+  getDeveloperContext(): DeveloperContextSnapshot {
+    const session = this.session;
+    const stats = this.getStats();
+    const registry = this.getClientRegistry();
+    const sessionId = session?.sessionId ?? "";
+    const clientName = sessionId ? registry.assignments[sessionId] : undefined;
+    const clientContext = this.currentClientContext();
+    const languageContext = buildLanguageContext(this.settings.language);
+    const currentPrompt = session?.systemPrompt ?? "";
+    const supplementalContext = [languageContext, clientContext]
+      .filter((value): value is string => typeof value === "string" && !currentPrompt.includes(value))
+      .join("\n\n");
+    const effectiveSystemPrompt = supplementalContext
+      ? `${currentPrompt}\n\n${supplementalContext}`
+      : currentPrompt;
+    return {
+      sessionId,
+      sessionPath: session?.sessionFile,
+      clientName,
+      clientContext,
+      effectiveSystemPrompt,
+      contextTokens: stats.contextTokens,
+      contextWindow: stats.contextWindow,
+      contextPercent: stats.contextPercent,
+      contextBreakdown: stats.contextBreakdown,
+      messages: (session?.messages ?? []).map((message, index) => ({
+        index,
+        role: typeof message === "object" && message && "role" in message ? String(message.role) : "unknown",
+        content: cloneForUi(message),
+      })),
+    };
+  }
+
   setThinkingLevel(level: unknown): AgentStats {
     if (!isThinkingLevel(level)) {
-      throw new Error("无效的思考深度");
+      throw new Error(agentMessage(this.settings.language, "thinkingInvalid"));
     }
     if (this.session) {
       this.session.setThinkingLevel(level);
@@ -981,7 +1096,7 @@ export class AgentService {
   async setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void> {
     const model = this.modelRegistry.find(provider, id);
     if (enabled && (!model || !this.isModelConnectable(model))) {
-      throw new Error("该模型当前不可用，请先配置对应 Provider。");
+      throw new Error(agentMessage(this.settings.language, "modelUnavailable"));
     }
     const enabledModels = new Set(this.enabledModelKeys());
     const key = modelSelectionKey(provider, id);
@@ -996,7 +1111,7 @@ export class AgentService {
         },
       );
       if (replacements.length === 0) {
-        throw new Error("至少需要保留一个可用模型。");
+        throw new Error(agentMessage(this.settings.language, "modelRequired"));
       }
       const replacement = replacements[0];
       const current = this.session?.model;
@@ -1025,6 +1140,13 @@ export class AgentService {
   setPermissionMode(mode: PermissionMode): AppSettingsView {
     if (!isPermissionMode(mode)) throw new Error("无效的权限模式");
     this.settings.permissionMode = mode;
+    saveSettings(this.settings);
+    return this.getSettingsView();
+  }
+
+  setLanguage(language: AppSettingsView["language"]): AppSettingsView {
+    if (!isAppLanguage(language)) throw new Error("Invalid application language");
+    this.settings.language = language;
     saveSettings(this.settings);
     return this.getSettingsView();
   }

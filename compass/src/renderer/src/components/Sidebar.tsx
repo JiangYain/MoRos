@@ -1,11 +1,9 @@
-import type { UiSessionInfo } from "@shared/types";
+import type { AppLanguage, UiSessionInfo } from "@shared/types";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive,
-  ArrowLeft,
-  ArrowRight,
   Check,
   ChevronDown,
   ChevronRight,
@@ -15,8 +13,6 @@ import {
   Gauge,
   Link2,
   MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Plus,
   Puzzle,
@@ -28,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../ipc";
+import { localeFor, useI18n } from "../i18n";
 import { useCompass } from "../store";
 import { ClientAssignmentDialog } from "./ClientAssignmentDialog";
 import { ClientProfileDialog } from "./ClientProfileDialog";
@@ -45,14 +42,10 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "./sidebar-width";
 import {
-  addClientProfile,
-  assignSessionToClient,
-  CLIENT_REGISTRY_STORAGE_KEY,
   type ClientProfileDraft,
   type ClientRegistry,
+  clientRegistryKey,
   normalizeClientName,
-  parseClientRegistry,
-  unassignSession,
 } from "./client-registry";
 
 interface ClientGroup {
@@ -87,15 +80,38 @@ interface SidebarResizeState {
   currentWidth: number;
 }
 
-interface SidebarProps {
-  canNavigateBack: boolean;
-  canNavigateForward: boolean;
-  onNavigateBack(): void;
-  onNavigateForward(): void;
+function OpenAIComposeIcon({ size = 16 }: { size?: number }): React.JSX.Element {
+  return (
+    <svg
+      className="openai-compose-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M13.5 4.5H7A2.5 2.5 0 0 0 4.5 7v10A2.5 2.5 0 0 0 7 19.5h10a2.5 2.5 0 0 0 2.5-2.5v-6.5"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m9 15 .58-2.88 7.9-7.9a1.62 1.62 0 0 1 2.3 2.3l-7.9 7.9L9 15Z"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 const PROFILE_NAME = "ChordJiang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "compass.sidebar.width.v1";
+const SIDEBAR_TREE_ICON_SIZE = 16;
 const UNASSIGNED_CLIENT = {
   id: "client:unassigned",
   name: "未关联客户",
@@ -109,39 +125,46 @@ const CLIENT_PATTERNS = [
   /client[ \t]*(?:name|profile)?[ \t]*[:：][ \t]*([^\n,.;]+)/i,
 ];
 
-function sessionTitle(session: UiSessionInfo): string {
-  return session.name?.trim() || session.firstMessage.trim() || "未命名会话";
+function sessionTitle(session: UiSessionInfo, untitled: string): string {
+  return session.name?.trim() || session.firstMessage.trim() || untitled;
 }
 
 function normalizedSessionDate(value: number): Date {
   return new Date(value > 0 && value < 1_000_000_000_000 ? value * 1_000 : value);
 }
 
-function sessionTime(session: UiSessionInfo): string {
+function sessionTime(
+  session: UiSessionInfo,
+  language: AppLanguage,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
   const date = normalizedSessionDate(session.createdAt || session.modifiedAt);
-  if (Number.isNaN(date.getTime())) return "时间未知";
+  if (Number.isNaN(date.getTime())) return t("common.unknown");
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const time = new Intl.DateTimeFormat("zh-CN", {
+  const time = new Intl.DateTimeFormat(localeFor(language), {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(date);
-  if (startOfDate === startOfToday) return `今天 ${time}`;
-  if (startOfDate === startOfToday - 86_400_000) return `昨天 ${time}`;
-  if (date.getFullYear() === now.getFullYear()) {
-    return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
-  }
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`;
+  if (startOfDate === startOfToday) return `${t("common.today")} ${time}`;
+  if (startOfDate === startOfToday - 86_400_000) return `${t("common.yesterday")} ${time}`;
+  return new Intl.DateTimeFormat(localeFor(language), {
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" as const }),
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
-function sessionRelativeAge(session: UiSessionInfo, now = Date.now()): string {
+function sessionRelativeAge(session: UiSessionInfo, nowLabel: string, now = Date.now()): string {
   const date = normalizedSessionDate(session.createdAt || session.modifiedAt);
   if (Number.isNaN(date.getTime())) return "—";
   const elapsed = Math.max(0, now - date.getTime());
   const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return "now";
+  if (minutes < 1) return nowLabel;
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
@@ -218,12 +241,8 @@ function groupSessionsByClient(sessions: UiSessionInfo[], registry: ClientRegist
     });
 }
 
-export function Sidebar({
-  canNavigateBack,
-  canNavigateForward,
-  onNavigateBack,
-  onNavigateForward,
-}: SidebarProps): React.JSX.Element {
+export function Sidebar(): React.JSX.Element {
+  const { language, t } = useI18n();
   const sessions = useCompass((state) => state.sessions);
   const stats = useCompass((state) => state.stats);
   const settings = useCompass((state) => state.settings);
@@ -233,7 +252,10 @@ export function Sidebar({
   const renameSession = useCompass((state) => state.renameSession);
   const deleteSession = useCompass((state) => state.deleteSession);
   const archiveSession = useCompass((state) => state.archiveSession);
-  const seedComposer = useCompass((state) => state.seedComposer);
+  const clientRegistry = useCompass((state) => state.clientRegistry);
+  const persistClientProfile = useCompass((state) => state.saveClientProfile);
+  const persistSessionClient = useCompass((state) => state.assignSessionClient);
+  const removeSessionClient = useCompass((state) => state.unassignSessionClient);
   const setError = useCompass((state) => state.setError);
   const openSettings = useCompass((state) => state.openSettings);
   const sidebarOpen = useCompass((state) => state.sidebarOpen);
@@ -259,15 +281,9 @@ export function Sidebar({
   const [contextMenuPosition, setContextMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [clientDialog, setClientDialog] = useState<ClientDialogState | null>(null);
   const [sessionConfirmation, setSessionConfirmation] = useState<SessionConfirmationState | null>(null);
-  const [clientRegistry, setClientRegistry] = useState<ClientRegistry>(() => {
-    try {
-      return parseClientRegistry(window.localStorage.getItem(CLIENT_REGISTRY_STORAGE_KEY));
-    } catch {
-      return parseClientRegistry(null);
-    }
-  });
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const legacyAssignmentMigrations = useRef(new Set<string>());
 
   const clientGroups = useMemo(
     () => groupSessionsByClient(sessions, clientRegistry),
@@ -280,24 +296,32 @@ export function Sidebar({
       return {
         id: session.id,
         path: session.path,
-        title: sessionTitle(session),
-        time: sessionTime(session),
-        client: client.name,
+        title: sessionTitle(session, t("common.untitledSession")),
+        time: sessionTime(session, language, t),
+        client: client.unassigned ? t("sidebar.unassigned") : client.name,
         active: session.id === activeSessionId,
       };
     }),
-    [activeSessionId, clientRegistry, sessions],
+    [activeSessionId, clientRegistry, language, sessions, t],
   );
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const contextPercent = stats?.contextPercent == null ? null : Math.round(stats.contextPercent);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(CLIENT_REGISTRY_STORAGE_KEY, JSON.stringify(clientRegistry));
-    } catch {
-      // Manual grouping remains available for the current session when storage is unavailable.
+    const knownClients = new Map(
+      clientRegistry.clients.map((name) => [clientRegistryKey(name), name]),
+    );
+    for (const session of sessions) {
+      if (clientRegistry.assignments[session.id] || legacyAssignmentMigrations.current.has(session.id)) continue;
+      const inferred = inferClient(session, clientRegistry);
+      const knownName = inferred.unassigned ? undefined : knownClients.get(clientRegistryKey(inferred.name));
+      if (!knownName) continue;
+      legacyAssignmentMigrations.current.add(session.id);
+      void persistSessionClient(session.id, knownName).catch(() => {
+        legacyAssignmentMigrations.current.delete(session.id);
+      });
     }
-  }, [clientRegistry]);
+  }, [clientRegistry, persistSessionClient, sessions]);
 
   useEffect(() => {
     setSessionConfirmation((current) => current?.busy ? current : null);
@@ -429,8 +453,10 @@ export function Sidebar({
 
   const createThreadForClient = async (group: ClientGroup): Promise<void> => {
     closeMobileSidebar();
-    await newSession();
-    if (!group.unassigned) seedComposer(`顾客：${group.name}\n`);
+    const created = await newSession();
+    if (!created || group.unassigned) return;
+    const sessionId = useCompass.getState().stats?.sessionId;
+    if (sessionId) await persistSessionClient(sessionId, group.name);
   };
 
   const closeThreadMenu = (): void => {
@@ -469,21 +495,21 @@ export function Sidebar({
     try {
       await navigator.clipboard.writeText(session.id);
     } catch {
-      setError("复制 Session ID 失败");
+      setError(t("sidebar.copyIdFailed"));
     }
     closeThreadMenu();
   };
 
   const startRename = (session: UiSessionInfo): void => {
     setRenamingPath(session.path);
-    setRenameDraft(sessionTitle(session));
+    setRenameDraft(sessionTitle(session, t("common.untitledSession")));
     closeThreadMenu();
   };
 
   const commitRename = (path: string): void => {
     const nextName = renameDraft.trim();
     if (!nextName) {
-      setError("会话名称不能为空。");
+      setError(t("sidebar.renameEmpty"));
       requestAnimationFrame(() => renameInputRef.current?.focus());
       return;
     }
@@ -507,19 +533,19 @@ export function Sidebar({
     if (!normalized) return;
     const session = clientDialog?.session;
     if (!session) return;
-    setClientRegistry((current) => assignSessionToClient(current, session.id, normalized));
+    void persistSessionClient(session.id, normalized);
     setClientDialog(null);
   };
 
   const saveClientProfile = (profile: ClientProfileDraft): void => {
-    setClientRegistry((current) => addClientProfile(current, profile));
+    void persistClientProfile(profile);
     setClientDialog(null);
   };
 
   const clearClientAssignment = (): void => {
     const session = clientDialog?.session;
     if (!session) return;
-    setClientRegistry((current) => unassignSession(current, session.id));
+    void removeSessionClient(session.id);
     setClientDialog(null);
   };
 
@@ -552,51 +578,11 @@ export function Sidebar({
   const availableClientNames = clientGroups
     .filter((group) => !group.unassigned)
     .map((group) => group.name);
-
   return (
     <aside
       className={`sidebar${sidebarOpen ? " mobile-open" : " collapsed"}${sidebarResizing ? " resizing" : ""}`}
       style={{ "--sidebar-w": `${sidebarWidth}px` } as React.CSSProperties}
     >
-      <div className="sidebar-header-controls">
-        <button
-          type="button"
-          className="sidebar-header-button sidebar-collapse-button"
-          aria-label={sidebarOpen ? "折叠侧边栏" : "展开侧边栏"}
-          aria-expanded={sidebarOpen}
-          title={sidebarOpen ? "折叠侧边栏" : "展开侧边栏"}
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-        >
-          {sidebarOpen ? (
-            <PanelLeftClose size={14} strokeWidth={1.6} aria-hidden="true" />
-          ) : (
-            <PanelLeftOpen size={14} strokeWidth={1.6} aria-hidden="true" />
-          )}
-        </button>
-        <div className="sidebar-history-controls" aria-label="Navigation history">
-          <button
-            type="button"
-            className="sidebar-header-button"
-            aria-label="后退"
-            title="后退"
-            disabled={!canNavigateBack}
-            onClick={onNavigateBack}
-          >
-            <ArrowLeft size={14} strokeWidth={1.6} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="sidebar-header-button"
-            aria-label="前进"
-            title="前进"
-            disabled={!canNavigateForward}
-            onClick={onNavigateForward}
-          >
-            <ArrowRight size={14} strokeWidth={1.6} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
       <SessionSearchOverlay
         entries={searchEntries}
         open={searchOpen}
@@ -607,7 +593,7 @@ export function Sidebar({
         }}
       />
 
-      <nav className="sidebar-nav" aria-label="Compass navigation">
+      <nav className="sidebar-nav" aria-label="Compass">
         <button
           type="button"
           className="sidebar-nav-item"
@@ -617,12 +603,12 @@ export function Sidebar({
           }}
         >
           <SquarePen size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>New</span>
+          <span>{t("sidebar.new")}</span>
         </button>
         <button
           type="button"
           className={`sidebar-nav-item${searchOpen ? " active" : ""}`}
-          aria-label="Search"
+          aria-label={t("sidebar.search")}
           aria-expanded={searchOpen}
           aria-controls="session-search-dialog"
           onClick={() => {
@@ -631,7 +617,7 @@ export function Sidebar({
           }}
         >
           <Search size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>Search</span>
+          <span>{t("sidebar.search")}</span>
         </button>
         <button
           type="button"
@@ -642,14 +628,14 @@ export function Sidebar({
           }}
         >
           <Puzzle size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>技能</span>
+          <span>{t("sidebar.skills")}</span>
           <span className="nav-count">{enabledSkills}</span>
         </button>
       </nav>
 
       <div className="file-tree">
         {clientGroups.length === 0 ? (
-          <div className="empty-state">开始第一次验配对话后，会话会自动归入客户档案。</div>
+          <div className="empty-state">{t("sidebar.empty")}</div>
         ) : (
           <div className="file-section">
             <div className="file-section-header">
@@ -659,29 +645,42 @@ export function Sidebar({
                 aria-expanded={!clientsCollapsed}
                 onClick={() => setClientsCollapsed((current) => !current)}
               >
-                <span className="file-section-title">客户档案</span>
+                <span className="file-section-title">{t("sidebar.clients")}</span>
                 <span className="file-section-header-right">
                   <span className="file-section-count">{clientGroups.length}</span>
-                  {clientsCollapsed ? (
-                    <ChevronRight size={13} strokeWidth={1.6} />
-                  ) : (
-                    <ChevronDown size={13} strokeWidth={1.6} />
-                  )}
+                  <motion.span
+                    className="file-section-toggle file-chevron"
+                    animate={{ rotate: clientsCollapsed ? 0 : 90 }}
+                    transition={reduced ? { duration: 0 } : { duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <ChevronRight size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} aria-hidden="true" />
+                  </motion.span>
                 </span>
               </button>
               <button
                 type="button"
                 className="file-section-add"
-                aria-label="新建客户档案"
-                title="新建客户档案"
+                aria-label={t("sidebar.newClient")}
+                title={t("sidebar.newClient")}
                 onClick={() => openClientDialog()}
               >
-                <Plus size={13} strokeWidth={1.65} />
+                <Plus size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} />
               </button>
             </div>
 
-            {!clientsCollapsed && (
-              <div className="file-section-content">
+            <AnimatePresence initial={false}>
+              {!clientsCollapsed && (
+              <motion.div
+                key="client-section-content"
+                className="file-section-content"
+                initial={reduced ? false : { height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={reduced ? { duration: 0 } : {
+                  height: { duration: 0.26, ease: [0.2, 0, 0, 1] },
+                  opacity: { duration: 0.12, ease: "easeOut" },
+                }}
+              >
                 {clientGroups.map((group, index) => {
                   const activeClient = group.sessions.some(
                     (session) => session.id === activeSessionId,
@@ -709,30 +708,54 @@ export function Sidebar({
                           onClick={() => toggleClient(group.id)}
                         >
                           <span className="file-icon">
-                            <FolderIcon size={14} strokeWidth={1.55} />
+                            <AnimatePresence initial={false} mode="popLayout">
+                              <motion.span
+                                key={expanded ? "open" : "closed"}
+                                className="file-icon-glyph"
+                                initial={reduced ? false : { opacity: 0, scale: 0.82 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.82 }}
+                                transition={reduced ? { duration: 0 } : { duration: 0.14, ease: "easeOut" }}
+                              >
+                                <FolderIcon size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.55} />
+                              </motion.span>
+                            </AnimatePresence>
                           </span>
-                          <span className="file-name">{group.name}</span>
-                          {expanded ? (
-                            <ChevronDown size={12} strokeWidth={1.55} />
-                          ) : (
-                            <ChevronRight size={12} strokeWidth={1.55} />
-                          )}
+                          <span className="file-name">{group.unassigned ? t("sidebar.unassigned") : group.name}</span>
+                          <motion.span
+                            className="file-chevron"
+                            animate={{ rotate: expanded ? 90 : 0 }}
+                            transition={reduced ? { duration: 0 } : { duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          >
+                            <ChevronRight size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} aria-hidden="true" />
+                          </motion.span>
                         </button>
                         <button
                           type="button"
                           className="file-action-btn"
-                          title={`新对话并预填客户：${group.name}`}
-                          aria-label={`新对话并预填客户：${group.name}`}
+                          title={t("sidebar.newConversationFor", { name: group.unassigned ? t("sidebar.unassigned") : group.name })}
+                          aria-label={t("sidebar.newConversationFor", { name: group.unassigned ? t("sidebar.unassigned") : group.name })}
                           onClick={() => void createThreadForClient(group)}
                         >
-                          <SquarePen size={13} strokeWidth={1.6} />
+                          <OpenAIComposeIcon size={SIDEBAR_TREE_ICON_SIZE} />
                         </button>
                       </div>
 
-                      {expanded && (
-                        <div className="file-children">
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                        <motion.div
+                          key="client-threads"
+                          className="file-children"
+                          initial={reduced ? false : { height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={reduced ? { duration: 0 } : {
+                            height: { duration: 0.26, ease: [0.2, 0, 0, 1] },
+                            opacity: { duration: 0.12, ease: "easeOut" },
+                          }}
+                        >
                           {group.sessions.length === 0 && (
-                            <div className="client-empty-label">暂无会话</div>
+                            <div className="client-empty-label">{t("sidebar.noConversations")}</div>
                           )}
                           {group.sessions.map((session) => {
                             const active = activeSessionId === session.id;
@@ -740,7 +763,7 @@ export function Sidebar({
                             const confirmation = sessionConfirmation?.path === session.path
                               ? sessionConfirmation
                               : null;
-                            const relativeAge = sessionRelativeAge(session);
+                            const relativeAge = sessionRelativeAge(session, t("common.now"));
                             return (
                               <div
                                 className={`file-tree-item thread-item-shell${active ? " active" : ""}${confirmation ? " confirming" : ""}`}
@@ -771,16 +794,16 @@ export function Sidebar({
                                     <span className="thread-rename-actions">
                                       <button
                                         type="button"
-                                        aria-label="确认重命名"
-                                        title="确认"
+                                        aria-label={t("sidebar.confirmRename")}
+                                        title={t("sidebar.confirmRename")}
                                         onClick={() => commitRename(session.path)}
                                       >
                                         <Check size={12} strokeWidth={1.8} />
                                       </button>
                                       <button
                                         type="button"
-                                        aria-label="取消重命名"
-                                        title="取消"
+                                        aria-label={t("sidebar.cancelRename")}
+                                        title={t("common.cancel")}
                                         onClick={cancelRename}
                                       >
                                         <X size={12} strokeWidth={1.8} />
@@ -796,9 +819,9 @@ export function Sidebar({
                                         closeMobileSidebar();
                                         if (!active) void openSession(session.path);
                                       }}
-                                      title={`${sessionTime(session)} · ${relativeAge} · ${sessionTitle(session)}`}
+                                      title={`${sessionTime(session, language, t)} · ${relativeAge} · ${sessionTitle(session, t("common.untitledSession"))}`}
                                     >
-                                      <span className="file-name">{sessionTitle(session)}</span>
+                                      <span className="file-name">{sessionTitle(session, t("common.untitledSession"))}</span>
                                       <time className="thread-relative-time" dateTime={sessionDateTime(session)}>
                                         {relativeAge}
                                       </time>
@@ -806,9 +829,9 @@ export function Sidebar({
                                     <button
                                       type="button"
                                       className="thread-more-button"
-                                      aria-label={`会话操作：${sessionTime(session)}`}
+                                      aria-label={`${t("sidebar.moreActions")}: ${sessionTime(session, language, t)}`}
                                       aria-expanded={contextMenu?.session.path === session.path}
-                                      title="更多操作"
+                                      title={t("sidebar.moreActions")}
                                       onClick={(event) => openThreadActionMenu(event, session)}
                                     >
                                       <MoreHorizontal size={14} strokeWidth={1.65} aria-hidden="true" />
@@ -821,6 +844,7 @@ export function Sidebar({
                                       key={`${confirmation.path}:${confirmation.action}`}
                                       action={confirmation.action}
                                       busy={confirmation.busy}
+                                      sessionTitle={sessionTitle(session, t("common.untitledSession"))}
                                       onCancel={() => setSessionConfirmation(null)}
                                       onConfirm={() => confirmSessionAction(confirmation)}
                                     />
@@ -829,13 +853,15 @@ export function Sidebar({
                               </div>
                             );
                           })}
-                        </div>
-                      )}
+                        </motion.div>
+                        )}
+                      </AnimatePresence>
                     </motion.div>
                   );
                 })}
-              </div>
-            )}
+              </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
@@ -853,7 +879,7 @@ export function Sidebar({
               <button
                 type="button"
                 className="profile-menu-head profile-menu-head-button"
-                aria-label="打开个人资料"
+                aria-label={t("sidebar.openProfile")}
                 onClick={() => {
                   setProfileOpen(false);
                   closeMobileSidebar();
@@ -863,13 +889,13 @@ export function Sidebar({
                 <ProfileAvatar className="large" />
                 <span>
                   <b>{PROFILE_NAME}</b>
-                  <small>Local operator</small>
+                  <small>{t("settings.localIdentity")}</small>
                 </span>
               </button>
               <div className="profile-menu-rule" />
               <div className="profile-usage">
                 <Gauge size={15} strokeWidth={1.6} />
-                <span>上下文用量</span>
+                <span>{t("sidebar.contextUsage")}</span>
                 <b>{contextPercent === null ? "—" : `${contextPercent}%`}</b>
               </div>
               <button
@@ -881,7 +907,7 @@ export function Sidebar({
                 }}
               >
                 <FolderOpen size={15} strokeWidth={1.6} />
-                <span>打开工作区</span>
+                <span>{t("sidebar.openWorkspace")}</span>
               </button>
               <button
                 type="button"
@@ -892,7 +918,7 @@ export function Sidebar({
                 }}
               >
                 <Sparkles size={15} strokeWidth={1.6} />
-                <span>技能库</span>
+                <span>{t("sidebar.skillLibrary")}</span>
                 <small>{enabledSkills}</small>
               </button>
               <button
@@ -904,7 +930,7 @@ export function Sidebar({
                 }}
               >
                 <Settings size={15} strokeWidth={1.6} />
-                <span>设置</span>
+                <span>{t("sidebar.settings")}</span>
                 <small>Ctrl+,</small>
               </button>
             </motion.div>
@@ -941,24 +967,24 @@ export function Sidebar({
         >
           <button type="button" role="menuitem" onClick={() => openClientDialog(contextMenu.session)}>
             <Link2 size={14} strokeWidth={1.55} />
-            关联到客户…
+            {t("sidebar.assignClient")}
           </button>
           <div className="context-menu-rule" />
           <button type="button" role="menuitem" onClick={() => startRename(contextMenu.session)}>
             <Pencil size={14} strokeWidth={1.55} />
-            重命名
+            {t("sidebar.rename")}
           </button>
           <button type="button" role="menuitem" onClick={() => requestSessionAction(contextMenu.session, "archive")}>
             <Archive size={14} strokeWidth={1.55} />
-            归档
+            {t("sidebar.archive")}
           </button>
           <button type="button" role="menuitem" onClick={() => requestSessionAction(contextMenu.session, "delete")}>
             <Trash2 size={14} strokeWidth={1.55} />
-            删除
+            {t("sidebar.delete")}
           </button>
           <button type="button" role="menuitem" onClick={() => void copySessionId(contextMenu.session)}>
             <Copy size={14} strokeWidth={1.55} />
-            复制 Session ID
+            {t("sidebar.copySessionId")}
           </button>
         </div>,
         document.body,
@@ -969,7 +995,7 @@ export function Sidebar({
             key={dialogSession.id}
             clients={availableClientNames}
             currentClient={dialogClient?.unassigned ? undefined : dialogClient?.name}
-            sessionTitle={sessionTitle(dialogSession)}
+            sessionTitle={sessionTitle(dialogSession, t("common.untitledSession"))}
             onClose={() => setClientDialog(null)}
             onSave={saveClient}
             onUnassign={!dialogClient?.unassigned ? clearClientAssignment : undefined}
@@ -987,7 +1013,7 @@ export function Sidebar({
       <div
         className="sidebar-resizer"
         role="separator"
-        aria-label="调整侧边栏宽度"
+        aria-label={t("sidebar.resize")}
         aria-orientation="vertical"
         aria-valuemin={SIDEBAR_MIN_WIDTH}
         aria-valuemax={SIDEBAR_MAX_WIDTH}

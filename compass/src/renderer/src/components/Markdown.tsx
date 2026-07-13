@@ -1,6 +1,7 @@
 import { isValidElement, memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
 
 interface Props {
@@ -15,6 +16,7 @@ function plainText(node: ReactNode): string {
 }
 
 export const Markdown = memo(function Markdown({ text }: Props): React.JSX.Element {
+  const { t } = useI18n();
   return (
     <div className="md">
       <ReactMarkdown
@@ -29,7 +31,7 @@ export const Markdown = memo(function Markdown({ text }: Props): React.JSX.Eleme
             const code = plainText(children).replace(/\n$/, "");
             return (
               <div className="md-code-block">
-                <CopyButton className="md-copy-button" label="复制代码" text={code} />
+                <CopyButton className="md-copy-button" label={t("thread.copyCode")} text={code} />
                 <pre>{children}</pre>
               </div>
             );

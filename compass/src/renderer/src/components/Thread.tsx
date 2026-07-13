@@ -1,8 +1,9 @@
 import type { UiApprovalRequest, UiThreadItem } from "@shared/types";
-import { ArrowDown, ChevronRight, CircleEllipsis, FilePenLine, FilePlus2, FileText, Search, SquareTerminal } from "lucide-react";
+import { ArrowDown, Box, ChevronRight, CircleEllipsis, FilePenLine, FilePlus2, FileText, Search, SquareTerminal } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../store";
+import { type TranslationKey, useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
 import { Markdown } from "./Markdown";
 import {
@@ -74,6 +75,7 @@ function ThinkingBlock({
   text: string;
   live: boolean;
 }): React.JSX.Element {
+  const { t } = useI18n();
   const [manual, setManual] = useState<boolean | null>(null);
   const [autoOpen, setAutoOpen] = useState(live);
   useEffect(() => {
@@ -81,32 +83,32 @@ function ThinkingBlock({
   }, [live]);
   const open = manual ?? autoOpen;
   return (
-    <div className={`thinking-block${live ? " live" : ""}`}>
+    <div className={`thinking-block-capsule${open ? " open" : ""}${live ? " live" : ""}`}>
       <button
         type="button"
-        className="thinking-toggle"
+        className="thinking-toggle-button"
         aria-expanded={open}
         onClick={() => setManual(!open)}
       >
-        <CircleEllipsis className="thinking-icon" size={15} strokeWidth={1.55} aria-hidden />
-        <span className="thinking-label">Thinking</span>
         <ChevronRight
           className={`thinking-chevron${open ? " open" : ""}`}
           size={13}
-          strokeWidth={1.6}
+          strokeWidth={2}
           aria-hidden
         />
+        <span className="thinking-title-cn">{t("thread.thinking")}</span>
+        {live && <span className="thinking-live-dot" />}
       </button>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            className="thinking-content"
+            className="thinking-content-wrapper"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="thinking-content-inner">{text}</div>
+            <div className="thinking-content-text">{text}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -117,6 +119,7 @@ function ThinkingBlock({
 /* ------------------------------------------------------------- skill block */
 
 function SkillBlock({ text }: { text: string }): React.JSX.Element {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const skill = parseSkillBlock(text);
 
@@ -135,7 +138,7 @@ function SkillBlock({ text }: { text: string }): React.JSX.Element {
         <span className="skill-kind">Skill</span>
         <span className="skill-name">{skill.name}</span>
         <span className="skill-preview">{skill.preview}</span>
-        <span className="skill-meta">{skill.lineCount} lines</span>
+        <span className="skill-meta">{t("thread.lines", { count: skill.lineCount })}</span>
         <span className={`skill-chev${open ? " open" : ""}`}>{">"}</span>
       </button>
       <AnimatePresence initial={false}>
@@ -148,7 +151,7 @@ function SkillBlock({ text }: { text: string }): React.JSX.Element {
             transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="skill-body-inner">
-              {skill.body ? <Markdown text={skill.body} /> : <span className="skill-empty">Loading...</span>}
+              {skill.body ? <Markdown text={skill.body} /> : <span className="skill-empty">{t("common.loading")}</span>}
             </div>
           </motion.div>
         )}
@@ -162,7 +165,6 @@ function SkillBlock({ text }: { text: string }): React.JSX.Element {
 function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }): React.JSX.Element {
   return (
     <motion.div className="msg-user" {...entrance}>
-      <div className="who micro-label">Operator / 验配师</div>
       {item.images && item.images.length > 0 && (
         <div className="msg-user-images">
           {item.images.map((image, index) => (
@@ -174,7 +176,17 @@ function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }
           ))}
         </div>
       )}
-      {item.text.trim() && <div className="text msg-user-bubble">{item.text}</div>}
+      {item.skillName ? (
+        <div className="text msg-user-bubble has-skill">
+          <div className="msg-user-skill-chip">
+            <Box size={15} strokeWidth={1.75} aria-hidden="true" />
+            <span>{item.skillName}</span>
+          </div>
+          {item.text.trim() && <div className="msg-user-skill-arguments">{item.text}</div>}
+        </div>
+      ) : item.text.trim() ? (
+        <div className="text msg-user-bubble">{item.text}</div>
+      ) : null}
     </motion.div>
   );
 }
@@ -184,6 +196,7 @@ function AssistantMessage({
 }: {
   item: Extract<UiThreadItem, { kind: "assistant" }>;
 }): React.JSX.Element {
+  const { t } = useI18n();
   // Fast Refresh can briefly retain a pre-migration assistant item while the
   // store module is being replaced. Keep the thread renderable during that
   // hand-off instead of crashing the entire workspace on a missing `blocks`.
@@ -220,9 +233,9 @@ function AssistantMessage({
         </div>
       )}
       {item.errorMessage && !aborted && <div className="msg-error">{item.errorMessage}</div>}
-      {aborted && <div className="notice-row warn">已中止 · Aborted</div>}
+      {aborted && <div className="notice-row warn">{t("thread.aborted")}</div>}
       {!item.streaming && copyText && (
-        <CopyButton className="assistant-copy-button" label="复制回复" showLabel text={copyText} />
+        <CopyButton className="assistant-copy-button" label={t("thread.copyReply")} text={copyText} />
       )}
     </motion.div>
   );
@@ -245,6 +258,7 @@ function ToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool" }> }): 
 }
 
 function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool" }> }): React.JSX.Element {
+  const { t } = useI18n();
   const [manual, setManual] = useState<boolean | null>(null);
   const open = manual ?? item.running;
   const label = TOOL_LABELS[item.name] ?? item.name;
@@ -266,7 +280,7 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
         <span className="tool-name">{label}</span>
         <span className="tool-summary">{summary}</span>
         <span className={`tool-status${item.isError ? " error" : ""}`}>
-          {item.running ? "执行中" : item.isError ? "失败" : "完成"}
+          {item.running ? t("thread.running") : item.isError ? t("thread.failed") : t("thread.complete")}
         </span>
         <span className={`tool-chev${open ? " open" : ""}`}>▶</span>
       </button>
@@ -283,9 +297,9 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
               {argsJson && summary !== argsJson && <div className="tool-args">{argsJson}</div>}
               {(item.output || item.running) && (
                 <div className="tool-output-shell">
-                  {item.output && <CopyButton className="tool-copy-button" label="复制工具输出" text={item.output} />}
+                  {item.output && <CopyButton className="tool-copy-button" label={t("thread.copyToolOutput")} text={item.output} />}
                   <div className={`tool-output${item.isError ? " error" : ""}`}>
-                    {item.output || "等待输出…"}
+                    {item.output || t("thread.waitingOutput")}
                   </div>
                 </div>
               )}
@@ -297,12 +311,12 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
   );
 }
 
-const ACTIVITY_COPY: Record<ToolActivity, { active: string; complete: string; itemActive: string; itemComplete: string }> = {
-  command: { active: "Running commands", complete: "Ran commands", itemActive: "Running", itemComplete: "Ran" },
-  read: { active: "Reading files", complete: "Read files", itemActive: "Reading", itemComplete: "Read" },
-  write: { active: "Writing files", complete: "Wrote files", itemActive: "Writing", itemComplete: "Wrote" },
-  edit: { active: "Editing files", complete: "Edited files", itemActive: "Editing", itemComplete: "Edited" },
-  search: { active: "Searching files", complete: "Searched files", itemActive: "Searching", itemComplete: "Searched" },
+const ACTIVITY_COPY: Record<ToolActivity, { active: TranslationKey; complete: TranslationKey; itemActive: TranslationKey; itemComplete: TranslationKey }> = {
+  command: { active: "thread.activity.command.active", complete: "thread.activity.command.complete", itemActive: "thread.activity.command.itemActive", itemComplete: "thread.activity.command.itemComplete" },
+  read: { active: "thread.activity.read.active", complete: "thread.activity.read.complete", itemActive: "thread.activity.read.itemActive", itemComplete: "thread.activity.read.itemComplete" },
+  write: { active: "thread.activity.write.active", complete: "thread.activity.write.complete", itemActive: "thread.activity.write.itemActive", itemComplete: "thread.activity.write.itemComplete" },
+  edit: { active: "thread.activity.edit.active", complete: "thread.activity.edit.complete", itemActive: "thread.activity.edit.itemActive", itemComplete: "thread.activity.edit.itemComplete" },
+  search: { active: "thread.activity.search.active", complete: "thread.activity.search.complete", itemActive: "thread.activity.search.itemActive", itemComplete: "thread.activity.search.itemComplete" },
 };
 
 function ToolActivityIcon({ activity, size = 15 }: { activity: ToolActivity; size?: number }): React.JSX.Element {
@@ -322,6 +336,7 @@ function ToolActivityIcon({ activity, size = 15 }: { activity: ToolActivity; siz
 }
 
 function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.JSX.Element {
+  const { t } = useI18n();
   const running = group.items.some((item) => item.running);
   const [open, setOpen] = useState(running);
   const copy = ACTIVITY_COPY[group.activity];
@@ -344,7 +359,7 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
         onClick={() => setOpen((value) => !value)}
       >
         <ToolActivityIcon activity={group.activity} />
-        <span>{running ? copy.active : copy.complete}</span>
+        <span>{t(running ? copy.active : copy.complete)}</span>
         <ChevronRight
           aria-hidden
           className={`tool-activity-chevron${open ? " open" : ""}`}
@@ -364,7 +379,7 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
             <ul className="tool-activity-list">
               {group.items.map((item) => {
                 const summary = summarizeToolActivity(item);
-                const state = item.running ? copy.itemActive : item.isError ? "Failed" : copy.itemComplete;
+                const state = item.running ? t(copy.itemActive) : item.isError ? t("thread.failed") : t(copy.itemComplete);
                 const showOutput = group.activity !== "command" && Boolean(item.output || item.running);
                 return (
                   <li
@@ -383,10 +398,10 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
                     {showOutput && (
                       <div className="tool-activity-output-shell">
                         {item.output && (
-                          <CopyButton className="tool-copy-button" label="复制工具输出" text={item.output} />
+                          <CopyButton className="tool-copy-button" label={t("thread.copyToolOutput")} text={item.output} />
                         )}
                         <pre className={`tool-activity-output${item.isError ? " error" : ""}`}>
-                          {item.output || "Waiting for result…"}
+                          {item.output || t("thread.waitingOutput")}
                         </pre>
                       </div>
                     )}
@@ -402,6 +417,7 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
 }
 
 function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX.Element {
+  const { t } = useI18n();
   const resolveApproval = useCompass((state) => state.resolveApproval);
   const [responding, setResponding] = useState<"allow" | "deny" | null>(null);
   const summary = summarizeArgs(request.args) || request.detail.split(/\r?\n/).slice(1).join(" ");
@@ -413,7 +429,7 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
   };
 
   return (
-    <motion.section className="approval-request" aria-label="Command approval" {...entrance}>
+    <motion.section className="approval-request" aria-label={t("thread.commandApproval")} {...entrance}>
       <div className="approval-request-main">
         <SquareTerminal size={15} strokeWidth={1.65} aria-hidden />
         <div className="approval-request-copy">
@@ -428,7 +444,7 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
           disabled={responding !== null}
           onClick={() => respond(false)}
         >
-          {responding === "deny" ? "Denying…" : "Deny"}
+          {responding === "deny" ? t("thread.denying") : t("thread.deny")}
         </button>
         <button
           type="button"
@@ -436,7 +452,7 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
           disabled={responding !== null}
           onClick={() => respond(true)}
         >
-          {responding === "allow" ? "Allowing…" : "Allow once"}
+          {responding === "allow" ? t("thread.allowing") : t("thread.allowOnce")}
         </button>
       </div>
     </motion.section>
@@ -446,6 +462,7 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
 /* ------------------------------------------------------------- thread */
 
 export function Thread(): React.JSX.Element {
+  const { t } = useI18n();
   const thread = useCompass((s) => s.thread) ?? [];
   const approvals = useCompass((s) => s.approvals) ?? [];
   const sessionId = useCompass((s) => s.stats?.sessionId);
@@ -515,8 +532,8 @@ export function Thread(): React.JSX.Element {
           <motion.button
             type="button"
             className="thread-jump-latest"
-            aria-label="跳到最新消息"
-            title="跳到最新消息"
+            aria-label={t("thread.jumpLatest")}
+            title={t("thread.jumpLatest")}
             initial={reduced ? false : { opacity: 0, y: 6, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduced ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.94 }}

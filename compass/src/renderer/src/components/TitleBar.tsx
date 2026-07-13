@@ -1,14 +1,34 @@
-import { PanelLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import type { DeveloperContextSnapshot } from "@shared/types";
 import { useEffect, useRef, useState } from "react";
 import { api, isDesktop } from "../ipc";
+import { useI18n } from "../i18n";
 import { useCompass } from "../store";
 import { CompassLogo } from "./CompassLogo";
+import { DeveloperContextDialog } from "./DeveloperContextDialog";
 
 type GlobalMenuName = "file" | "edit" | "view" | "help";
 
-export function TitleBar(): React.JSX.Element {
+interface TitleBarProps {
+  canNavigateBack: boolean;
+  canNavigateForward: boolean;
+  onNavigateBack(): void;
+  onNavigateForward(): void;
+}
+
+export function TitleBar({
+  canNavigateBack,
+  canNavigateForward,
+  onNavigateBack,
+  onNavigateForward,
+}: TitleBarProps): React.JSX.Element {
+  const { t } = useI18n();
   const [maximized, setMaximized] = useState(false);
   const [openMenu, setOpenMenu] = useState<GlobalMenuName | null>(null);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [contextSnapshot, setContextSnapshot] = useState<DeveloperContextSnapshot | null>(null);
   const menuBarRef = useRef<HTMLElement>(null);
   const settings = useCompass((state) => state.settings);
   const newSession = useCompass((state) => state.newSession);
@@ -60,22 +80,63 @@ export function TitleBar(): React.JSX.Element {
     }));
   };
 
+  const refreshDeveloperContext = (): void => {
+    setContextLoading(true);
+    setContextError(null);
+    void api.getDeveloperContext()
+      .then(setContextSnapshot)
+      .catch((error: unknown) => setContextError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setContextLoading(false));
+  };
+
+  const openDeveloperContext = (): void => {
+    setOpenMenu(null);
+    setContextOpen(true);
+    refreshDeveloperContext();
+  };
+
   return (
     <header className="titlebar">
       <div className="titlebar-brand" role="img" aria-label="Compass">
         <CompassLogo size={17} />
       </div>
-      <button
-        type="button"
-        className={`sidebar-toggle titlebar-sidebar-toggle${sidebarOpen ? " active" : ""}`}
-        aria-label={sidebarOpen ? "关闭导航" : "打开导航"}
-        aria-expanded={sidebarOpen}
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-      >
-        <PanelLeft size={15} strokeWidth={1.6} />
-      </button>
+      <div className="titlebar-navigation-controls" aria-label={t("titlebar.navigation")}>
+        <button
+          type="button"
+          className={`sidebar-toggle titlebar-sidebar-toggle${sidebarOpen ? " active" : ""}`}
+          aria-label={sidebarOpen ? t("titlebar.collapseSidebar") : t("titlebar.expandSidebar")}
+          aria-expanded={sidebarOpen}
+          title={sidebarOpen ? t("titlebar.collapseSidebar") : t("titlebar.expandSidebar")}
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+            <rect x="1.25" y="1.75" width="12.5" height="11.5" rx="2.6" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M5.25 2.1V12.9" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="titlebar-navigation-button"
+          aria-label={t("titlebar.back")}
+          title={t("titlebar.back")}
+          disabled={!canNavigateBack}
+          onClick={onNavigateBack}
+        >
+          <ArrowLeft size={14} strokeWidth={1.6} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="titlebar-navigation-button"
+          aria-label={t("titlebar.forward")}
+          title={t("titlebar.forward")}
+          disabled={!canNavigateForward}
+          onClick={onNavigateForward}
+        >
+          <ArrowRight size={14} strokeWidth={1.6} aria-hidden="true" />
+        </button>
+      </div>
 
-      <nav ref={menuBarRef} className="global-menu" aria-label="Global menu">
+      <nav ref={menuBarRef} className="global-menu" aria-label={t("titlebar.globalMenu")}>
         <div className="global-menu-group">
           <button
             type="button"
@@ -84,12 +145,12 @@ export function TitleBar(): React.JSX.Element {
             aria-expanded={openMenu === "file"}
             onClick={() => setOpenMenu((current) => current === "file" ? null : "file")}
           >
-            File
+            {t("titlebar.file")}
           </button>
           {openMenu === "file" && (
-            <div className="global-menu-popover" role="menu" aria-label="File menu">
+            <div className="global-menu-popover" role="menu" aria-label={t("titlebar.file")}>
               <button type="button" role="menuitem" onClick={() => runMenuAction(startNewSession)}>
-                <span>New conversation</span><kbd>Ctrl+N</kbd>
+                <span>{t("titlebar.newConversation")}</span><kbd>Ctrl+N</kbd>
               </button>
               <button
                 type="button"
@@ -99,15 +160,15 @@ export function TitleBar(): React.JSX.Element {
                   if (settings?.workspaceDir) void api.openPath(settings.workspaceDir);
                 })}
               >
-                <span>Open workspace</span>
+                <span>{t("titlebar.openWorkspace")}</span>
               </button>
               <div className="global-menu-separator" />
               <button type="button" role="menuitem" onClick={() => runMenuAction(() => openSettings())}>
-                <span>Settings</span><kbd>Ctrl+,</kbd>
+                <span>{t("titlebar.settings")}</span><kbd>Ctrl+,</kbd>
               </button>
               {isDesktop && (
                 <button type="button" role="menuitem" onClick={() => runMenuAction(() => api.windowControl("close"))}>
-                  <span>Exit</span>
+                  <span>{t("titlebar.exit")}</span>
                 </button>
               )}
             </div>
@@ -122,15 +183,15 @@ export function TitleBar(): React.JSX.Element {
             aria-expanded={openMenu === "edit"}
             onClick={() => setOpenMenu((current) => current === "edit" ? null : "edit")}
           >
-            Edit
+            {t("titlebar.edit")}
           </button>
           {openMenu === "edit" && (
-            <div className="global-menu-popover" role="menu" aria-label="Edit menu">
+            <div className="global-menu-popover" role="menu" aria-label={t("titlebar.edit")}>
               <button type="button" role="menuitem" onClick={() => runMenuAction(focusComposer)}>
-                <span>Focus composer</span>
+                <span>{t("titlebar.focusComposer")}</span>
               </button>
               <button type="button" role="menuitem" onClick={() => runMenuAction(openSessionSearch)}>
-                <span>Search conversations</span><kbd>Ctrl+K</kbd>
+                <span>{t("titlebar.searchConversations")}</span><kbd>Ctrl+K</kbd>
               </button>
             </div>
           )}
@@ -144,19 +205,23 @@ export function TitleBar(): React.JSX.Element {
             aria-expanded={openMenu === "view"}
             onClick={() => setOpenMenu((current) => current === "view" ? null : "view")}
           >
-            View
+            {t("titlebar.view")}
           </button>
           {openMenu === "view" && (
-            <div className="global-menu-popover" role="menu" aria-label="View menu">
+            <div className="global-menu-popover" role="menu" aria-label={t("titlebar.view")}>
               <button type="button" role="menuitem" onClick={() => runMenuAction(() => setSidebarOpen(!sidebarOpen))}>
-                <span>{sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}</span>
+                <span>{sidebarOpen ? t("titlebar.collapseSidebar") : t("titlebar.expandSidebar")}</span>
+              </button>
+              <div className="global-menu-separator" />
+              <button type="button" role="menuitem" onClick={openDeveloperContext}>
+                <span>{t("titlebar.developerContext")}</span>
               </button>
               <div className="global-menu-separator" />
               <button type="button" role="menuitem" onClick={() => runMenuAction(() => openSettings("models"))}>
-                <span>Provider &amp; Model</span>
+                <span>{t("titlebar.providersModels")}</span>
               </button>
               <button type="button" role="menuitem" onClick={() => runMenuAction(() => openSettings("skills"))}>
-                <span>Skills</span>
+                <span>{t("titlebar.skills")}</span>
               </button>
             </div>
           )}
@@ -170,15 +235,15 @@ export function TitleBar(): React.JSX.Element {
             aria-expanded={openMenu === "help"}
             onClick={() => setOpenMenu((current) => current === "help" ? null : "help")}
           >
-            Help
+            {t("titlebar.help")}
           </button>
           {openMenu === "help" && (
-            <div className="global-menu-popover" role="menu" aria-label="Help menu">
+            <div className="global-menu-popover" role="menu" aria-label={t("titlebar.help")}>
               <button type="button" role="menuitem" onClick={() => runMenuAction(() => openSettings("general"))}>
-                <span>About Compass</span>
+                <span>{t("titlebar.about")}</span>
               </button>
               <button type="button" role="menuitem" onClick={() => runMenuAction(() => openSettings("profile"))}>
-                <span>Profile</span>
+                <span>{t("titlebar.profile")}</span>
               </button>
             </div>
           )}
@@ -188,12 +253,12 @@ export function TitleBar(): React.JSX.Element {
       <div className="titlebar-drag-space" />
       {isDesktop && (
         <div className="win-controls">
-          <button className="win-btn" aria-label="最小化" onClick={() => api.windowControl("minimize")}>
+          <button className="win-btn" aria-label={t("titlebar.minimize")} onClick={() => api.windowControl("minimize")}>
             <svg width="10" height="10" viewBox="0 0 10 10">
               <line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" strokeWidth="1" />
             </svg>
           </button>
-          <button className="win-btn" aria-label="最大化" onClick={() => api.windowControl("maximize")}>
+          <button className="win-btn" aria-label={t("titlebar.maximize")} onClick={() => api.windowControl("maximize")}>
             {maximized ? (
               <svg width="10" height="10" viewBox="0 0 10 10">
                 <rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1" />
@@ -205,7 +270,7 @@ export function TitleBar(): React.JSX.Element {
               </svg>
             )}
           </button>
-          <button className="win-btn close" aria-label="关闭" onClick={() => api.windowControl("close")}>
+          <button className="win-btn close" aria-label={t("common.close")} onClick={() => api.windowControl("close")}>
             <svg width="10" height="10" viewBox="0 0 10 10">
               <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1" />
               <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1" />
@@ -213,6 +278,14 @@ export function TitleBar(): React.JSX.Element {
           </button>
         </div>
       )}
+      <DeveloperContextDialog
+        open={contextOpen}
+        loading={contextLoading}
+        error={contextError}
+        snapshot={contextSnapshot}
+        onClose={() => setContextOpen(false)}
+        onRefresh={refreshDeveloperContext}
+      />
     </header>
   );
 }

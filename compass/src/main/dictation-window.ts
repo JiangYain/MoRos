@@ -1,5 +1,6 @@
 export interface DictationWindowTarget {
   isMinimized(): boolean;
+  isVisible(): boolean;
   restore(): void;
   show(): void;
   focus(): void;
@@ -9,8 +10,12 @@ export interface DictationWindowTarget {
 }
 
 export function focusWindowForDictation(window: DictationWindowTarget): void {
-  if (window.isMinimized()) window.restore();
-  window.show();
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  if (!window.isVisible()) {
+    window.show();
+  }
   window.focus();
   window.webContents.focus();
 }

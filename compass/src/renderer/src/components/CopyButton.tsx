@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 
 interface CopyButtonProps {
   className?: string;
@@ -31,10 +32,11 @@ async function copyText(text: string): Promise<void> {
 
 export function CopyButton({
   className = "",
-  label = "复制",
+  label,
   showLabel = false,
   text,
 }: CopyButtonProps): React.JSX.Element {
+  const { t } = useI18n();
   const [state, setState] = useState<"idle" | "copied" | "error">("idle");
   const resetRef = useRef<number | null>(null);
 
@@ -53,7 +55,9 @@ export function CopyButton({
     resetRef.current = window.setTimeout(() => setState("idle"), 1600);
   };
 
-  const accessibleLabel = state === "copied" ? "已复制" : state === "error" ? "复制失败" : label;
+  const accessibleLabel = state === "copied"
+    ? t("common.copied")
+    : state === "error" ? t("common.copyFailed") : label ?? t("common.copy");
   return (
     <button
       type="button"

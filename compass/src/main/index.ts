@@ -5,16 +5,25 @@ import type {
   ThinkingLevel,
   UiImageAttachment,
 } from "@shared/types";
+import type { ClientProfileDraft } from "@shared/client-registry";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { AgentService } from "./agent";
 import { AuthLoginController } from "./auth-login-controller";
+import { ClientDatabase } from "./client-database";
 import { createCompassBackendApi } from "./compass-api";
 import { startCompassWebServer, type CompassWebServer } from "./web-server";
 
 const DEFAULT_WEB_PORT = 5173;
 const DEFAULT_DEV_API_PORT = 4317;
+
+const userDataOverride = process.env.COMPASS_USER_DATA_DIR?.trim();
+if (userDataOverride) {
+  const userDataPath = resolve(userDataOverride);
+  mkdirSync(userDataPath, { recursive: true });
+  app.setPath("userData", userDataPath);
+}
 
 if (process.platform === "win32") {
   app.setAppUserModelId("com.compass.desktop");
@@ -23,6 +32,7 @@ if (process.platform === "win32") {
 let mainWindow: BrowserWindow | undefined;
 let agent: AgentService | undefined;
 let authLoginController: AuthLoginController | undefined;
+let clientDatabase: ClientDatabase | undefined;
 let webServer: CompassWebServer | undefined;
 let shutdownPromise: Promise<void> | undefined;
 const agentEventListeners = new Set<(event: AgentUiEvent) => void>();
@@ -127,6 +137,7 @@ function createWindow(rendererUrl: string): BrowserWindow {
 
 function registerIpc(api: CompassBackendApi): void {
   ipcMain.handle("app:init", () => api.init());
+  ipcMain.handle("developer:context", () => api.getDeveloperContext());
   ipcMain.handle("runtime:prerequisite-action", (_event, actionId: string) =>
     api.runPrerequisiteAction(actionId),
   );
@@ -147,6 +158,18 @@ function registerIpc(api: CompassBackendApi): void {
   );
   ipcMain.handle("sessions:delete", (_event, path: string) => api.deleteSession(path));
   ipcMain.handle("sessions:archive", (_event, path: string) => api.archiveSession(path));
+  ipcMain.handle("clients:import-legacy", (_event, serializedRegistry: string) =>
+    api.importLegacyClientRegistry(serializedRegistry),
+  );
+  ipcMain.handle("clients:save-profile", (_event, profile: ClientProfileDraft) =>
+    api.saveClientProfile(profile),
+  );
+  ipcMain.handle("clients:assign-session", (_event, sessionId: string, clientName: string) =>
+    api.assignSessionClient(sessionId, clientName),
+  );
+  ipcMain.handle("clients:unassign-session", (_event, sessionId: string) =>
+    api.unassignSessionClient(sessionId),
+  );
   ipcMain.handle("models:set", (_event, provider: string, id: string) =>
     api.setModel(provider, id),
   );
@@ -164,6 +187,7 @@ function registerIpc(api: CompassBackendApi): void {
   ipcMain.handle("permissions:set", (_event, mode: PermissionMode) =>
     api.setPermissionMode(mode),
   );
+  ipcMain.handle("settings:set-language", (_event, language) => api.setLanguage(language));
   ipcMain.handle("auth:set-key", (_event, provider: string, key: string) =>
     api.setApiKey(provider, key),
   );
@@ -191,11 +215,16 @@ function registerIpc(api: CompassBackendApi): void {
 }
 
 async function startApplication(): Promise<void> {
-  agent = new AgentService(emitAgentEvent);
+  const databasePath = process.env.COMPASS_DATABASE_PATH?.trim()
+    || join(app.getPath("userData"), "compass.sqlite3");
+  const database = new ClientDatabase(databasePath);
+  clientDatabase = database;
+  agent = new AgentService(emitAgentEvent, () => database.getRegistry());
   authLoginController = new AuthLoginController(agent, emitAgentEvent);
   const backendApi = createCompassBackendApi({
     service: agent,
     authController: authLoginController,
+    clientDatabase: database,
     getWindow: () => mainWindow,
     emitEvent: emitAgentEvent,
   });
@@ -238,7 +267,10 @@ function shutdown(): Promise<void> {
     shutdownPromise = Promise.allSettled([
       agent?.shutdown() ?? Promise.resolve(),
       webServer?.close() ?? Promise.resolve(),
-    ]).then(() => undefined);
+    ]).then(() => {
+      clientDatabase?.close();
+      clientDatabase = undefined;
+    });
   }
   return shutdownPromise;
 }

@@ -42,7 +42,18 @@ npm run test:smoke       # 覆盖设置、模型、上下文、权限、图片�
 - 首次使用：右下角 **Settings → 模型提供方**，为任一 Provider 填入 API Key，然后在输入框的 Model 选择器中切换模型。
 - 工作目录：Agent 的文件与命令均相对该目录执行；目录内的 `SKILL.md` 子目录会被自动发现（默认为本项目的上级目录，即 `FAI/`）。
 - 设置持久化在 `%APPDATA%/compass/compass-settings.json`；API Key 存于 Pi 的 `~/.pi/` 认证存储。
+- 客户档案、助听器品牌和会话归属存储在 `%APPDATA%/compass/compass.sqlite3`。首次启动新版时会把旧的 `localStorage` 客户档案事务性导入 SQLite，成功后删除旧键。
 - Web 服务仅监听本机回环地址。可用 `COMPASS_WEB_PORT` 修改默认 Web 端口 `5173`；开发模式内部 API 端口可用 `COMPASS_WEB_API_PORT` 修改（默认 `4317`）。
+
+## 客户数据库
+
+Compass 使用 Electron 内置的 `node:sqlite`，不依赖需要针对 Electron ABI 重编译的原生 npm 模块。数据库由主进程独占访问，渲染层只能通过类型化 IPC / 本地 Web RPC 操作客户数据。
+
+- Schema 使用 `PRAGMA user_version` 做版本迁移，并启用外键、5 秒 busy timeout、`synchronous=NORMAL` 和 WAL。
+- `clients` 保存客户主档；`client_hearing_aid_brands` 保存多选品牌；`session_client_assignments` 保存会话归属；`app_metadata` 记录迁移元数据。
+- 所有多表写入均在 `BEGIN IMMEDIATE` 事务中完成。旧版 `unitron`、`oticon`、`other` 品牌 ID 会继续保留，即使当前紧凑表单不再提供这些选项。
+- 正常关闭时会执行 WAL checkpoint。备份时建议先退出 Compass，再复制 `compass.sqlite3`。
+- 自动化测试可通过 `COMPASS_USER_DATA_DIR` 使用隔离的用户目录，或通过 `COMPASS_DATABASE_PATH=:memory:` 使用内存数据库。
 
 ## 目录结构
 
