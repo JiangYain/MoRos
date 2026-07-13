@@ -1,5 +1,6 @@
 import type {
   AgentUiEvent,
+  AppLanguage,
   CompassBackendApi,
   InitPayload,
   VoiceInputResult,
@@ -8,13 +9,53 @@ import { dialog, shell, type BrowserWindow, type OpenDialogOptions } from "elect
 import { spawn } from "node:child_process";
 import type { AgentService } from "./agent";
 import type { AuthLoginController } from "./auth-login-controller";
+import type { ClientDatabase } from "./client-database";
+import { focusWindowForDictation } from "./dictation-window";
 import { runPrerequisiteAction } from "./prerequisite-actions";
 
 interface CompassBackendOptions {
   service: AgentService;
   authController: AuthLoginController;
+  clientDatabase: ClientDatabase;
   getWindow: () => BrowserWindow | undefined;
   emitEvent: (event: AgentUiEvent) => void;
+}
+
+const BACKEND_COPY: Record<AppLanguage, {
+  voiceWindowsOnly: string;
+  mainWindowUnavailable: string;
+  voiceStartFailed: string;
+  voiceExitFailed: string;
+  chooseSkillDirectory: string;
+  chooseWorkspace: string;
+}> = {
+  "zh-CN": {
+    voiceWindowsOnly: "语音输入目前仅支持 Windows。", mainWindowUnavailable: "Compass 主窗口不可用。",
+    voiceStartFailed: "无法启动 Windows 语音输入：{error}", voiceExitFailed: "Windows 语音输入启动失败（退出码 {code}）。",
+    chooseSkillDirectory: "选择技能目录", chooseWorkspace: "选择工作目录",
+  },
+  "zh-TW": {
+    voiceWindowsOnly: "語音輸入目前僅支援 Windows。", mainWindowUnavailable: "Compass 主視窗無法使用。",
+    voiceStartFailed: "無法啟動 Windows 語音輸入：{error}", voiceExitFailed: "Windows 語音輸入啟動失敗（結束代碼 {code}）。",
+    chooseSkillDirectory: "選擇技能目錄", chooseWorkspace: "選擇工作目錄",
+  },
+  en: {
+    voiceWindowsOnly: "Voice input is currently available only on Windows.", mainWindowUnavailable: "The Compass window is unavailable.",
+    voiceStartFailed: "Could not start Windows voice input: {error}", voiceExitFailed: "Windows voice input failed to start (exit code {code}).",
+    chooseSkillDirectory: "Choose skill directory", chooseWorkspace: "Choose working directory",
+  },
+  de: {
+    voiceWindowsOnly: "Die Spracheingabe ist derzeit nur unter Windows verfügbar.", mainWindowUnavailable: "Das Compass-Fenster ist nicht verfügbar.",
+    voiceStartFailed: "Windows-Spracheingabe konnte nicht gestartet werden: {error}", voiceExitFailed: "Windows-Spracheingabe konnte nicht gestartet werden (Exitcode {code}).",
+    chooseSkillDirectory: "Skill-Verzeichnis auswählen", chooseWorkspace: "Arbeitsverzeichnis auswählen",
+  },
+};
+
+function backendMessage(language: AppLanguage, key: keyof (typeof BACKEND_COPY)[AppLanguage], values: Record<string, string> = {}): string {
+  return Object.entries(values).reduce(
+    (message, [name, value]) => message.replaceAll(`{${name}}`, value),
+    BACKEND_COPY[language][key],
+  );
 }
 
 function windowsDictationScript(windowHandle: string): string {
@@ -42,17 +83,15 @@ Start-Sleep -Milliseconds 80
 `;
 }
 
-function startWindowsDictation(ownerWindow?: BrowserWindow): Promise<VoiceInputResult> {
+function startWindowsDictation(language: AppLanguage, ownerWindow?: BrowserWindow): Promise<VoiceInputResult> {
   if (process.platform !== "win32") {
-    return Promise.resolve({ ok: false, error: "语音输入目前仅支持 Windows。" });
+    return Promise.resolve({ ok: false, error: backendMessage(language, "voiceWindowsOnly") });
   }
   if (!ownerWindow || ownerWindow.isDestroyed()) {
-    return Promise.resolve({ ok: false, error: "Compass 主窗口不可用。" });
+    return Promise.resolve({ ok: false, error: backendMessage(language, "mainWindowUnavailable") });
   }
 
-  ownerWindow.restore();
-  ownerWindow.focus();
-  ownerWindow.webContents.focus();
+  focusWindowForDictation(ownerWindow);
   const handleBuffer = ownerWindow.getNativeWindowHandle();
   const windowHandle =
     handleBuffer.length >= 8
@@ -76,13 +115,13 @@ function startWindowsDictation(ownerWindow?: BrowserWindow): Promise<VoiceInputR
       { stdio: "ignore", windowsHide: true },
     );
     child.once("error", (error) => {
-      resolveResult({ ok: false, error: `无法启动 Windows 语音输入：${error.message}` });
+      resolveResult({ ok: false, error: backendMessage(language, "voiceStartFailed", { error: error.message }) });
     });
     child.once("close", (code) => {
       resolveResult(
         code === 0
           ? { ok: true }
-          : { ok: false, error: `Windows 语音输入启动失败（退出码 ${code ?? "unknown"}）。` },
+          : { ok: false, error: backendMessage(language, "voiceExitFailed", { code: String(code ?? "unknown") }) },
       );
     });
   });
@@ -100,7 +139,7 @@ async function chooseDirectory(
 }
 
 export function createCompassBackendApi(options: CompassBackendOptions): CompassBackendApi {
-  const { service, authController, getWindow, emitEvent } = options;
+  const { service, authController, clientDatabase, getWindow, emitEvent } = options;
 
   const publish = (payload: InitPayload): InitPayload => {
     emitEvent({ kind: "state-refresh", payload });
@@ -108,11 +147,17 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
   };
 
   const buildAndPublish = async (): Promise<InitPayload> => publish(await service.buildInitPayload());
+  const publishClientRegistry = <Registry extends InitPayload["clientRegistry"]>(registry: Registry): Registry => {
+    emitEvent({ kind: "client-registry-changed", registry });
+    return registry;
+  };
 
   return {
     init: () => service.buildInitPayload(),
-    prompt: (text, images) => service.prompt(text, images),
+    getDeveloperContext: () => Promise.resolve(service.getDeveloperContext()),
+    prompt: (text, images, clientMessageId) => service.prompt(text, images, clientMessageId),
     abort: () => service.abort(),
+    resolveApproval: async (id, allowed) => service.resolveApproval(id, allowed),
     newSession: async () => {
       await service.start();
       return buildAndPublish();
@@ -133,17 +178,27 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       if (result.ok) await buildAndPublish();
       return result;
     },
+    importLegacyClientRegistry: async (serializedRegistry) =>
+      publishClientRegistry(clientDatabase.importLegacyRegistry(serializedRegistry)),
+    saveClientProfile: async (profile) =>
+      publishClientRegistry(clientDatabase.saveProfile(profile)),
+    assignSessionClient: async (sessionId, clientName) =>
+      publishClientRegistry(clientDatabase.assignSession(sessionId, clientName)),
+    unassignSessionClient: async (sessionId) =>
+      publishClientRegistry(clientDatabase.unassignSession(sessionId)),
     setModel: (provider, id) => service.setModel(provider, id),
     setModelEnabled: async (provider, id, enabled) => {
       await service.setModelEnabled(provider, id, enabled);
       return buildAndPublish();
     },
+    setSummaryModel: async (provider, id) => service.setSummaryModel(provider, id),
     setThinkingLevel: async (level) => {
       const stats = service.setThinkingLevel(level);
       emitEvent({ kind: "stats", stats });
       return stats;
     },
     setPermissionMode: async (mode) => service.setPermissionMode(mode),
+    setLanguage: async (language) => service.setLanguage(language),
     setApiKey: async (provider, key) => {
       await service.setApiKey(provider, key);
       return buildAndPublish();
@@ -154,7 +209,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       return buildAndPublish();
     },
     runPrerequisiteAction: async (actionId) => {
-      await runPrerequisiteAction(actionId, getWindow());
+      await runPrerequisiteAction(actionId, getWindow(), service.getSettingsView().language);
       return buildAndPublish();
     },
     setSkillEnabled: async (name, enabled) => {
@@ -162,7 +217,8 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       return buildAndPublish();
     },
     addSkillDir: async () => {
-      const dir = await chooseDirectory(getWindow(), "选择技能目录");
+      const language = service.getSettingsView().language;
+      const dir = await chooseDirectory(getWindow(), backendMessage(language, "chooseSkillDirectory"));
       if (!dir) return null;
       await service.addSkillDir(dir);
       return buildAndPublish();
@@ -172,7 +228,8 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       return buildAndPublish();
     },
     setWorkspaceDir: async () => {
-      const dir = await chooseDirectory(getWindow(), "选择工作目录");
+      const language = service.getSettingsView().language;
+      const dir = await chooseDirectory(getWindow(), backendMessage(language, "chooseWorkspace"));
       if (!dir) return null;
       await service.setWorkspaceDir(dir);
       return buildAndPublish();
@@ -181,6 +238,6 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       const error = await shell.openPath(path);
       if (error) throw new Error(error);
     },
-    startDictation: () => startWindowsDictation(getWindow()),
+    startDictation: () => startWindowsDictation(service.getSettingsView().language, getWindow()),
   };
 }

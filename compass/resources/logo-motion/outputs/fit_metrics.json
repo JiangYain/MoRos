@@ -1,0 +1,8 @@
+{
+  "svg": "logo.svg",
+  "source": "outputs\\fit_work\\source_white.png",
+  "overlay": "outputs\\fit_iterations\\01_existing_vector_overlay.png",
+  "iou": 0.9961,
+  "src_only_px": 270,
+  "render_only_px": 5
+}

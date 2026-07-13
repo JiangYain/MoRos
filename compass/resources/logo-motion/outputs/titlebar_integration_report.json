@@ -1,0 +1,34 @@
+{
+  "samples": [
+    {
+      "time_ms": 0,
+      "animation_count": 2,
+      "base_opacity": 0,
+      "base_transform": "matrix(0.985, 0, 0, 0.985, -36.4, 0)",
+      "accent_opacity": 0,
+      "accent_transform": "matrix(0.999657, 0.0261769, -0.0261769, 0.999657, 21.6, 98.88)"
+    },
+    {
+      "time_ms": 380,
+      "animation_count": 2,
+      "base_opacity": 0.947067,
+      "base_transform": "matrix(0.999206, 0, 0, 0.999206, -1.92678, 0)",
+      "accent_opacity": 0.927743,
+      "accent_transform": "matrix(0.999982, 0.0059397, -0.0059397, 0.999982, 5.56861, -8.1444)"
+    },
+    {
+      "time_ms": 760,
+      "animation_count": 2,
+      "base_opacity": 1,
+      "base_transform": "matrix(1, 0, 0, 1, 0, 0)",
+      "accent_opacity": 1,
+      "accent_transform": "matrix(1, 0, 0, 1, 0, 0)"
+    }
+  ],
+  "hover_transform": "matrix(1, 0, 0, 1, 12.96, -32.96)",
+  "reduced_motion": {
+    "animation_count": 0,
+    "base_opacity": 1,
+    "accent_opacity": 1
+  }
+}

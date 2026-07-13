@@ -1,15 +1,20 @@
-import type { UiSessionInfo } from "@shared/types";
+import type { AppLanguage, UiSessionInfo } from "@shared/types";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Archive,
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
   Folder,
   FolderOpen,
   Gauge,
+  Link2,
+  MoreHorizontal,
   Pencil,
+  Plus,
   Puzzle,
   Search,
   Settings,
@@ -19,7 +24,29 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../ipc";
+import { localeFor, useI18n } from "../i18n";
 import { useCompass } from "../store";
+import { ClientAssignmentDialog } from "./ClientAssignmentDialog";
+import { ClientProfileDialog } from "./ClientProfileDialog";
+import { ProfileAvatar } from "./ProfileAvatar";
+import { SessionSearchOverlay, type SessionSearchEntry } from "./SessionSearchOverlay";
+import {
+  ThreadInlineConfirmation,
+  type ThreadConfirmationAction,
+} from "./ThreadInlineConfirmation";
+import {
+  clampSidebarWidth,
+  parseSidebarWidth,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "./sidebar-width";
+import {
+  type ClientProfileDraft,
+  type ClientRegistry,
+  clientRegistryKey,
+  normalizeClientName,
+} from "./client-registry";
 
 interface ClientGroup {
   id: string;
@@ -32,10 +59,59 @@ interface ClientGroup {
 interface ContextMenuState {
   x: number;
   y: number;
+  alignRight: boolean;
   session: UiSessionInfo;
 }
 
+interface ClientDialogState {
+  session?: UiSessionInfo;
+}
+
+interface SessionConfirmationState {
+  path: string;
+  action: ThreadConfirmationAction;
+  busy: boolean;
+}
+
+interface SidebarResizeState {
+  pointerId: number;
+  startX: number;
+  startWidth: number;
+  currentWidth: number;
+}
+
+function OpenAIComposeIcon({ size = 16 }: { size?: number }): React.JSX.Element {
+  return (
+    <svg
+      className="openai-compose-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M13.5 4.5H7A2.5 2.5 0 0 0 4.5 7v10A2.5 2.5 0 0 0 7 19.5h10a2.5 2.5 0 0 0 2.5-2.5v-6.5"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m9 15 .58-2.88 7.9-7.9a1.62 1.62 0 0 1 2.3 2.3l-7.9 7.9L9 15Z"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const PROFILE_NAME = "ChordJiang";
+const SIDEBAR_WIDTH_STORAGE_KEY = "compass.sidebar.width.v1";
+const SIDEBAR_TREE_ICON_SIZE = 16;
 const UNASSIGNED_CLIENT = {
   id: "client:unassigned",
   name: "未关联客户",
@@ -49,65 +125,98 @@ const CLIENT_PATTERNS = [
   /client[ \t]*(?:name|profile)?[ \t]*[:：][ \t]*([^\n,.;]+)/i,
 ];
 
-function sessionTitle(session: UiSessionInfo): string {
-  return session.name?.trim() || session.firstMessage.trim() || "未命名会话";
+function sessionTitle(session: UiSessionInfo, untitled: string): string {
+  return session.name?.trim() || session.firstMessage.trim() || untitled;
 }
 
 function normalizedSessionDate(value: number): Date {
   return new Date(value > 0 && value < 1_000_000_000_000 ? value * 1_000 : value);
 }
 
-function sessionTime(session: UiSessionInfo): string {
+function sessionTime(
+  session: UiSessionInfo,
+  language: AppLanguage,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
   const date = normalizedSessionDate(session.createdAt || session.modifiedAt);
-  if (Number.isNaN(date.getTime())) return "时间未知";
+  if (Number.isNaN(date.getTime())) return t("common.unknown");
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const time = new Intl.DateTimeFormat("zh-CN", {
+  const time = new Intl.DateTimeFormat(localeFor(language), {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(date);
-  if (startOfDate === startOfToday) return `今天 ${time}`;
-  if (startOfDate === startOfToday - 86_400_000) return `昨天 ${time}`;
-  if (date.getFullYear() === now.getFullYear()) {
-    return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
-  }
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`;
+  if (startOfDate === startOfToday) return `${t("common.today")} ${time}`;
+  if (startOfDate === startOfToday - 86_400_000) return `${t("common.yesterday")} ${time}`;
+  return new Intl.DateTimeFormat(localeFor(language), {
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" as const }),
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
-function cleanClientName(value: string): string {
-  return value
-    .replace(/^[\s"'“”‘’`]+|[\s"'“”‘’`]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 40);
+function sessionRelativeAge(session: UiSessionInfo, nowLabel: string, now = Date.now()): string {
+  const date = normalizedSessionDate(session.createdAt || session.modifiedAt);
+  if (Number.isNaN(date.getTime())) return "—";
+  const elapsed = Math.max(0, now - date.getTime());
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return nowLabel;
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
+function sessionDateTime(session: UiSessionInfo): string | undefined {
+  const date = normalizedSessionDate(session.createdAt || session.modifiedAt);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 function isPlausibleClientName(value: string): boolean {
   return Boolean(value) && !value.includes("```") && !/[<>]/.test(value);
 }
 
-function inferClient(session: UiSessionInfo): Pick<ClientGroup, "id" | "name" | "unassigned"> {
+function clientIdentity(name: string): Pick<ClientGroup, "id" | "name" | "unassigned"> {
+  return {
+    id: `client:${name.toLocaleLowerCase("zh-CN")}`,
+    name,
+    unassigned: false,
+  };
+}
+
+function inferClient(
+  session: UiSessionInfo,
+  registry: ClientRegistry,
+): Pick<ClientGroup, "id" | "name" | "unassigned"> {
+  const assignedName = normalizeClientName(registry.assignments[session.id] ?? "");
+  if (assignedName) return clientIdentity(assignedName);
   const source = `${session.name ?? ""}\n${session.firstMessage ?? ""}`;
   for (const pattern of CLIENT_PATTERNS) {
     const match = pattern.exec(source);
-    const clientName = match?.[1] ? cleanClientName(match[1]) : "";
+    const clientName = match?.[1] ? normalizeClientName(match[1]) : "";
     if (isPlausibleClientName(clientName)) {
-      return {
-        id: `client:${clientName.toLocaleLowerCase("zh-CN")}`,
-        name: clientName,
-        unassigned: false,
-      };
+      return clientIdentity(clientName);
     }
   }
   return UNASSIGNED_CLIENT;
 }
 
-function groupSessionsByClient(sessions: UiSessionInfo[]): ClientGroup[] {
+function groupSessionsByClient(sessions: UiSessionInfo[], registry: ClientRegistry): ClientGroup[] {
   const groups = new Map<string, ClientGroup>();
+  for (const name of registry.clients) {
+    const client = clientIdentity(name);
+    groups.set(client.id, { ...client, sessions: [], latestModifiedAt: 0 });
+  }
   for (const session of sessions) {
-    const client = inferClient(session);
+    const client = inferClient(session, registry);
     const existing = groups.get(client.id);
     if (existing) {
       existing.sessions.push(session);
@@ -132,21 +241,8 @@ function groupSessionsByClient(sessions: UiSessionInfo[]): ClientGroup[] {
     });
 }
 
-function filterClientGroups(groups: ClientGroup[], query: string): ClientGroup[] {
-  const normalized = query.trim().toLocaleLowerCase("zh-CN");
-  if (!normalized) return groups;
-  return groups.flatMap((group) => {
-    if (group.name.toLocaleLowerCase("zh-CN").includes(normalized)) return [group];
-    const sessions = group.sessions.filter((session) =>
-      `${sessionTitle(session)}\n${session.firstMessage}`
-        .toLocaleLowerCase("zh-CN")
-        .includes(normalized),
-    );
-    return sessions.length > 0 ? [{ ...group, sessions }] : [];
-  });
-}
-
 export function Sidebar(): React.JSX.Element {
+  const { language, t } = useI18n();
   const sessions = useCompass((state) => state.sessions);
   const stats = useCompass((state) => state.stats);
   const settings = useCompass((state) => state.settings);
@@ -156,39 +252,101 @@ export function Sidebar(): React.JSX.Element {
   const renameSession = useCompass((state) => state.renameSession);
   const deleteSession = useCompass((state) => state.deleteSession);
   const archiveSession = useCompass((state) => state.archiveSession);
-  const seedComposer = useCompass((state) => state.seedComposer);
+  const clientRegistry = useCompass((state) => state.clientRegistry);
+  const persistClientProfile = useCompass((state) => state.saveClientProfile);
+  const persistSessionClient = useCompass((state) => state.assignSessionClient);
+  const removeSessionClient = useCompass((state) => state.unassignSessionClient);
   const setError = useCompass((state) => state.setError);
   const openSettings = useCompass((state) => state.openSettings);
   const sidebarOpen = useCompass((state) => state.sidebarOpen);
   const setSidebarOpen = useCompass((state) => state.setSidebarOpen);
   const reduced = useReducedMotion();
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const sidebarResizeRef = useRef<SidebarResizeState | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      return parseSidebarWidth(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    } catch {
+      return SIDEBAR_DEFAULT_WIDTH;
+    }
+  });
+  const [sidebarResizing, setSidebarResizing] = useState(false);
   const [collapsedClients, setCollapsedClients] = useState<Record<string, boolean>>({});
   const [clientsCollapsed, setClientsCollapsed] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ left: number; top: number } | null>(null);
+  const [clientDialog, setClientDialog] = useState<ClientDialogState | null>(null);
+  const [sessionConfirmation, setSessionConfirmation] = useState<SessionConfirmationState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const legacyAssignmentMigrations = useRef(new Set<string>());
 
-  const clientGroups = useMemo(() => groupSessionsByClient(sessions), [sessions]);
-  const visibleClientGroups = useMemo(
-    () => filterClientGroups(clientGroups, searchQuery),
-    [clientGroups, searchQuery],
+  const clientGroups = useMemo(
+    () => groupSessionsByClient(sessions, clientRegistry),
+    [clientRegistry, sessions],
   );
   const activeSessionId = stats?.sessionId;
+  const searchEntries = useMemo<SessionSearchEntry[]>(
+    () => sessions.map((session) => {
+      const client = inferClient(session, clientRegistry);
+      return {
+        id: session.id,
+        path: session.path,
+        title: sessionTitle(session, t("common.untitledSession")),
+        time: sessionTime(session, language, t),
+        client: client.unassigned ? t("sidebar.unassigned") : client.name,
+        active: session.id === activeSessionId,
+      };
+    }),
+    [activeSessionId, clientRegistry, language, sessions, t],
+  );
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const contextPercent = stats?.contextPercent == null ? null : Math.round(stats.contextPercent);
 
   useEffect(() => {
-    if (showSearch) searchInputRef.current?.focus();
-  }, [showSearch]);
+    const knownClients = new Map(
+      clientRegistry.clients.map((name) => [clientRegistryKey(name), name]),
+    );
+    for (const session of sessions) {
+      if (clientRegistry.assignments[session.id] || legacyAssignmentMigrations.current.has(session.id)) continue;
+      const inferred = inferClient(session, clientRegistry);
+      const knownName = inferred.unassigned ? undefined : knownClients.get(clientRegistryKey(inferred.name));
+      if (!knownName) continue;
+      legacyAssignmentMigrations.current.add(session.id);
+      void persistSessionClient(session.id, knownName).catch(() => {
+        legacyAssignmentMigrations.current.delete(session.id);
+      });
+    }
+  }, [clientRegistry, persistSessionClient, sessions]);
+
+  useEffect(() => {
+    setSessionConfirmation((current) => current?.busy ? current : null);
+  }, [activeSessionId]);
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) {
+      setContextMenuPosition(null);
+      return;
+    }
+    const padding = 8;
+    const bounds = contextMenuRef.current.getBoundingClientRect();
+    const preferredLeft = contextMenu.alignRight ? contextMenu.x - bounds.width : contextMenu.x;
+    const maxLeft = Math.max(padding, window.innerWidth - bounds.width - padding);
+    const maxTop = Math.max(padding, window.innerHeight - bounds.height - padding);
+    setContextMenuPosition({
+      left: Math.max(padding, Math.min(preferredLeft, maxLeft)),
+      top: Math.max(padding, Math.min(contextMenu.y, maxTop)),
+    });
+  }, [contextMenu]);
 
   useEffect(() => {
     const closeMenus = (event: MouseEvent): void => {
       setContextMenu(null);
+      setContextMenuPosition(null);
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
         setProfileOpen(false);
       }
@@ -196,7 +354,9 @@ export function Sidebar(): React.JSX.Element {
     const closeMenusWithKeyboard = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       setContextMenu(null);
+      setContextMenuPosition(null);
       setProfileOpen(false);
+      setSessionConfirmation((current) => current?.busy ? current : null);
     };
     document.addEventListener("mousedown", closeMenus);
     document.addEventListener("keydown", closeMenusWithKeyboard);
@@ -206,162 +366,332 @@ export function Sidebar(): React.JSX.Element {
     };
   }, []);
 
+  useEffect(() => {
+    const openSessionSearch = (): void => {
+      setSearchOpen(true);
+      if (window.matchMedia("(max-width: 760px)").matches) setSidebarOpen(false);
+    };
+    window.addEventListener("compass:open-session-search", openSessionSearch);
+    return () => window.removeEventListener("compass:open-session-search", openSessionSearch);
+  }, [setSidebarOpen]);
+
+  useEffect(() => {
+    document.body.classList.toggle("sidebar-resizing", sidebarResizing);
+    return () => document.body.classList.remove("sidebar-resizing");
+  }, [sidebarResizing]);
+
+  const saveSidebarWidth = (width: number): void => {
+    const next = clampSidebarWidth(width);
+    setSidebarWidth(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next));
+    } catch {
+      // Keep resizing functional when browser storage is unavailable.
+    }
+  };
+
+  const closeMobileSidebar = (): void => {
+    if (window.matchMedia("(max-width: 760px)").matches) setSidebarOpen(false);
+  };
+
+  const finishSidebarResize = (): void => {
+    const resize = sidebarResizeRef.current;
+    if (!resize) return;
+    sidebarResizeRef.current = null;
+    setSidebarResizing(false);
+    saveSidebarWidth(resize.currentWidth);
+  };
+
+  const beginSidebarResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sidebarResizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: sidebarWidth,
+      currentWidth: sidebarWidth,
+    };
+    setSidebarResizing(true);
+  };
+
+  const moveSidebarResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const resize = sidebarResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    const next = clampSidebarWidth(resize.startWidth + event.clientX - resize.startX);
+    resize.currentWidth = next;
+    setSidebarWidth(next);
+  };
+
+  const endSidebarResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    finishSidebarResize();
+  };
+
+  const resizeSidebarWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const delta = event.shiftKey ? 24 : 8;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      saveSidebarWidth(sidebarWidth - delta);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      saveSidebarWidth(sidebarWidth + delta);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      saveSidebarWidth(SIDEBAR_MIN_WIDTH);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      saveSidebarWidth(SIDEBAR_MAX_WIDTH);
+    }
+  };
+
   const toggleClient = (clientId: string): void => {
     setCollapsedClients((current) => ({ ...current, [clientId]: !current[clientId] }));
   };
 
   const createThreadForClient = async (group: ClientGroup): Promise<void> => {
-    setSidebarOpen(false);
-    await newSession();
-    if (!group.unassigned) seedComposer(`顾客：${group.name}\n`);
+    closeMobileSidebar();
+    const created = await newSession();
+    if (!created || group.unassigned) return;
+    const sessionId = useCompass.getState().stats?.sessionId;
+    if (sessionId) await persistSessionClient(sessionId, group.name);
+  };
+
+  const closeThreadMenu = (): void => {
+    setContextMenu(null);
+    setContextMenuPosition(null);
+  };
+
+  const openThreadMenuAt = (
+    x: number,
+    y: number,
+    session: UiSessionInfo,
+    alignRight = false,
+  ): void => {
+    setSessionConfirmation(null);
+    setContextMenuPosition(null);
+    setContextMenu({ x, y, session, alignRight });
   };
 
   const openThreadContextMenu = (event: React.MouseEvent, session: UiSessionInfo): void => {
     event.preventDefault();
     event.stopPropagation();
-    setContextMenu({
-      x: Math.min(event.clientX, window.innerWidth - 188),
-      y: Math.min(event.clientY, window.innerHeight - 178),
-      session,
-    });
+    openThreadMenuAt(event.clientX, event.clientY, session);
+  };
+
+  const openThreadActionMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    session: UiSessionInfo,
+  ): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    openThreadMenuAt(bounds.right, bounds.bottom + 4, session, true);
   };
 
   const copySessionId = async (session: UiSessionInfo): Promise<void> => {
     try {
       await navigator.clipboard.writeText(session.id);
     } catch {
-      setError("复制 Session ID 失败");
+      setError(t("sidebar.copyIdFailed"));
     }
-    setContextMenu(null);
+    closeThreadMenu();
   };
 
   const startRename = (session: UiSessionInfo): void => {
     setRenamingPath(session.path);
-    setRenameDraft(sessionTitle(session));
-    setContextMenu(null);
+    setRenameDraft(sessionTitle(session, t("common.untitledSession")));
+    closeThreadMenu();
   };
 
   const commitRename = (path: string): void => {
     const nextName = renameDraft.trim();
+    if (!nextName) {
+      setError(t("sidebar.renameEmpty"));
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+      return;
+    }
     setRenamingPath(null);
-    if (nextName) void renameSession(path, nextName);
+    setError(null);
+    void renameSession(path, nextName);
   };
 
-  const removeSession = (session: UiSessionInfo): void => {
-    setContextMenu(null);
-    if (window.confirm(`删除会话“${sessionTitle(session)}”？此操作无法撤销。`)) {
-      void deleteSession(session.path);
-    }
+  const cancelRename = (): void => {
+    setRenamingPath(null);
+    setRenameDraft("");
   };
 
-  const archiveSelectedSession = (session: UiSessionInfo): void => {
-    setContextMenu(null);
-    if (window.confirm(`归档会话“${sessionTitle(session)}”？可从会话目录的 archive 文件夹中找回。`)) {
-      void archiveSession(session.path);
-    }
+  const openClientDialog = (session?: UiSessionInfo): void => {
+    closeThreadMenu();
+    setClientDialog({ session });
   };
 
+  const saveClient = (name: string): void => {
+    const normalized = normalizeClientName(name);
+    if (!normalized) return;
+    const session = clientDialog?.session;
+    if (!session) return;
+    void persistSessionClient(session.id, normalized);
+    setClientDialog(null);
+  };
+
+  const saveClientProfile = (profile: ClientProfileDraft): void => {
+    void persistClientProfile(profile);
+    setClientDialog(null);
+  };
+
+  const clearClientAssignment = (): void => {
+    const session = clientDialog?.session;
+    if (!session) return;
+    void removeSessionClient(session.id);
+    setClientDialog(null);
+  };
+
+  const requestSessionAction = (
+    session: UiSessionInfo,
+    action: SessionConfirmationState["action"],
+  ): void => {
+    closeThreadMenu();
+    setSessionConfirmation({ path: session.path, action, busy: false });
+  };
+
+  const confirmSessionAction = async (confirmation: SessionConfirmationState): Promise<void> => {
+    if (confirmation.busy) return;
+    setSessionConfirmation((current) => {
+      if (
+        !current
+        || current.path !== confirmation.path
+        || current.action !== confirmation.action
+        || current.busy
+      ) return current;
+      return { ...current, busy: true };
+    });
+    if (confirmation.action === "delete") await deleteSession(confirmation.path);
+    else await archiveSession(confirmation.path);
+    setSessionConfirmation((current) => current?.path === confirmation.path ? null : current);
+  };
+
+  const dialogSession = clientDialog?.session;
+  const dialogClient = dialogSession ? inferClient(dialogSession, clientRegistry) : undefined;
+  const availableClientNames = clientGroups
+    .filter((group) => !group.unassigned)
+    .map((group) => group.name);
   return (
-    <aside className={`sidebar${sidebarOpen ? " mobile-open" : ""}`}>
-      <nav className="sidebar-nav" aria-label="Compass navigation">
+    <aside
+      className={`sidebar${sidebarOpen ? " mobile-open" : " collapsed"}${sidebarResizing ? " resizing" : ""}`}
+      style={{ "--sidebar-w": `${sidebarWidth}px` } as React.CSSProperties}
+    >
+      <SessionSearchOverlay
+        entries={searchEntries}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(entry) => {
+          setSearchOpen(false);
+          if (!entry.active) void openSession(entry.path);
+        }}
+      />
+
+      <nav className="sidebar-nav" aria-label="Compass">
         <button
           type="button"
           className="sidebar-nav-item"
           onClick={() => {
-            setSidebarOpen(false);
+            closeMobileSidebar();
             void newSession();
           }}
         >
           <SquarePen size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>New</span>
+          <span>{t("sidebar.new")}</span>
         </button>
         <button
           type="button"
-          className={`sidebar-nav-item${showSearch ? " active" : ""}`}
-          aria-expanded={showSearch}
+          className={`sidebar-nav-item${searchOpen ? " active" : ""}`}
+          aria-label={t("sidebar.search")}
+          aria-expanded={searchOpen}
+          aria-controls="session-search-dialog"
           onClick={() => {
-            setShowSearch((current) => {
-              if (current) setSearchQuery("");
-              return !current;
-            });
+            setSearchOpen((current) => !current);
+            closeMobileSidebar();
           }}
         >
           <Search size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>搜索</span>
+          <span>{t("sidebar.search")}</span>
         </button>
         <button
           type="button"
           className="sidebar-nav-item"
           onClick={() => {
-            setSidebarOpen(false);
+            closeMobileSidebar();
             openSettings("skills");
           }}
         >
           <Puzzle size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>技能</span>
+          <span>{t("sidebar.skills")}</span>
           <span className="nav-count">{enabledSkills}</span>
         </button>
       </nav>
 
-      <AnimatePresence initial={false}>
-        {showSearch && (
-          <motion.div
-            className="sidebar-search"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-          >
-            <Search size={14} strokeWidth={1.6} aria-hidden="true" />
-            <input
-              ref={searchInputRef}
-              value={searchQuery}
-              placeholder="搜索客户或会话"
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-            {searchQuery && (
-              <button type="button" aria-label="清空搜索" onClick={() => setSearchQuery("")}>
-                <X size={13} strokeWidth={1.7} />
-              </button>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <div className="file-tree">
-        {sessions.length === 0 ? (
-          <div className="empty-state">开始第一次验配对话后，会话会自动归入客户档案。</div>
-        ) : visibleClientGroups.length === 0 ? (
-          <div className="empty-state">没有匹配的客户或会话。</div>
+        {clientGroups.length === 0 ? (
+          <div className="empty-state">{t("sidebar.empty")}</div>
         ) : (
           <div className="file-section">
-            <button
-              type="button"
-              className="file-section-header"
-              onClick={() => setClientsCollapsed((current) => !current)}
-            >
-              <span className="file-section-title">客户档案</span>
-              <span className="file-section-header-right">
-                <span className="file-section-count">{visibleClientGroups.length}</span>
-                {clientsCollapsed ? (
-                  <ChevronRight size={13} strokeWidth={1.6} />
-                ) : (
-                  <ChevronDown size={13} strokeWidth={1.6} />
-                )}
-              </span>
-            </button>
+            <div className="file-section-header">
+              <button
+                type="button"
+                className="file-section-header-main"
+                aria-expanded={!clientsCollapsed}
+                onClick={() => setClientsCollapsed((current) => !current)}
+              >
+                <span className="file-section-title">{t("sidebar.clients")}</span>
+                <span className="file-section-header-right">
+                  <span className="file-section-count">{clientGroups.length}</span>
+                  <motion.span
+                    className="file-section-toggle file-chevron"
+                    animate={{ rotate: clientsCollapsed ? 0 : 90 }}
+                    transition={reduced ? { duration: 0 } : { duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <ChevronRight size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} aria-hidden="true" />
+                  </motion.span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="file-section-add"
+                aria-label={t("sidebar.newClient")}
+                title={t("sidebar.newClient")}
+                onClick={() => openClientDialog()}
+              >
+                <Plus size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} />
+              </button>
+            </div>
 
-            {!clientsCollapsed && (
-              <div className="file-section-content">
-                {visibleClientGroups.map((group, index) => {
+            <AnimatePresence initial={false}>
+              {!clientsCollapsed && (
+              <motion.div
+                key="client-section-content"
+                className="file-section-content"
+                initial={reduced ? false : { height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={reduced ? { duration: 0 } : {
+                  height: { duration: 0.26, ease: [0.2, 0, 0, 1] },
+                  opacity: { duration: 0.12, ease: "easeOut" },
+                }}
+              >
+                {clientGroups.map((group, index) => {
                   const activeClient = group.sessions.some(
                     (session) => session.id === activeSessionId,
                   );
-                  const expanded = activeClient || !collapsedClients[group.id];
+                  const expanded = !collapsedClients[group.id];
                   const FolderIcon = expanded ? FolderOpen : Folder;
                   return (
                     <motion.div
                       key={group.id}
                       className="file-tree-item"
+                      data-active-client={activeClient || undefined}
                       initial={reduced ? false : { opacity: 0, y: 5 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{
@@ -378,71 +708,160 @@ export function Sidebar(): React.JSX.Element {
                           onClick={() => toggleClient(group.id)}
                         >
                           <span className="file-icon">
-                            <FolderIcon size={14} strokeWidth={1.55} />
+                            <AnimatePresence initial={false} mode="popLayout">
+                              <motion.span
+                                key={expanded ? "open" : "closed"}
+                                className="file-icon-glyph"
+                                initial={reduced ? false : { opacity: 0, scale: 0.82 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.82 }}
+                                transition={reduced ? { duration: 0 } : { duration: 0.14, ease: "easeOut" }}
+                              >
+                                <FolderIcon size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.55} />
+                              </motion.span>
+                            </AnimatePresence>
                           </span>
-                          <span className="file-name">{group.name}</span>
-                          {expanded ? (
-                            <ChevronDown size={12} strokeWidth={1.55} />
-                          ) : (
-                            <ChevronRight size={12} strokeWidth={1.55} />
-                          )}
+                          <span className="file-name">{group.unassigned ? t("sidebar.unassigned") : group.name}</span>
+                          <motion.span
+                            className="file-chevron"
+                            animate={{ rotate: expanded ? 90 : 0 }}
+                            transition={reduced ? { duration: 0 } : { duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          >
+                            <ChevronRight size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} aria-hidden="true" />
+                          </motion.span>
                         </button>
                         <button
                           type="button"
                           className="file-action-btn"
-                          title={`新对话并预填客户：${group.name}`}
-                          aria-label={`新对话并预填客户：${group.name}`}
+                          title={t("sidebar.newConversationFor", { name: group.unassigned ? t("sidebar.unassigned") : group.name })}
+                          aria-label={t("sidebar.newConversationFor", { name: group.unassigned ? t("sidebar.unassigned") : group.name })}
                           onClick={() => void createThreadForClient(group)}
                         >
-                          <SquarePen size={13} strokeWidth={1.6} />
+                          <OpenAIComposeIcon size={SIDEBAR_TREE_ICON_SIZE} />
                         </button>
                       </div>
 
-                      {expanded && (
-                        <div className="file-children">
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                        <motion.div
+                          key="client-threads"
+                          className="file-children"
+                          initial={reduced ? false : { height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={reduced ? { duration: 0 } : {
+                            height: { duration: 0.26, ease: [0.2, 0, 0, 1] },
+                            opacity: { duration: 0.12, ease: "easeOut" },
+                          }}
+                        >
+                          {group.sessions.length === 0 && (
+                            <div className="client-empty-label">{t("sidebar.noConversations")}</div>
+                          )}
                           {group.sessions.map((session) => {
                             const active = activeSessionId === session.id;
                             const renaming = renamingPath === session.path;
+                            const confirmation = sessionConfirmation?.path === session.path
+                              ? sessionConfirmation
+                              : null;
+                            const relativeAge = sessionRelativeAge(session, t("common.now"));
                             return (
-                              <div className="file-tree-item" key={session.path}>
+                              <div
+                                className={`file-tree-item thread-item-shell${active ? " active" : ""}${confirmation ? " confirming" : ""}`}
+                                key={session.path}
+                                onContextMenu={(event) => openThreadContextMenu(event, session)}
+                              >
                                 {renaming ? (
-                                  <div className="file-item thread-file-item renaming">
+                                  <div
+                                    className="file-item thread-file-item renaming"
+                                    onBlur={(event) => {
+                                      const nextTarget = event.relatedTarget;
+                                      if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+                                        cancelRename();
+                                      }
+                                    }}
+                                  >
                                     <input
+                                      ref={renameInputRef}
                                       className="thread-rename-input"
                                       value={renameDraft}
                                       autoFocus
                                       onChange={(event) => setRenameDraft(event.target.value)}
-                                      onBlur={() => commitRename(session.path)}
                                       onKeyDown={(event) => {
                                         if (event.key === "Enter") commitRename(session.path);
-                                        if (event.key === "Escape") setRenamingPath(null);
+                                        if (event.key === "Escape") cancelRename();
                                       }}
                                     />
+                                    <span className="thread-rename-actions">
+                                      <button
+                                        type="button"
+                                        aria-label={t("sidebar.confirmRename")}
+                                        title={t("sidebar.confirmRename")}
+                                        onClick={() => commitRename(session.path)}
+                                      >
+                                        <Check size={12} strokeWidth={1.8} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        aria-label={t("sidebar.cancelRename")}
+                                        title={t("common.cancel")}
+                                        onClick={cancelRename}
+                                      >
+                                        <X size={12} strokeWidth={1.8} />
+                                      </button>
+                                    </span>
                                   </div>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    className={`file-item thread-file-item${active ? " active" : ""}`}
-                                    onClick={() => {
-                                      setSidebarOpen(false);
-                                      void openSession(session.path);
-                                    }}
-                                    onContextMenu={(event) => openThreadContextMenu(event, session)}
-                                    title={`${sessionTime(session)} · ${sessionTitle(session)}`}
-                                  >
-                                    <span className="file-name">{sessionTime(session)}</span>
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      className={`file-item thread-file-item${active ? " active" : ""}`}
+                                      onClick={() => {
+                                        closeMobileSidebar();
+                                        if (!active) void openSession(session.path);
+                                      }}
+                                      title={`${sessionTime(session, language, t)} · ${relativeAge} · ${sessionTitle(session, t("common.untitledSession"))}`}
+                                    >
+                                      <span className="file-name">{sessionTitle(session, t("common.untitledSession"))}</span>
+                                      <time className="thread-relative-time" dateTime={sessionDateTime(session)}>
+                                        {relativeAge}
+                                      </time>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="thread-more-button"
+                                      aria-label={`${t("sidebar.moreActions")}: ${sessionTime(session, language, t)}`}
+                                      aria-expanded={contextMenu?.session.path === session.path}
+                                      title={t("sidebar.moreActions")}
+                                      onClick={(event) => openThreadActionMenu(event, session)}
+                                    >
+                                      <MoreHorizontal size={14} strokeWidth={1.65} aria-hidden="true" />
+                                    </button>
+                                  </>
                                 )}
+                                <AnimatePresence initial={false}>
+                                  {confirmation && (
+                                    <ThreadInlineConfirmation
+                                      key={`${confirmation.path}:${confirmation.action}`}
+                                      action={confirmation.action}
+                                      busy={confirmation.busy}
+                                      sessionTitle={sessionTitle(session, t("common.untitledSession"))}
+                                      onCancel={() => setSessionConfirmation(null)}
+                                      onConfirm={() => confirmSessionAction(confirmation)}
+                                    />
+                                  )}
+                                </AnimatePresence>
                               </div>
                             );
                           })}
-                        </div>
-                      )}
+                        </motion.div>
+                        )}
+                      </AnimatePresence>
                     </motion.div>
                   );
                 })}
-              </div>
-            )}
+              </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
@@ -457,52 +876,61 @@ export function Sidebar(): React.JSX.Element {
               exit={{ opacity: 0, y: 6, scale: 0.985 }}
               transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
             >
-              <div className="profile-menu-head">
-                <span className="profile-avatar large">CJ</span>
+              <button
+                type="button"
+                className="profile-menu-head profile-menu-head-button"
+                aria-label={t("sidebar.openProfile")}
+                onClick={() => {
+                  setProfileOpen(false);
+                  closeMobileSidebar();
+                  openSettings("profile");
+                }}
+              >
+                <ProfileAvatar className="large" />
                 <span>
                   <b>{PROFILE_NAME}</b>
-                  <small>Local operator</small>
+                  <small>{t("settings.localIdentity")}</small>
                 </span>
-              </div>
+              </button>
               <div className="profile-menu-rule" />
               <div className="profile-usage">
                 <Gauge size={15} strokeWidth={1.6} />
-                <span>上下文用量</span>
+                <span>{t("sidebar.contextUsage")}</span>
                 <b>{contextPercent === null ? "—" : `${contextPercent}%`}</b>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   setProfileOpen(false);
-                  setSidebarOpen(false);
+                  closeMobileSidebar();
                   if (settings?.workspaceDir) void api.openPath(settings.workspaceDir);
                 }}
               >
                 <FolderOpen size={15} strokeWidth={1.6} />
-                <span>打开工作区</span>
+                <span>{t("sidebar.openWorkspace")}</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setProfileOpen(false);
-                  setSidebarOpen(false);
+                  closeMobileSidebar();
                   openSettings("skills");
                 }}
               >
                 <Sparkles size={15} strokeWidth={1.6} />
-                <span>技能库</span>
+                <span>{t("sidebar.skillLibrary")}</span>
                 <small>{enabledSkills}</small>
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setProfileOpen(false);
-                  setSidebarOpen(false);
+                  closeMobileSidebar();
                   openSettings();
                 }}
               >
                 <Settings size={15} strokeWidth={1.6} />
-                <span>设置</span>
+                <span>{t("sidebar.settings")}</span>
                 <small>Ctrl+,</small>
               </button>
             </motion.div>
@@ -514,7 +942,7 @@ export function Sidebar(): React.JSX.Element {
           aria-expanded={profileOpen}
           onClick={() => setProfileOpen((current) => !current)}
         >
-          <span className="profile-avatar">CJ</span>
+          <ProfileAvatar />
           <span className="user-name">{PROFILE_NAME}</span>
           <ChevronDown
             className={profileOpen ? "open" : ""}
@@ -525,30 +953,80 @@ export function Sidebar(): React.JSX.Element {
         </button>
       </div>
 
-      {contextMenu && (
+      {contextMenu && createPortal(
         <div
-          className="context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          ref={contextMenuRef}
+          className="context-menu sidebar-context-menu"
+          role="menu"
+          style={{
+            left: contextMenuPosition?.left ?? contextMenu.x,
+            top: contextMenuPosition?.top ?? contextMenu.y,
+            visibility: contextMenuPosition ? "visible" : "hidden",
+          }}
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button type="button" onClick={() => startRename(contextMenu.session)}>
+          <button type="button" role="menuitem" onClick={() => openClientDialog(contextMenu.session)}>
+            <Link2 size={14} strokeWidth={1.55} />
+            {t("sidebar.assignClient")}
+          </button>
+          <div className="context-menu-rule" />
+          <button type="button" role="menuitem" onClick={() => startRename(contextMenu.session)}>
             <Pencil size={14} strokeWidth={1.55} />
-            重命名
+            {t("sidebar.rename")}
           </button>
-          <button type="button" onClick={() => archiveSelectedSession(contextMenu.session)}>
+          <button type="button" role="menuitem" onClick={() => requestSessionAction(contextMenu.session, "archive")}>
             <Archive size={14} strokeWidth={1.55} />
-            归档
+            {t("sidebar.archive")}
           </button>
-          <button type="button" onClick={() => removeSession(contextMenu.session)}>
+          <button type="button" role="menuitem" onClick={() => requestSessionAction(contextMenu.session, "delete")}>
             <Trash2 size={14} strokeWidth={1.55} />
-            删除
+            {t("sidebar.delete")}
           </button>
-          <button type="button" onClick={() => void copySessionId(contextMenu.session)}>
+          <button type="button" role="menuitem" onClick={() => void copySessionId(contextMenu.session)}>
             <Copy size={14} strokeWidth={1.55} />
-            复制 Session ID
+            {t("sidebar.copySessionId")}
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
+      {clientDialog && createPortal(
+        dialogSession ? (
+          <ClientAssignmentDialog
+            key={dialogSession.id}
+            clients={availableClientNames}
+            currentClient={dialogClient?.unassigned ? undefined : dialogClient?.name}
+            sessionTitle={sessionTitle(dialogSession, t("common.untitledSession"))}
+            onClose={() => setClientDialog(null)}
+            onSave={saveClient}
+            onUnassign={!dialogClient?.unassigned ? clearClientAssignment : undefined}
+          />
+        ) : (
+          <ClientProfileDialog
+            key="new-client"
+            existingClients={availableClientNames}
+            onClose={() => setClientDialog(null)}
+            onSave={saveClientProfile}
+          />
+        ),
+        document.body,
+      )}
+      <div
+        className="sidebar-resizer"
+        role="separator"
+        aria-label={t("sidebar.resize")}
+        aria-orientation="vertical"
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuenow={sidebarWidth}
+        tabIndex={0}
+        onDoubleClick={() => saveSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
+        onKeyDown={resizeSidebarWithKeyboard}
+        onLostPointerCapture={finishSidebarResize}
+        onPointerCancel={endSidebarResize}
+        onPointerDown={beginSidebarResize}
+        onPointerMove={moveSidebarResize}
+        onPointerUp={endSidebarResize}
+      />
     </aside>
   );
 }

@@ -16,32 +16,39 @@ import type {
   OAuthLoginCallbacks,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
   AgentStats,
   AgentUiEvent,
+  AppLanguage,
   AppSettingsView,
+  DeveloperContextSnapshot,
   InitPayload,
   PermissionMode,
   RuntimePrerequisites,
   ThinkingLevel,
   UiImageAttachment,
+  UiApprovalRequest,
   UiModel,
   UiProviderStatus,
   UiSessionInfo,
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
-import { isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
-import { app, dialog } from "electron";
+import { DEFAULT_SUMMARY_MODEL, isAppLanguage, isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import { compactSkillText } from "../shared/skill-display.ts";
+import { app } from "electron";
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { COMPASS_CONTEXT } from "./compass-context";
+import { buildClientContext, buildLanguageContext, COMPASS_CONTEXT } from "./compass-context";
 import { buildEstimatedContextBreakdown } from "./context-usage";
 import { normalizeImages } from "./image-attachments";
-import { evaluateToolApproval } from "./permission-policy";
+import { evaluateToolApproval, type ToolApprovalRequest } from "./permission-policy";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { getRuntimePrerequisites } from "./prerequisites";
+import { mergeActiveSession } from "./session-list";
+import { buildSessionTitleTranscript, normalizeGeneratedSessionTitle } from "./session-title";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
 import {
@@ -57,6 +64,56 @@ import {
 } from "./thread-projector";
 
 type Emit = (event: AgentUiEvent) => void;
+
+type ToolApprovalDecision = undefined | { block: true; reason: string };
+
+type AgentMessageKey =
+  | "compacting" | "compactionFailed" | "compactionComplete" | "retrying"
+  | "sessionInvalid" | "sessionDirectory" | "sessionOutside" | "nameEmpty"
+  | "sessionArchived" | "sessionNotReady" | "modelNotFound" | "thinkingInvalid"
+  | "modelUnavailable" | "modelRequired";
+
+const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
+  "zh-CN": {
+    compacting: "正在压缩会话上下文…", compactionFailed: "上下文压缩失败：{error}", compactionComplete: "上下文压缩完成。",
+    retrying: "请求失败，正在自动重试（第 {attempt}/{max} 次）…", sessionInvalid: "会话不存在或路径无效", sessionDirectory: "无法解析会话目录",
+    sessionOutside: "路径不在会话目录内", nameEmpty: "名称不能为空", sessionArchived: "会话已在归档目录中", sessionNotReady: "会话尚未就绪",
+    modelNotFound: "未找到该模型", thinkingInvalid: "无效的思考深度", modelUnavailable: "该模型当前不可用，请先配置对应 Provider。", modelRequired: "至少需要保留一个可用模型。",
+  },
+  "zh-TW": {
+    compacting: "正在壓縮對話上下文…", compactionFailed: "上下文壓縮失敗：{error}", compactionComplete: "上下文壓縮完成。",
+    retrying: "要求失敗，正在自動重試（第 {attempt}/{max} 次）…", sessionInvalid: "對話不存在或路徑無效", sessionDirectory: "無法解析對話目錄",
+    sessionOutside: "路徑不在對話目錄內", nameEmpty: "名稱不可為空", sessionArchived: "對話已在封存目錄中", sessionNotReady: "對話尚未就緒",
+    modelNotFound: "找不到該模型", thinkingInvalid: "無效的思考深度", modelUnavailable: "此模型目前無法使用，請先設定對應的 Provider。", modelRequired: "至少必須保留一個可用模型。",
+  },
+  en: {
+    compacting: "Compacting conversation context…", compactionFailed: "Context compaction failed: {error}", compactionComplete: "Context compaction complete.",
+    retrying: "Request failed. Retrying automatically ({attempt}/{max})…", sessionInvalid: "The conversation does not exist or its path is invalid", sessionDirectory: "Could not resolve the conversation directory",
+    sessionOutside: "The path is outside the conversation directory", nameEmpty: "The name cannot be empty", sessionArchived: "The conversation is already archived", sessionNotReady: "The conversation is not ready",
+    modelNotFound: "Model not found", thinkingInvalid: "Invalid thinking level", modelUnavailable: "This model is unavailable. Configure its provider first.", modelRequired: "At least one available model must remain enabled.",
+  },
+  de: {
+    compacting: "Unterhaltungskontext wird komprimiert…", compactionFailed: "Kontextkomprimierung fehlgeschlagen: {error}", compactionComplete: "Kontextkomprimierung abgeschlossen.",
+    retrying: "Anfrage fehlgeschlagen. Automatischer Neuversuch ({attempt}/{max})…", sessionInvalid: "Die Unterhaltung existiert nicht oder der Pfad ist ungültig", sessionDirectory: "Unterhaltungsverzeichnis konnte nicht aufgelöst werden",
+    sessionOutside: "Der Pfad liegt außerhalb des Unterhaltungsverzeichnisses", nameEmpty: "Der Name darf nicht leer sein", sessionArchived: "Die Unterhaltung ist bereits archiviert", sessionNotReady: "Die Unterhaltung ist noch nicht bereit",
+    modelNotFound: "Modell nicht gefunden", thinkingInvalid: "Ungültige Denktiefe", modelUnavailable: "Dieses Modell ist nicht verfügbar. Konfigurieren Sie zuerst den Provider.", modelRequired: "Mindestens ein verfügbares Modell muss aktiviert bleiben.",
+  },
+};
+
+function agentMessage(language: AppLanguage, key: AgentMessageKey, values: Record<string, string | number> = {}): string {
+  return Object.entries(values).reduce(
+    (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+    AGENT_COPY[language][key],
+  );
+}
+
+interface PendingApproval {
+  request: UiApprovalRequest;
+  resolve(decision: ToolApprovalDecision): void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const APPROVAL_TIMEOUT_MS = 10 * 60 * 1_000;
 
 function normalizeThinkingLevels(levels: readonly unknown[]): ThinkingLevel[] {
   const normalized = [...new Set(levels.filter(isThinkingLevel))];
@@ -84,9 +141,14 @@ export class AgentService {
   private loader?: DefaultResourceLoader;
   private idCounter = 0;
   private currentAssistantId?: string;
+  private pendingUserMessageIds: string[] = [];
+  private pendingApprovals = new Map<string, PendingApproval>();
+  private sessionTitleRequests = new Set<string>();
+  private getClientRegistry: () => InitPayload["clientRegistry"];
 
-  constructor(emit: Emit) {
+  constructor(emit: Emit, getClientRegistry: () => InitPayload["clientRegistry"]) {
     this.emit = emit;
+    this.getClientRegistry = getClientRegistry;
     this.settings = loadSettings();
     this.authStorage = AuthStorage.create();
     this.modelRegistry = ModelRegistry.create(this.authStorage);
@@ -108,25 +170,79 @@ export class AgentService {
           event.input,
         );
         if (!approval) return undefined;
-        try {
-          const result = await dialog.showMessageBox({
-            type: "question",
-            title: "Compass permission request",
-            message: approval.message,
-            detail: approval.detail,
-            buttons: ["Allow once", "Deny"],
-            defaultId: 0,
-            cancelId: 1,
-            noLink: true,
-          });
-          return result.response === 0
-            ? undefined
-            : { block: true, reason: "The operator denied this action." };
-        } catch {
-          return { block: true, reason: "Compass could not request approval for this action." };
-        }
+        return this.requestToolApproval(approval, event.toolName, event.input);
       });
     };
+  }
+
+  private clientContextExtension(): ExtensionFactory {
+    return (pi) => {
+      pi.on("before_agent_start", (event) => {
+        const languageContext = buildLanguageContext(this.settings.language);
+        const clientContext = this.currentClientContext();
+        return {
+          systemPrompt: [event.systemPrompt, languageContext, clientContext].filter(Boolean).join("\n\n"),
+        };
+      });
+    };
+  }
+
+  private currentClientContext(): string | undefined {
+    const sessionId = this.session?.sessionId;
+    return sessionId
+      ? buildClientContext(this.getClientRegistry(), sessionId, this.settings.language)
+      : undefined;
+  }
+
+  private requestToolApproval(
+    approval: ToolApprovalRequest,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<ToolApprovalDecision> {
+    const request: UiApprovalRequest = {
+      id: this.nextId("approval"),
+      toolName,
+      message: approval.message,
+      detail: approval.detail,
+      args: cloneForUi(args),
+      ts: Date.now(),
+    };
+
+    return new Promise<ToolApprovalDecision>((resolveDecision) => {
+      const timer = setTimeout(() => {
+        this.finishApproval(request.id, {
+          block: true,
+          reason: "The approval request expired before the operator responded.",
+        });
+      }, APPROVAL_TIMEOUT_MS);
+      timer.unref();
+      this.pendingApprovals.set(request.id, { request, resolve: resolveDecision, timer });
+      this.emit({ kind: "approval-request", request });
+    });
+  }
+
+  private finishApproval(id: string, decision: ToolApprovalDecision): boolean {
+    const pending = this.pendingApprovals.get(id);
+    if (!pending) return false;
+    clearTimeout(pending.timer);
+    this.pendingApprovals.delete(id);
+    this.emit({ kind: "approval-resolved", id });
+    pending.resolve(decision);
+    return true;
+  }
+
+  resolveApproval(id: string, allowed: boolean): { ok: boolean; error?: string } {
+    const resolved = this.finishApproval(
+      id,
+      allowed ? undefined : { block: true, reason: "The operator denied this action." },
+    );
+    return resolved ? { ok: true } : { ok: false, error: "Approval request is no longer active." };
+  }
+
+  private cancelPendingApprovals(reason: string): void {
+    for (const id of [...this.pendingApprovals.keys()]) {
+      this.finishApproval(id, { block: true, reason });
+    }
   }
 
   // ---------------------------------------------------------------- session
@@ -147,6 +263,7 @@ export class AgentService {
       additionalSkillPaths: [...new Set(skillDirs)],
       extensionFactories: [
         { name: "compass-permission-policy", factory: this.permissionExtension() },
+        { name: "compass-client-context", factory: this.clientContextExtension() },
       ],
       skillsOverride: (base) => ({
         skills: base.skills.filter((skill) => !this.settings.disabledSkills.includes(skill.name)),
@@ -197,11 +314,13 @@ export class AgentService {
   }
 
   private disposeSession(): void {
+    this.cancelPendingApprovals("The session changed before approval was granted.");
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.session?.dispose();
     this.session = undefined;
     this.currentAssistantId = undefined;
+    this.pendingUserMessageIds = [];
   }
 
   async shutdown(): Promise<void> {
@@ -223,9 +342,18 @@ export class AgentService {
         this.emit({ kind: "agent-start" });
         break;
       case "agent_end":
+        this.emitStats();
+        this.emit({ kind: "sessions-changed" });
+        break;
+      case "agent_settled":
+        // AgentSession clears its run-active flag immediately before this
+        // event. `agent_end` can still be followed by retries, compaction, or
+        // queued continuations, so it is too early to clear the renderer's
+        // streaming state there.
         this.emit({ kind: "agent-end" });
         this.emitStats();
         this.emit({ kind: "sessions-changed" });
+        void this.generateMissingSessionTitle();
         break;
       case "message_start": {
         if (isAssistantMessage(event.message)) {
@@ -263,16 +391,19 @@ export class AgentService {
       case "message_end": {
         const message = event.message;
         if (isUserMessage(message)) {
-          const text = textOfContent(message.content);
+          const expandedText = textOfContent(message.content);
+          const display = compactSkillText(expandedText);
           const images = imagesOfContent(message.content);
-          if (text.trim() || images.length > 0) {
+          if (display.text.trim() || display.skillName || images.length > 0) {
             this.emit({
               kind: "user-message",
-              id: this.nextId("u"),
-              text,
+              id: this.pendingUserMessageIds.shift() ?? this.nextId("u"),
+              text: display.text,
+              skillName: display.skillName,
               images: images.length > 0 ? images : undefined,
               ts: message.timestamp,
             });
+            this.emit({ kind: "sessions-changed" });
           }
         } else if (isAssistantMessage(message) && this.currentAssistantId) {
           this.emit({
@@ -326,7 +457,7 @@ export class AgentService {
         this.emit({
           kind: "notice",
           tone: "info",
-          text: "正在压缩会话上下文…",
+          text: agentMessage(this.settings.language, "compacting"),
           ts: Date.now(),
         });
         break;
@@ -334,7 +465,9 @@ export class AgentService {
         this.emit({
           kind: "notice",
           tone: event.errorMessage ? "warn" : "info",
-          text: event.errorMessage ? `上下文压缩失败：${event.errorMessage}` : "上下文压缩完成。",
+          text: event.errorMessage
+            ? agentMessage(this.settings.language, "compactionFailed", { error: event.errorMessage })
+            : agentMessage(this.settings.language, "compactionComplete"),
           ts: Date.now(),
         });
         this.emitStats();
@@ -343,7 +476,10 @@ export class AgentService {
         this.emit({
           kind: "notice",
           tone: "warn",
-          text: `请求失败，正在自动重试（第 ${event.attempt}/${event.maxAttempts} 次）…`,
+          text: agentMessage(this.settings.language, "retrying", {
+            attempt: event.attempt,
+            max: event.maxAttempts,
+          }),
           ts: Date.now(),
         });
         break;
@@ -390,6 +526,7 @@ export class AgentService {
     }
     return {
       sessionId: session.sessionId,
+      sessionPath: session.sessionFile,
       sessionName: session.sessionName,
       model: model
         ? {
@@ -425,6 +562,10 @@ export class AgentService {
 
   getThread(): UiThreadItem[] {
     return projectThread(this.session);
+  }
+
+  getApprovals(): UiApprovalRequest[] {
+    return [...this.pendingApprovals.values()].map(({ request }) => ({ ...request }));
   }
 
   getSkills(): UiSkill[] {
@@ -584,18 +725,39 @@ export class AgentService {
   }
 
   async listSessions(): Promise<UiSessionInfo[]> {
-    const sessions = await SessionManager.list(this.settings.workspaceDir);
-    return sessions
-      .map((info) => ({
+    const sessions = (await SessionManager.list(this.settings.workspaceDir))
+      .map((info) => {
+        const displayName = info.name ? compactSkillText(info.name) : undefined;
+        return {
         path: info.path,
         id: info.id,
-        name: info.name,
-        firstMessage: info.firstMessage,
+        name: displayName
+          ? displayName.text || (displayName.skillName ? `Skill: ${displayName.skillName}` : info.name)
+          : info.name,
+        firstMessage: (() => {
+          const display = compactSkillText(info.firstMessage);
+          return display.text || (display.skillName ? `Skill: ${display.skillName}` : info.firstMessage);
+        })(),
         createdAt: info.created.getTime(),
         modifiedAt: info.modified.getTime(),
         messageCount: info.messageCount,
-      }))
-      .sort((a, b) => b.modifiedAt - a.modifiedAt);
+        };
+      });
+    const projected = this.getThread();
+    const firstUser = projected.find((item) => item.kind === "user");
+    const sessionPath = this.session?.sessionFile;
+    const active = firstUser && sessionPath && this.session
+      ? {
+          path: sessionPath,
+          id: this.session.sessionId,
+          name: this.session.sessionName,
+          firstMessage: firstUser.text.trim() || (firstUser.images?.length ? "Image attachment" : "Untitled session"),
+          createdAt: firstUser.ts,
+          modifiedAt: projected.reduce((latest, item) => Math.max(latest, item.ts), firstUser.ts),
+          messageCount: projected.filter((item) => item.kind === "user" || item.kind === "assistant").length,
+        }
+      : undefined;
+    return mergeActiveSession(sessions, active);
   }
 
   private async resolveWorkspaceSessionDir(): Promise<string | null> {
@@ -610,15 +772,15 @@ export class AgentService {
     const sessions = await SessionManager.list(this.settings.workspaceDir);
     const listed = sessions.some((session) => session.path === path);
     if (!listed) {
-      return { ok: false, error: "会话不存在或路径无效" };
+      return { ok: false, error: agentMessage(this.settings.language, "sessionInvalid") };
     }
     const sessionDir = await this.resolveWorkspaceSessionDir();
     if (!sessionDir) {
-      return { ok: false, error: "无法解析会话目录" };
+      return { ok: false, error: agentMessage(this.settings.language, "sessionDirectory") };
     }
     const normalizedPath = resolve(path);
     if (!normalizedPath.startsWith(sessionDir + sep)) {
-      return { ok: false, error: "路径不在会话目录内" };
+      return { ok: false, error: agentMessage(this.settings.language, "sessionOutside") };
     }
     return { ok: true, sessionDir };
   }
@@ -632,7 +794,7 @@ export class AgentService {
     const allowed = await this.assertListedSessionPath(path);
     if (!allowed.ok) return allowed;
     const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: "名称不能为空" };
+    if (!trimmed) return { ok: false, error: agentMessage(this.settings.language, "nameEmpty") };
     try {
       const manager = SessionManager.open(path);
       manager.appendSessionInfo(trimmed);
@@ -640,6 +802,71 @@ export class AgentService {
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private async generateMissingSessionTitle(): Promise<void> {
+    const session = this.session;
+    const sessionPath = session?.sessionFile;
+    if (!session || !sessionPath || session.sessionName || this.sessionTitleRequests.has(sessionPath)) return;
+
+    const thread = this.getThread();
+    const hasAssistantText = thread.some(
+      (item) => item.kind === "assistant" && item.blocks.some((block) => block.type === "text" && block.text.trim()),
+    );
+    if (!hasAssistantText) return;
+
+    const transcript = buildSessionTitleTranscript(thread);
+    if (!transcript) return;
+
+    const selection = this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL;
+    const model = this.modelRegistry.find(selection.provider, selection.id);
+    if (!model || !this.isModelConnectable(model)) return;
+
+    this.sessionTitleRequests.add(sessionPath);
+    try {
+      const auth = await this.modelRegistry.getApiKeyAndHeaders(model);
+      if (!auth.ok) return;
+      const response = await completeSimple(
+        model,
+        {
+          systemPrompt: [
+            "Generate a concise title for this conversation.",
+            "Match the conversation language.",
+            "Use 4-12 Chinese characters or 3-8 English words.",
+            "Return only the title with no quotes, markdown, labels, or punctuation.",
+          ].join(" "),
+          messages: [{ role: "user", content: transcript, timestamp: Date.now() }],
+        },
+        {
+          apiKey: auth.apiKey,
+          headers: auth.headers,
+          env: auth.env,
+          maxTokens: 80,
+          reasoning: "minimal",
+        },
+      );
+      if (response.stopReason === "error" || response.stopReason === "aborted") return;
+      const title = normalizeGeneratedSessionTitle(
+        response.content
+          .filter((content) => content.type === "text")
+          .map((content) => content.text)
+          .join("\n"),
+      );
+      if (!title) return;
+
+      const persistedSession = SessionManager.open(sessionPath);
+      if (persistedSession.getSessionName()) return;
+      if (this.session?.sessionFile === sessionPath && !this.session.sessionName) {
+        this.session.setSessionName(title);
+      } else {
+        persistedSession.appendSessionInfo(title);
+        this.emit({ kind: "sessions-changed" });
+      }
+    } catch {
+      // Title generation is best-effort and must never interrupt the conversation.
+    } finally {
+      this.sessionTitleRequests.delete(sessionPath);
     }
   }
 
@@ -651,7 +878,7 @@ export class AgentService {
       await mkdir(archiveDir, { recursive: true });
       const targetPath = join(archiveDir, basename(path));
       if (resolve(targetPath) === resolve(path)) {
-        return { ok: false, error: "会话已在归档目录中" };
+        return { ok: false, error: agentMessage(this.settings.language, "sessionArchived") };
       }
       await this.detachIfActiveSession(path);
       await rename(path, targetPath);
@@ -677,11 +904,13 @@ export class AgentService {
 
   getSettingsView(): AppSettingsView {
     return {
+      language: this.settings.language,
       workspaceDir: this.settings.workspaceDir,
       skillDirs: [...this.settings.skillDirs],
       disabledSkills: [...this.settings.disabledSkills],
       permissionMode: this.settings.permissionMode,
       enabledModels: this.enabledModelKeys(),
+      summaryModel: { ...(this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL) },
     };
   }
 
@@ -717,17 +946,24 @@ export class AgentService {
       sessions: await this.listSessions(),
       stats: this.getStats(),
       thread: this.getThread(),
+      approvals: this.getApprovals(),
+      clientRegistry: this.getClientRegistry(),
       version: this.appVersion(),
     };
   }
 
   // ---------------------------------------------------------------- actions
 
-  async prompt(text: string, images?: UiImageAttachment[]): Promise<{ ok: boolean; error?: string }> {
+  async prompt(
+    text: string,
+    images?: UiImageAttachment[],
+    clientMessageId?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
-    if (!session) return { ok: false, error: "会话尚未就绪" };
+    if (!session) return { ok: false, error: agentMessage(this.settings.language, "sessionNotReady") };
+    if (clientMessageId) this.pendingUserMessageIds.push(clientMessageId);
     try {
-      const normalizedImages = normalizeImages(images);
+      const normalizedImages = normalizeImages(images, this.settings.language);
       if (session.isStreaming) {
         await session.prompt(text, { images: normalizedImages, streamingBehavior: "steer" });
       } else {
@@ -735,18 +971,22 @@ export class AgentService {
       }
       return { ok: true };
     } catch (error) {
+      if (clientMessageId) {
+        this.pendingUserMessageIds = this.pendingUserMessageIds.filter((id) => id !== clientMessageId);
+      }
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async abort(): Promise<void> {
+    this.cancelPendingApprovals("The task was stopped before approval was granted.");
     await this.session?.abort();
   }
 
   async setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
     const model = this.modelRegistry.find(provider, id);
-    if (!session || !model) return { ok: false, error: "未找到该模型" };
+    if (!session || !model) return { ok: false, error: agentMessage(this.settings.language, "modelNotFound") };
     try {
       await session.setModel(model);
       this.settings.defaultModel = { provider, id };
@@ -761,9 +1001,50 @@ export class AgentService {
     }
   }
 
+  setSummaryModel(provider: string, id: string): AppSettingsView {
+    const model = this.modelRegistry.find(provider, id);
+    if (!model) throw new Error(agentMessage(this.settings.language, "modelNotFound"));
+    this.settings.summaryModel = { provider, id };
+    saveSettings(this.settings);
+    return this.getSettingsView();
+  }
+
+  getDeveloperContext(): DeveloperContextSnapshot {
+    const session = this.session;
+    const stats = this.getStats();
+    const registry = this.getClientRegistry();
+    const sessionId = session?.sessionId ?? "";
+    const clientName = sessionId ? registry.assignments[sessionId] : undefined;
+    const clientContext = this.currentClientContext();
+    const languageContext = buildLanguageContext(this.settings.language);
+    const currentPrompt = session?.systemPrompt ?? "";
+    const supplementalContext = [languageContext, clientContext]
+      .filter((value): value is string => typeof value === "string" && !currentPrompt.includes(value))
+      .join("\n\n");
+    const effectiveSystemPrompt = supplementalContext
+      ? `${currentPrompt}\n\n${supplementalContext}`
+      : currentPrompt;
+    return {
+      sessionId,
+      sessionPath: session?.sessionFile,
+      clientName,
+      clientContext,
+      effectiveSystemPrompt,
+      contextTokens: stats.contextTokens,
+      contextWindow: stats.contextWindow,
+      contextPercent: stats.contextPercent,
+      contextBreakdown: stats.contextBreakdown,
+      messages: (session?.messages ?? []).map((message, index) => ({
+        index,
+        role: typeof message === "object" && message && "role" in message ? String(message.role) : "unknown",
+        content: cloneForUi(message),
+      })),
+    };
+  }
+
   setThinkingLevel(level: unknown): AgentStats {
     if (!isThinkingLevel(level)) {
-      throw new Error("无效的思考深度");
+      throw new Error(agentMessage(this.settings.language, "thinkingInvalid"));
     }
     if (this.session) {
       this.session.setThinkingLevel(level);
@@ -815,7 +1096,7 @@ export class AgentService {
   async setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void> {
     const model = this.modelRegistry.find(provider, id);
     if (enabled && (!model || !this.isModelConnectable(model))) {
-      throw new Error("该模型当前不可用，请先配置对应 Provider。");
+      throw new Error(agentMessage(this.settings.language, "modelUnavailable"));
     }
     const enabledModels = new Set(this.enabledModelKeys());
     const key = modelSelectionKey(provider, id);
@@ -830,7 +1111,7 @@ export class AgentService {
         },
       );
       if (replacements.length === 0) {
-        throw new Error("至少需要保留一个可用模型。");
+        throw new Error(agentMessage(this.settings.language, "modelRequired"));
       }
       const replacement = replacements[0];
       const current = this.session?.model;
@@ -859,6 +1140,13 @@ export class AgentService {
   setPermissionMode(mode: PermissionMode): AppSettingsView {
     if (!isPermissionMode(mode)) throw new Error("无效的权限模式");
     this.settings.permissionMode = mode;
+    saveSettings(this.settings);
+    return this.getSettingsView();
+  }
+
+  setLanguage(language: AppSettingsView["language"]): AppSettingsView {
+    if (!isAppLanguage(language)) throw new Error("Invalid application language");
+    this.settings.language = language;
     saveSettings(this.settings);
     return this.getSettingsView();
   }

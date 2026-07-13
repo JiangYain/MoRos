@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCompass } from "../../store";
+import { type TranslationKey, useI18n } from "../../i18n";
 import { PERMISSION_OPTIONS } from "../permissions";
 
 interface PermissionMenuProps {
@@ -10,6 +11,7 @@ interface PermissionMenuProps {
 }
 
 export function PermissionMenu({ open, onClose, onToggle }: PermissionMenuProps): React.JSX.Element {
+  const { t } = useI18n();
   const settings = useCompass((state) => state.settings);
   const setPermissionMode = useCompass((state) => state.setPermissionMode);
   const permissionMode = settings?.permissionMode ?? "full";
@@ -25,7 +27,7 @@ export function PermissionMenu({ open, onClose, onToggle }: PermissionMenuProps)
         onClick={onToggle}
       >
         <SelectedIcon size={14} strokeWidth={1.65} />
-        <span>{selected.label}</span>
+        <span>{t(`settings.permission.${selected.id}` as TranslationKey)}</span>
       </button>
       <AnimatePresence>
         {open && (
@@ -49,8 +51,8 @@ export function PermissionMenu({ open, onClose, onToggle }: PermissionMenuProps)
                 >
                   <Icon size={16} strokeWidth={1.55} />
                   <span>
-                    <b>{option.label}</b>
-                    <small>{option.description}</small>
+                    <b>{t(`settings.permission.${option.id}` as TranslationKey)}</b>
+                    <small>{t(`settings.permission.${option.id}Description` as TranslationKey)}</small>
                   </span>
                   {permissionMode === option.id && <Check size={15} strokeWidth={1.65} />}
                 </button>

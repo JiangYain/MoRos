@@ -1,0 +1,13 @@
+{
+  "motion_strip": "C:\\Users\\chord\\Desktop\\FAI\\compass\\resources\\logo-motion\\outputs\\motion_strip.png",
+  "same_pipeline": {
+    "mean_abs_diff": 0.0,
+    "max_abs_diff": 0,
+    "different_pixels": 0
+  },
+  "cross_pipeline": {
+    "mean_abs_diff": 3.169,
+    "max_abs_diff": 255,
+    "pct_pixels_off_by_25plus": 2.86
+  }
+}

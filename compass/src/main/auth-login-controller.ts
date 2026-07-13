@@ -1,6 +1,25 @@
 import { shell } from "electron";
-import type { AgentUiEvent, InitPayload } from "@shared/types";
+import type { AgentUiEvent, AppLanguage, InitPayload } from "@shared/types";
 import type { AgentService } from "./agent";
+
+const AUTH_COPY: Record<AppLanguage, {
+  opening: string;
+  manualCode: string;
+  selected: string;
+  noOptions: string;
+}> = {
+  "zh-CN": { opening: "正在打开 {provider} 登录页面…", manualCode: "当前桌面界面不支持手动输入回调码，请在打开的浏览器中完成本机回调。", selected: "已选择 {value}", noOptions: "没有可用选项。" },
+  "zh-TW": { opening: "正在開啟 {provider} 登入頁面…", manualCode: "目前桌面介面不支援手動輸入回呼碼，請在開啟的瀏覽器中完成本機回呼。", selected: "已選擇 {value}", noOptions: "沒有可用選項。" },
+  en: { opening: "Opening the {provider} sign-in page…", manualCode: "The desktop interface does not support manual callback-code entry. Complete the local callback in the open browser.", selected: "Selected {value}", noOptions: "No options are available." },
+  de: { opening: "Die Anmeldeseite von {provider} wird geöffnet…", manualCode: "Die Desktop-Oberfläche unterstützt keine manuelle Eingabe des Rückrufcodes. Schließen Sie den lokalen Rückruf im geöffneten Browser ab.", selected: "{value} ausgewählt", noOptions: "Keine Optionen verfügbar." },
+};
+
+function authMessage(language: AppLanguage, key: keyof (typeof AUTH_COPY)[AppLanguage], values: Record<string, string> = {}): string {
+  return Object.entries(values).reduce(
+    (message, [name, value]) => message.replaceAll(`{${name}}`, value),
+    AUTH_COPY[language][key],
+  );
+}
 
 export class AuthLoginController {
   private readonly service: AgentService;
@@ -27,11 +46,12 @@ export class AuthLoginController {
     this.activeLogins.set(provider, authController);
 
     try {
+      const language = this.service.getSettingsView().language;
       await this.service.loginProvider(provider, {
         signal: authController.signal,
         onAuth: (info) => {
           const message = [info.instructions, info.url].filter(Boolean).join("\n");
-          this.emitNotice("info", message || `正在打开 ${provider} 登录页面…`);
+          this.emitNotice("info", message || authMessage(language, "opening", { provider }));
           void shell.openExternal(info.url);
         },
         onDeviceCode: (info) => {
@@ -42,7 +62,7 @@ export class AuthLoginController {
           if (prompt.allowEmpty) return "";
           this.emitNotice(
             "warn",
-            `${prompt.message}：当前桌面界面不支持手动输入回调码，请在打开的浏览器中完成本机回调。`,
+            `${prompt.message}: ${authMessage(language, "manualCode")}`,
           );
           return "";
         },
@@ -53,8 +73,8 @@ export class AuthLoginController {
           this.emitNotice(
             "info",
             selected
-              ? `${prompt.message}：已选择 ${prompt.options[0]?.label ?? selected}`
-              : `${prompt.message}：没有可用选项。`,
+              ? `${prompt.message}: ${authMessage(language, "selected", { value: prompt.options[0]?.label ?? selected })}`
+              : `${prompt.message}: ${authMessage(language, "noOptions")}`,
           );
           return selected;
         },

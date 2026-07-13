@@ -12,6 +12,7 @@ import type {
   UiThreadItem,
   UiUsage,
 } from "@shared/types";
+import { compactSkillText } from "../shared/skill-display.ts";
 
 type MessageContent = Message["content"];
 type AssistantContentBlock = AssistantMessage["content"][number];
@@ -118,13 +119,14 @@ export function projectThread(session: AgentSession | undefined): UiThreadItem[]
     if (!isMessage(raw)) continue;
     const message = raw;
     if (isUserMessage(message)) {
-      const text = textOfContent(message.content);
+      const display = compactSkillText(textOfContent(message.content));
       const images = imagesOfContent(message.content);
-      if (text || images.length > 0) {
+      if (display.text || display.skillName || images.length > 0) {
         items.push({
           kind: "user",
           id: historicalItemId("u", session.sessionId, index, message),
-          text,
+          text: display.text,
+          ...(display.skillName ? { skillName: display.skillName } : {}),
           images: images.length > 0 ? images : undefined,
           ts: message.timestamp ?? 0,
         });

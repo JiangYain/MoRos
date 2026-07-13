@@ -1,5 +1,6 @@
 import type {
   AgentUiEvent,
+  AppLanguage,
   CompassApi,
   PermissionMode,
   ThinkingLevel,
@@ -9,20 +10,30 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const api: CompassApi = {
   init: () => ipcRenderer.invoke("app:init"),
-  prompt: (text: string, images?: UiImageAttachment[]) =>
-    ipcRenderer.invoke("agent:prompt", text, images),
+  getDeveloperContext: () => ipcRenderer.invoke("developer:context"),
+  prompt: (text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
+    ipcRenderer.invoke("agent:prompt", text, images, clientMessageId),
   abort: () => ipcRenderer.invoke("agent:abort"),
+  resolveApproval: (id, allowed) => ipcRenderer.invoke("agent:resolve-approval", id, allowed),
   newSession: () => ipcRenderer.invoke("agent:new-session"),
   openSession: (path) => ipcRenderer.invoke("agent:open-session", path),
   listSessions: () => ipcRenderer.invoke("sessions:list"),
   renameSession: (path, name) => ipcRenderer.invoke("sessions:rename", path, name),
   deleteSession: (path) => ipcRenderer.invoke("sessions:delete", path),
   archiveSession: (path) => ipcRenderer.invoke("sessions:archive", path),
+  importLegacyClientRegistry: (serializedRegistry) =>
+    ipcRenderer.invoke("clients:import-legacy", serializedRegistry),
+  saveClientProfile: (profile) => ipcRenderer.invoke("clients:save-profile", profile),
+  assignSessionClient: (sessionId, clientName) =>
+    ipcRenderer.invoke("clients:assign-session", sessionId, clientName),
+  unassignSessionClient: (sessionId) => ipcRenderer.invoke("clients:unassign-session", sessionId),
   setModel: (provider, id) => ipcRenderer.invoke("models:set", provider, id),
   setModelEnabled: (provider, id, enabled) =>
     ipcRenderer.invoke("models:set-enabled", provider, id, enabled),
+  setSummaryModel: (provider, id) => ipcRenderer.invoke("models:set-summary", provider, id),
   setThinkingLevel: (level: ThinkingLevel) => ipcRenderer.invoke("thinking:set", level),
   setPermissionMode: (mode: PermissionMode) => ipcRenderer.invoke("permissions:set", mode),
+  setLanguage: (language: AppLanguage) => ipcRenderer.invoke("settings:set-language", language),
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),
   loginProvider: (provider) => ipcRenderer.invoke("auth:login-provider", provider),
   removeApiKey: (provider) => ipcRenderer.invoke("auth:remove", provider),

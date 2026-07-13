@@ -8,8 +8,52 @@ import type {
   UiImageAttachment,
   UiSessionInfo,
   VoiceInputResult,
+  VoiceInputUpdate,
   WebRpcMethod,
 } from "@shared/types";
+import { isAppLanguage, type AppLanguage } from "@shared/types";
+import { createWebAgentEvents } from "./web-agent-events";
+
+type WebMessageKey = "apiUnavailable" | "speechUnsupported" | "speechEmpty" | "microphoneDenied" | "speechFailed";
+
+const WEB_MESSAGES: Record<AppLanguage, Record<WebMessageKey, string>> = {
+  "zh-CN": {
+    apiUnavailable: "Compass Web API 暂不可用。",
+    speechUnsupported: "当前浏览器不支持语音识别，请使用最新版 Chrome 或桌面版。",
+    speechEmpty: "没有识别到语音内容。",
+    microphoneDenied: "麦克风权限未开启。请在浏览器地址栏中允许 Compass 使用麦克风。",
+    speechFailed: "语音识别失败：{error}",
+  },
+  "zh-TW": {
+    apiUnavailable: "Compass Web API 目前無法使用。",
+    speechUnsupported: "目前瀏覽器不支援語音辨識，請使用最新版 Chrome 或桌面版。",
+    speechEmpty: "沒有辨識到語音內容。",
+    microphoneDenied: "尚未開啟麥克風權限。請在瀏覽器網址列允許 Compass 使用麥克風。",
+    speechFailed: "語音辨識失敗：{error}",
+  },
+  en: {
+    apiUnavailable: "Compass Web API is unavailable.",
+    speechUnsupported: "This browser does not support speech recognition. Use the latest Chrome or the desktop app.",
+    speechEmpty: "No speech was recognized.",
+    microphoneDenied: "Microphone access is disabled. Allow Compass to use the microphone in the browser address bar.",
+    speechFailed: "Speech recognition failed: {error}",
+  },
+  de: {
+    apiUnavailable: "Die Compass Web API ist nicht verfügbar.",
+    speechUnsupported: "Dieser Browser unterstützt keine Spracherkennung. Verwenden Sie die aktuelle Chrome-Version oder die Desktop-App.",
+    speechEmpty: "Es wurde keine Sprache erkannt.",
+    microphoneDenied: "Der Mikrofonzugriff ist deaktiviert. Erlauben Sie Compass den Mikrofonzugriff in der Adressleiste.",
+    speechFailed: "Spracherkennung fehlgeschlagen: {error}",
+  },
+};
+
+function webMessage(key: WebMessageKey, values: Record<string, string> = {}): string {
+  const language = isAppLanguage(document.documentElement.lang) ? document.documentElement.lang : "zh-CN";
+  return Object.entries(values).reduce(
+    (message, [name, value]) => message.replaceAll(`{${name}}`, value),
+    WEB_MESSAGES[language][key],
+  );
+}
 
 interface RpcEnvelope<T> {
   ok: boolean;
@@ -17,8 +61,12 @@ interface RpcEnvelope<T> {
   error?: string;
 }
 
+interface SpeechRecognitionResultLike extends ArrayLike<{ transcript: string }> {
+  isFinal: boolean;
+}
+
 interface SpeechRecognitionResultEvent extends Event {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  results: ArrayLike<SpeechRecognitionResultLike>;
 }
 
 interface SpeechRecognitionErrorEvent extends Event {
@@ -33,6 +81,7 @@ interface SpeechRecognitionInstance {
   onend: (() => void) | null;
   onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
   onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
+  onstart: (() => void) | null;
   start(): void;
   stop(): void;
 }
@@ -74,22 +123,23 @@ async function initializeWebApi(): Promise<InitPayload> {
       delay = Math.min(delay * 2, 800);
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("Compass Web API is unavailable.");
+  throw lastError instanceof Error ? lastError : new Error(webMessage("apiUnavailable"));
 }
 
-function startBrowserDictation(): Promise<VoiceInputResult> {
+function startBrowserDictation(onUpdate?: (update: VoiceInputUpdate) => void): Promise<VoiceInputResult> {
   const browserWindow = window as typeof window & {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   };
   const Recognition = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
   if (!Recognition) {
-    return Promise.resolve({ ok: false, error: "当前浏览器不支持语音识别，请使用最新版 Chrome 或桌面版。" });
+    return Promise.resolve({ ok: false, error: webMessage("speechUnsupported") });
   }
 
   return new Promise((resolveResult) => {
     const recognition = new Recognition();
     let settled = false;
+    let latestTranscript = "";
 
     const finish = (result: VoiceInputResult): void => {
       if (settled) return;
@@ -97,28 +147,40 @@ function startBrowserDictation(): Promise<VoiceInputResult> {
       resolveResult(result);
     };
 
-    recognition.lang = navigator.language || "zh-CN";
+    recognition.lang = document.documentElement.lang || navigator.language || "zh-CN";
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
+    recognition.onstart = () => onUpdate?.({ phase: "listening" });
     recognition.onresult = (event) => {
-      const text = Array.from(event.results)
+      const results = Array.from(event.results);
+      const text = results
         .map((result) => result[0]?.transcript ?? "")
         .join(" ")
         .trim();
-      finish(text ? { ok: true, text } : { ok: false, error: "没有识别到语音内容。" });
-      recognition.stop();
+      latestTranscript = text;
+      const complete = results.some((result) => result.isFinal);
+      onUpdate?.({ phase: complete ? "processing" : "listening", interimText: text });
+      if (complete) {
+        finish(text ? { ok: true, text } : { ok: false, error: webMessage("speechEmpty") });
+        recognition.stop();
+      }
     };
     recognition.onerror = (event) => {
       const error =
         event.error === "not-allowed"
-          ? "麦克风权限未开启。请在浏览器地址栏中允许 Compass 使用麦克风。"
-          : `语音识别失败：${event.error}`;
+          ? webMessage("microphoneDenied")
+          : webMessage("speechFailed", { error: event.error });
       finish({ ok: false, error });
     };
-    recognition.onend = () => finish({ ok: false, error: "没有识别到语音内容。" });
+    recognition.onend = () => finish(
+      latestTranscript
+        ? { ok: true, text: latestTranscript }
+        : { ok: false, error: webMessage("speechEmpty") },
+    );
 
     try {
+      onUpdate?.({ phase: "starting" });
       recognition.start();
     } catch (error) {
       finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -127,21 +189,48 @@ function startBrowserDictation(): Promise<VoiceInputResult> {
 }
 
 export function createWebApi(): CompassApi {
+  const eventSource = new EventSource("/api/events");
+  const agentEvents = createWebAgentEvents(
+    {
+      onMessage: (listener) => {
+        eventSource.onmessage = (event) => listener(event.data);
+      },
+      onOpen: (listener) => {
+        eventSource.onopen = () => listener();
+      },
+    },
+    () => rpc<InitPayload>("init"),
+  );
+
   return {
-    init: initializeWebApi,
-    prompt: (text: string, images?: UiImageAttachment[]) => rpc("prompt", [text, images]),
+    init: async () => {
+      const [payload] = await Promise.all([initializeWebApi(), agentEvents.ready]);
+      return payload;
+    },
+    getDeveloperContext: () => rpc("getDeveloperContext"),
+    prompt: (text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
+      rpc("prompt", [text, images, clientMessageId]),
     abort: () => rpc<void>("abort"),
+    resolveApproval: (id, allowed) => rpc("resolveApproval", [id, allowed]),
     newSession: () => rpc<InitPayload>("newSession"),
     openSession: (path) => rpc<InitPayload>("openSession", [path]),
     listSessions: () => rpc<UiSessionInfo[]>("listSessions"),
     renameSession: (path, name) => rpc("renameSession", [path, name]),
     deleteSession: (path) => rpc("deleteSession", [path]),
     archiveSession: (path) => rpc("archiveSession", [path]),
+    importLegacyClientRegistry: (serializedRegistry) =>
+      rpc("importLegacyClientRegistry", [serializedRegistry]),
+    saveClientProfile: (profile) => rpc("saveClientProfile", [profile]),
+    assignSessionClient: (sessionId, clientName) =>
+      rpc("assignSessionClient", [sessionId, clientName]),
+    unassignSessionClient: (sessionId) => rpc("unassignSessionClient", [sessionId]),
     setModel: (provider, id) => rpc("setModel", [provider, id]),
     setModelEnabled: (provider, id, enabled) =>
       rpc<InitPayload>("setModelEnabled", [provider, id, enabled]),
+    setSummaryModel: (provider, id) => rpc("setSummaryModel", [provider, id]),
     setThinkingLevel: (level: ThinkingLevel) => rpc<AgentStats>("setThinkingLevel", [level]),
     setPermissionMode: (mode: PermissionMode) => rpc("setPermissionMode", [mode]),
+    setLanguage: (language) => rpc("setLanguage", [language]),
     setApiKey: (provider, key) => rpc<InitPayload>("setApiKey", [provider, key]),
     loginProvider: (provider) => rpc<InitPayload>("loginProvider", [provider]),
     removeApiKey: (provider) => rpc<InitPayload>("removeApiKey", [provider]),
@@ -154,17 +243,7 @@ export function createWebApi(): CompassApi {
     setWorkspaceDir: () => rpc<InitPayload | null>("setWorkspaceDir"),
     openPath: (path) => rpc<void>("openPath", [path]),
     startDictation: startBrowserDictation,
-    onAgentEvent: (listener: (event: AgentUiEvent) => void) => {
-      const source = new EventSource("/api/events");
-      source.onmessage = (event) => {
-        try {
-          listener(JSON.parse(event.data) as AgentUiEvent);
-        } catch {
-          // Ignore malformed events; EventSource will continue receiving later updates.
-        }
-      };
-      return () => source.close();
-    },
+    onAgentEvent: (listener: (event: AgentUiEvent) => void) => agentEvents.subscribe(listener),
     windowControl: () => undefined,
     onMaximizeChange: (listener) => {
       queueMicrotask(() => listener(false));

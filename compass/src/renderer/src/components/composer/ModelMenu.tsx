@@ -1,20 +1,14 @@
 import { modelSelectionKey, type ThinkingLevel } from "@shared/types";
 import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../../store";
-
-const EFFORT_LABELS: Partial<Record<ThinkingLevel, string>> = {
-  off: "Light",
-  minimal: "Light",
-  low: "Light",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra High",
-  max: "Max",
-};
+import { useI18n } from "../../i18n";
 
 type ModelMenuView = "root" | "model" | "effort" | "speed";
+type ModelSubmenuView = Exclude<ModelMenuView, "root">;
+
+const SUBMENU_HOVER_DELAY_MS = 260;
 
 interface ModelMenuProps {
   open: boolean;
@@ -24,34 +18,70 @@ interface ModelMenuProps {
 }
 
 export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenuProps): React.JSX.Element {
+  const { t } = useI18n();
   const stats = useCompass((state) => state.stats);
   const settings = useCompass((state) => state.settings);
   const models = useCompass((state) => state.models);
   const setModel = useCompass((state) => state.setModel);
   const setThinkingLevel = useCompass((state) => state.setThinkingLevel);
   const [view, setView] = useState<ModelMenuView>("root");
+  const pendingViewRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!open) setView("root");
+    if (!open) {
+      setView("root");
+      if (pendingViewRef.current !== null) window.clearTimeout(pendingViewRef.current);
+      pendingViewRef.current = null;
+    }
+    return () => {
+      if (pendingViewRef.current !== null) window.clearTimeout(pendingViewRef.current);
+      pendingViewRef.current = null;
+    };
   }, [open]);
 
+  const cancelScheduledView = (): void => {
+    if (pendingViewRef.current !== null) window.clearTimeout(pendingViewRef.current);
+    pendingViewRef.current = null;
+  };
+
+  const openView = (nextView: ModelSubmenuView): void => {
+    cancelScheduledView();
+    setView(nextView);
+  };
+
+  const scheduleView = (nextView: ModelSubmenuView): void => {
+    cancelScheduledView();
+    if (view === nextView) return;
+    pendingViewRef.current = window.setTimeout(() => {
+      pendingViewRef.current = null;
+      setView(nextView);
+    }, SUBMENU_HOVER_DELAY_MS);
+  };
+
   const thinkingLevels = stats?.model?.thinkingLevels ?? [];
+  const effortLabel = (level: ThinkingLevel): string => {
+    if (level === "medium") return t("composer.medium");
+    if (level === "high") return t("composer.high");
+    if (level === "xhigh") return t("composer.extraHigh");
+    if (level === "max") return t("composer.max");
+    return t("composer.light");
+  };
   const supportsThinking = thinkingLevels.some((level) => level !== "off");
   const effortOptions = useMemo(() => {
     const options: Array<{ level: ThinkingLevel; label: string }> = [];
     const light = (["low", "minimal", "off"] as ThinkingLevel[]).find((level) =>
       thinkingLevels.includes(level),
     );
-    if (light) options.push({ level: light, label: "Light" });
+    if (light) options.push({ level: light, label: effortLabel(light) });
     for (const level of ["medium", "high", "xhigh", "max"] as ThinkingLevel[]) {
-      if (thinkingLevels.includes(level)) options.push({ level, label: EFFORT_LABELS[level] ?? level });
+      if (thinkingLevels.includes(level)) options.push({ level, label: effortLabel(level) });
     }
     if (options.length === 0 && thinkingLevels[0]) {
-      options.push({ level: thinkingLevels[0], label: EFFORT_LABELS[thinkingLevels[0]] ?? thinkingLevels[0] });
+      options.push({ level: thinkingLevels[0], label: effortLabel(thinkingLevels[0]) });
     }
     return options;
-  }, [thinkingLevels]);
-  const activeEffortLabel = EFFORT_LABELS[stats?.thinkingLevel ?? "off"] ?? "Light";
+  }, [thinkingLevels, t]);
+  const activeEffortLabel = effortLabel(stats?.thinkingLevel ?? "off");
   const enabledModels = useMemo(() => {
     const enabled = new Set(settings?.enabledModels ?? []);
     return models.filter((model) => enabled.has(modelSelectionKey(model.provider, model.id)));
@@ -65,53 +95,37 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
         aria-expanded={open}
         onClick={onToggle}
       >
-        <span className="model-pill-name">{stats?.model?.name ?? "Select model"}</span>
+        <span className="model-pill-name">{stats?.model?.name ?? t("composer.selectModel")}</span>
         {supportsThinking && <span className="model-pill-thinking">{activeEffortLabel}</span>}
         <ChevronDown size={12} strokeWidth={1.6} />
       </button>
       <AnimatePresence>
         {open && (
-          <>
-            <motion.div
-              className="popover model-popover"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <div className="model-menu-main">
-                <MenuRow label="Model" value={stats?.model?.name ?? "Select"} active={view === "model"} onOpen={() => setView("model")} />
-                <MenuRow label="Effort" value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onOpen={() => setView("effort")} />
-                <MenuRow label="Speed" value="Standard" active={view === "speed"} onOpen={() => setView("speed")} />
-              </div>
-              <div className="model-menu-rule" />
-              <button
-                type="button"
-                className="model-add"
-                onClick={() => {
-                  onClose();
-                  onOpenSettings();
-                }}
-              >
-                <span>Add Model</span>
-                <Plus size={14} strokeWidth={1.55} />
-              </button>
-            </motion.div>
-
+          <motion.div
+            className="model-menu-layer"
+            initial={{ opacity: 0, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 2 }}
+            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+          >
             <AnimatePresence mode="wait">
               {view !== "root" && (
                 <motion.div
                   key={view}
                   className="popover model-submenu"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  data-model-submenu={view}
+                  onMouseEnter={cancelScheduledView}
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -3 }}
+                  transition={{ duration: 0.12 }}
                 >
                   <div className="model-submenu-title">
-                    {view === "model" ? "Model" : view === "effort" ? "Effort" : "Speed"}
+                    {view === "model" ? t("composer.model") : view === "effort" ? t("composer.effort") : t("composer.speed")}
                   </div>
                   {view === "model" && (
                     <div className="model-submenu-list model-options-list">
-                      {enabledModels.length === 0 && <div className="popover-empty">Add a model in Settings.</div>}
+                      {enabledModels.length === 0 && <div className="popover-empty">{t("composer.addModelInSettings")}</div>}
                       {enabledModels.map((model) => {
                         const current = stats?.model?.provider === model.provider && stats.model.id === model.id;
                         return (
@@ -120,7 +134,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                             key={`${model.provider}/${model.id}`}
                             onClick={() => {
                               void setModel(model.provider, model.id);
-                              setView("root");
+                              onClose();
                             }}
                           >
                             <span>{model.name}</span>
@@ -139,7 +153,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                           key={option.level}
                           onClick={() => {
                             void setThinkingLevel(option.level);
-                            setView("root");
+                            onClose();
                           }}
                         >
                           <span>{option.label}</span>
@@ -150,8 +164,8 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                   )}
                   {view === "speed" && (
                     <div className="model-submenu-list">
-                      <button type="button" onClick={() => setView("root")}>
-                        <span>Standard</span>
+                      <button type="button" onClick={onClose}>
+                        <span>{t("composer.standard")}</span>
                         <Check size={14} strokeWidth={1.65} />
                       </button>
                     </div>
@@ -159,7 +173,27 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                 </motion.div>
               )}
             </AnimatePresence>
-          </>
+
+            <div className="popover model-popover">
+              <div className="model-menu-main">
+                <MenuRow view="model" label={t("composer.model")} value={stats?.model?.name ?? t("composer.select")} active={view === "model"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="effort" label={t("composer.effort")} value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+                <MenuRow view="speed" label={t("composer.speed")} value={t("composer.standard")} active={view === "speed"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
+              </div>
+              <div className="model-menu-rule" />
+              <button
+                type="button"
+                className="model-add"
+                onClick={() => {
+                  onClose();
+                  onOpenSettings();
+                }}
+              >
+                <span>{t("composer.addModel")}</span>
+                <Plus size={14} strokeWidth={1.55} />
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -170,23 +204,31 @@ function MenuRow({
   active,
   disabled = false,
   label,
+  onHoverEnd,
+  onHoverStart,
   onOpen,
   value,
+  view,
 }: {
   active: boolean;
   disabled?: boolean;
   label: string;
-  onOpen(): void;
+  onHoverEnd(): void;
+  onHoverStart(view: ModelSubmenuView): void;
+  onOpen(view: ModelSubmenuView): void;
   value: string;
+  view: ModelSubmenuView;
 }): React.JSX.Element {
   return (
     <button
       type="button"
       disabled={disabled}
       className={active ? "active" : ""}
-      onMouseEnter={onOpen}
-      onFocus={onOpen}
-      onClick={onOpen}
+      data-model-menu-view={view}
+      onMouseEnter={() => onHoverStart(view)}
+      onMouseLeave={onHoverEnd}
+      onFocus={() => onOpen(view)}
+      onClick={() => onOpen(view)}
     >
       <span>{label}</span>
       <b>{value}</b>

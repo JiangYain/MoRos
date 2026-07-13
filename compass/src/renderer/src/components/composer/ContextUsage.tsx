@@ -1,21 +1,22 @@
 import { Folder, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../ipc";
+import { type TranslationKey, useI18n } from "../../i18n";
 import { useCompass } from "../../store";
 
 const CONTEXT_SEGMENTS = [
-  { key: "systemPrompt", label: "System prompt", color: "#777777" },
-  { key: "toolDefinitions", label: "Tool definitions", color: "#7562d6" },
-  { key: "rules", label: "Rules", color: "#008553" },
-  { key: "skills", label: "Skills", color: "#b57700" },
-  { key: "mcpTools", label: "MCP & dynamic tools", color: "#a91768" },
-  { key: "subagents", label: "Subagent definitions", color: "#2d7fc0" },
-  { key: "conversation", label: "Conversation", color: "#d83a1f" },
+  { key: "systemPrompt", labelKey: "composer.segment.systemPrompt", color: "#777777" },
+  { key: "toolDefinitions", labelKey: "composer.segment.toolDefinitions", color: "#7562d6" },
+  { key: "rules", labelKey: "composer.segment.rules", color: "#008553" },
+  { key: "skills", labelKey: "composer.segment.skills", color: "#b57700" },
+  { key: "mcpTools", labelKey: "composer.segment.mcpTools", color: "#a91768" },
+  { key: "subagents", labelKey: "composer.segment.subagents", color: "#2d7fc0" },
+  { key: "conversation", labelKey: "composer.segment.conversation", color: "#d83a1f" },
 ] as const;
 
-function workspaceName(path: string | undefined): string {
+function workspaceName(path: string | undefined, fallback: string): string {
   const parts = path?.split(/[\\/]/).filter(Boolean) ?? [];
-  return parts.at(-1) ?? "选择工作区";
+  return parts.at(-1) ?? fallback;
 }
 
 function formatCount(value: number, approximate = false): string {
@@ -34,6 +35,7 @@ interface ContextUsageSurfaceProps {
 }
 
 export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfaceProps): React.JSX.Element {
+  const { t } = useI18n();
   const settings = useCompass((state) => state.settings);
   const stats = useCompass((state) => state.stats);
   const [reportOpen, setReportOpen] = useState(true);
@@ -64,10 +66,10 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
     <div className={`workspace-context-shell${expanded ? " expanded" : ""}`}>
       <div className="workspace-context-surface">
         {expanded && (
-          <section className="context-usage-panel" aria-label="Context usage">
+          <section className="context-usage-panel" aria-label={t("composer.contextUsage")}>
             <div className="context-usage-inner">
               <div className="context-usage-head">
-                <span>Context Usage</span>
+                <span>{t("composer.contextUsage")}</span>
                 <div>
                   <button
                     type="button"
@@ -75,16 +77,16 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
                     aria-expanded={reportOpen}
                     onClick={() => setReportOpen((current) => !current)}
                   >
-                    {breakdown.estimated ? "Estimated breakdown" : "View Report"}
+                    {breakdown.estimated ? t("composer.estimatedBreakdown") : t("composer.viewReport")}
                   </button>
-                  <button type="button" className="context-close" aria-label="Close context usage" onClick={onClose}>
+                  <button type="button" className="context-close" aria-label={t("composer.closeContext")} onClick={onClose}>
                     <X size={14} strokeWidth={1.55} />
                   </button>
                 </div>
               </div>
               <div className="context-usage-meta">
-                <span>{contextKnown ? `${Math.round(contextPercent)}% Full` : "— Full"}</span>
-                <span>{formatCount(displayTokens)} / {formatCount(contextWindow)} Tokens</span>
+                <span>{contextKnown ? t("composer.contextFull", { percent: Math.round(contextPercent) }) : t("composer.contextNoPercent")}</span>
+                <span>{formatCount(displayTokens)} / {formatCount(contextWindow)} {t("composer.tokens")}</span>
               </div>
               <div className="context-usage-meter" aria-hidden="true">
                 {rows.filter((segment) => segment.tokens > 0).map((segment) => (
@@ -102,7 +104,7 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
                   {rows.map((segment) => (
                     <div className="context-usage-row" key={segment.key}>
                       <span className="context-usage-swatch" style={{ backgroundColor: segment.color }} />
-                      <span>{segment.label}</span>
+                      <span>{t(segment.labelKey as TranslationKey)}</span>
                       <b>{formatCount(segment.tokens, breakdown.estimated)}</b>
                     </div>
                   ))}
@@ -121,7 +123,7 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
           }}
         >
           <Folder size={15} strokeWidth={1.6} />
-          <span>{workspaceName(settings?.workspaceDir)}</span>
+          <span>{workspaceName(settings?.workspaceDir, t("composer.chooseWorkspace"))}</span>
         </button>
       </div>
     </div>
@@ -135,6 +137,7 @@ export function ContextUsageTrigger({
   expanded: boolean;
   onToggle(): void;
 }): React.JSX.Element {
+  const { t } = useI18n();
   const rawPercent = useCompass((state) => state.stats?.contextPercent);
   const contextPercent = Math.min(100, Math.max(0, rawPercent ?? 0));
   const contextKnown = rawPercent !== null && rawPercent !== undefined;
@@ -144,9 +147,9 @@ export function ContextUsageTrigger({
       <button
         type="button"
         className={`context-trigger${expanded ? " active" : ""}${contextPercent > 75 ? " high" : ""}`}
-        aria-label={contextKnown ? `上下文已使用 ${Math.round(contextPercent)}%` : "上下文用量未知"}
+        aria-label={contextKnown ? t("composer.contextUsedPercent", { percent: Math.round(contextPercent) }) : t("composer.contextUnknown")}
         aria-expanded={expanded}
-        title="Context usage"
+        title={t("composer.contextUsage")}
         onClick={onToggle}
       >
         <svg viewBox="0 0 28 28" aria-hidden="true">

@@ -1,18 +1,15 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useCompass } from "../store";
+import { useI18n } from "../i18n";
 
 const CHARS = ["C", "o", "m", "p", "a", "s", "s"];
 const CHAR_STAGGER = 0.052;
 
-const SUGGESTIONS = [
-  "打开 Phonak Target，等待主窗口就绪并完成桌面布局",
-  "为顾客录入双耳听力图：右耳 250=40 500=45 1k=50 2k=60 4k=70，左耳形态相近",
-  "顾客反馈「自己说话像在瓮里、环境声太吵」，请给出可解释的调参建议",
-];
-
 export function Hero(): React.JSX.Element {
+  const { t } = useI18n();
   const reduced = useReducedMotion();
   const seedComposer = useCompass((s) => s.seedComposer);
+  const suggestions = [t("hero.prompt1"), t("hero.prompt2"), t("hero.prompt3")];
 
   const dotDelay = CHARS.length * CHAR_STAGGER + 0.12;
 
@@ -99,7 +96,7 @@ export function Hero(): React.JSX.Element {
         </h1>
 
         <div className="hero-suggests">
-          {SUGGESTIONS.map((text, index) => (
+          {suggestions.map((text, index) => (
             <motion.button
               key={index}
               className="suggest-btn"
