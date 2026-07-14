@@ -700,19 +700,21 @@ try {
   });
   await page.waitForFunction((callId) => {
     const group = document.querySelector(`[data-tool-call-ids~="${callId}"]`);
-    return group?.querySelector(":scope > .tool-exploration-toggle")?.getAttribute("aria-expanded") === "false";
+    const toggle = group?.querySelector(":scope > .tool-exploration-toggle");
+    return !group?.classList.contains("running") && toggle?.getAttribute("aria-expanded") === "true";
   }, "smoke-live-read-call");
   if ((await liveReadGroup.locator(".tool-activity-output").count()) !== 0) {
     throw new Error("Successful live tool output remained expanded after completion");
   }
   await liveReadToggle.click();
+  await liveReadGroup.locator(".tool-exploration-body").waitFor({ state: "hidden" });
+  if ((await liveReadToggle.getAttribute("aria-expanded")) !== "false") {
+    throw new Error("A completed tool exploration could not be collapsed manually");
+  }
+  await liveReadToggle.click();
   await liveReadGroup.locator(".tool-exploration-body").waitFor();
   if ((await liveReadToggle.getAttribute("aria-expanded")) !== "true") {
     throw new Error("A completed tool exploration could not be expanded manually");
-  }
-  await liveReadToggle.click();
-  if ((await liveReadToggle.getAttribute("aria-expanded")) !== "false") {
-    throw new Error("A completed tool exploration could not be collapsed manually");
   }
 
   await app.evaluate(({ BrowserWindow }) => {
@@ -801,12 +803,13 @@ try {
           return payload.clientRegistry.clients.includes(expectedName);
         }, clientName);
       }
+      const assignedClientName = `${smokeClientPrefix} Alpha`;
 
       await firstSession.click({ button: "right" });
       const sessionActions = await page
         .locator(".sidebar-context-menu button")
         .evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim()));
-      const expectedActions = ["Assign to client…", "Rename", "Archive", "Delete", "Copy Session ID"];
+      const expectedActions = ["Rename", "Archive", "Copy Session ID", "Delete"];
       if (JSON.stringify(sessionActions) !== JSON.stringify(expectedActions)) {
         throw new Error(`Session actions do not match: ${sessionActions.join(", ")}`);
       }
@@ -845,23 +848,22 @@ try {
       await inlineConfirmation.getByRole("button", { name: "Undo" }).click();
       await inlineConfirmation.waitFor({ state: "detached" });
 
-      await firstSession.click({ button: "right" });
-      await page.getByRole("menuitem", { name: "Assign to client…" }).click();
-      const clientDialog = page.getByRole("dialog", { name: "Assign client" });
-      const clientInput = clientDialog.getByPlaceholder("Enter or search for a client name");
-      await clientInput.fill(smokeClientPrefix);
-      if ((await clientDialog.getByRole("option").count()) !== 2) {
-        throw new Error("Client assignment filtering did not expose both keyboard candidates");
+      const assignmentsBeforeDrag = await page.evaluate(async () => (await window.compass.init()).clientRegistry.assignments);
+      const draggedSessionTitle = (await firstSession.locator(".file-name").textContent())?.trim();
+      const assignedClientGroup = page.locator(".file-tree-item").filter({ hasText: assignedClientName });
+      const assignedClientFolder = assignedClientGroup.locator(":scope > .folder-row");
+      await assignedClientFolder.scrollIntoViewIfNeeded();
+      await firstSession.dragTo(assignedClientFolder);
+      await page.waitForFunction(async ({ expectedName, previousAssignments }) => {
+        const payload = await window.compass.init();
+        return Object.entries(payload.clientRegistry.assignments).some(
+          ([sessionId, clientName]) => clientName === expectedName && previousAssignments[sessionId] !== expectedName,
+        );
+      }, { expectedName: assignedClientName, previousAssignments: assignmentsBeforeDrag });
+      if (draggedSessionTitle) {
+        await assignedClientGroup.locator(".thread-item-shell").filter({ hasText: draggedSessionTitle }).waitFor();
       }
-      const clientBefore = await clientInput.getAttribute("aria-activedescendant");
-      await clientInput.press("ArrowDown");
-      const clientAfter = await clientInput.getAttribute("aria-activedescendant");
-      if (!clientAfter || clientAfter === clientBefore) {
-        throw new Error("ArrowDown did not move the client assignment selection");
-      }
-      await shot("13b-client-keyboard-selection");
-      await clientInput.press("Enter");
-      await clientDialog.waitFor({ state: "detached" });
+      await shot("13b-session-drag-assignment");
 
       await firstSession.click({ button: "right" });
       await page.getByRole("menuitem", { name: "Rename" }).click();
@@ -887,7 +889,6 @@ try {
       }
       await page.keyboard.press("Escape");
 
-      const assignedClientName = `${smokeClientPrefix} Alpha`;
       if (await page.locator(".sidebar").evaluate((element) => element.classList.contains("collapsed"))) {
         await page.locator(".titlebar-sidebar-toggle").click();
       }
@@ -895,7 +896,6 @@ try {
       if ((await clientSectionToggle.getAttribute("aria-expanded")) !== "true") {
         await clientSectionToggle.click();
       }
-      const assignedClientGroup = page.locator(".file-tree-item").filter({ hasText: assignedClientName });
       await assignedClientGroup.scrollIntoViewIfNeeded();
       await assignedClientGroup.hover();
       await assignedClientGroup.locator(".file-action-btn").click();
