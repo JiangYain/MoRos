@@ -1,16 +1,21 @@
 import type { UiApprovalRequest, UiThreadItem } from "@shared/types";
-import { ArrowDown, Box, ChevronRight, CircleEllipsis, FilePenLine, FilePlus2, FileText, Search, SquareTerminal } from "lucide-react";
+import { ArrowDown, Box, ChevronRight, File, FilePenLine, FilePlus2, Search, SquareTerminal, Terminal } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../store";
-import { type TranslationKey, useI18n } from "../i18n";
+import { useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
 import { Markdown } from "./Markdown";
 import {
   groupToolActivities,
+  placeAssistantIdentities,
+  shouldShowToolActivityOutput,
+  stripRedundantCompletionOpener,
   summarizeToolActivity,
+  TOOL_ACTIVITY_COPY,
   type ToolActivity,
   type ToolActivityGroupItem,
+  type ToolExplorationGroupItem,
 } from "./threadCommands";
 import { shouldStickToLatest } from "./thread-scroll";
 
@@ -201,22 +206,21 @@ function AssistantMessage({
   // store module is being replaced. Keep the thread renderable during that
   // hand-off instead of crashing the entire workspace on a missing `blocks`.
   const blocks = Array.isArray(item.blocks) ? item.blocks : [];
-  const lastBlock = blocks[blocks.length - 1];
+  const displayBlocks = blocks
+    .map((block) => block.type === "text" && !item.streaming
+      ? { ...block, text: stripRedundantCompletionOpener(block.text) }
+      : block)
+    .filter((block) => block.type !== "text" || block.text.trim());
+  const lastBlock = displayBlocks[displayBlocks.length - 1];
   const aborted = item.stopReason === "aborted";
-  const copyText = blocks
+  const copyText = displayBlocks
     .filter((block) => block.type === "text")
     .map((block) => block.text)
     .join("\n\n")
     .trim();
   return (
     <motion.div className="msg-assistant" {...entrance}>
-      <div className="who">
-        <span className="dot" />
-        <span className="micro-label" style={{ color: "var(--color-text-secondary)" }}>
-          Compass
-        </span>
-      </div>
-      {blocks.map((block, index) =>
+      {displayBlocks.map((block, index) =>
         block.type === "thinking" ? (
           <ThinkingBlock
             key={index}
@@ -228,7 +232,7 @@ function AssistantMessage({
         ),
       )}
       {item.streaming && (!lastBlock || lastBlock.type === "text") && (
-        <div aria-hidden style={{ marginTop: blocks.length ? -14 : 0 }}>
+        <div aria-hidden style={{ marginTop: displayBlocks.length ? -14 : 0 }}>
           <span className="stream-caret" />
         </div>
       )}
@@ -311,21 +315,13 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
   );
 }
 
-const ACTIVITY_COPY: Record<ToolActivity, { active: TranslationKey; complete: TranslationKey; itemActive: TranslationKey; itemComplete: TranslationKey }> = {
-  command: { active: "thread.activity.command.active", complete: "thread.activity.command.complete", itemActive: "thread.activity.command.itemActive", itemComplete: "thread.activity.command.itemComplete" },
-  read: { active: "thread.activity.read.active", complete: "thread.activity.read.complete", itemActive: "thread.activity.read.itemActive", itemComplete: "thread.activity.read.itemComplete" },
-  write: { active: "thread.activity.write.active", complete: "thread.activity.write.complete", itemActive: "thread.activity.write.itemActive", itemComplete: "thread.activity.write.itemComplete" },
-  edit: { active: "thread.activity.edit.active", complete: "thread.activity.edit.complete", itemActive: "thread.activity.edit.itemActive", itemComplete: "thread.activity.edit.itemComplete" },
-  search: { active: "thread.activity.search.active", complete: "thread.activity.search.complete", itemActive: "thread.activity.search.itemActive", itemComplete: "thread.activity.search.itemComplete" },
-};
-
-function ToolActivityIcon({ activity, size = 15 }: { activity: ToolActivity; size?: number }): React.JSX.Element {
-  const props = { "aria-hidden": true, size, strokeWidth: 1.65 } as const;
+function ToolActivityIcon({ activity, size = 13 }: { activity: ToolActivity; size?: number }): React.JSX.Element {
+  const props = { "aria-hidden": true, size, strokeWidth: 1.55 } as const;
   switch (activity) {
     case "command":
-      return <SquareTerminal {...props} />;
+      return <Terminal {...props} />;
     case "read":
-      return <FileText {...props} />;
+      return <File {...props} />;
     case "write":
       return <FilePlus2 {...props} />;
     case "edit":
@@ -335,11 +331,58 @@ function ToolActivityIcon({ activity, size = 15 }: { activity: ToolActivity; siz
   }
 }
 
-function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.JSX.Element {
+function ToolActivityEntry({
+  activity,
+  item,
+}: {
+  activity: ToolActivity;
+  item: ToolActivityGroupItem["items"][number];
+}): React.JSX.Element {
   const { t } = useI18n();
+  const copy = TOOL_ACTIVITY_COPY[activity];
+  const summary = summarizeToolActivity(item);
+  const state = item.running ? copy.itemActive : item.isError ? "Failed" : copy.itemComplete;
+  const showOutput = shouldShowToolActivityOutput(activity, item);
+
+  return (
+    <li
+      className={`tool-activity-entry${item.running ? " running" : ""}${item.isError ? " error" : ""}`}
+      data-tool-activity-item={activity}
+      data-tool-call-id={item.callId}
+      data-tool-name={item.name}
+      title={summary}
+    >
+      <div className="tool-activity-row">
+        <ToolActivityIcon activity={activity} />
+        <span className="tool-activity-state">{state}</span>
+        <span className="tool-activity-summary">{summary}</span>
+        {item.running && <span className="tool-activity-running-dot" aria-hidden />}
+      </div>
+      {showOutput && (
+        <div className="tool-activity-output-shell">
+          <CopyButton className="tool-copy-button" label={t("thread.copyToolOutput")} text={item.output} />
+          <pre className={`tool-activity-output${item.isError ? " error" : ""}`}>{item.output}</pre>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function AssistantIdentity(): React.JSX.Element {
+  return (
+    <motion.div className="assistant-identity" {...entrance}>
+      <span className="dot" />
+      <span className="micro-label" style={{ color: "var(--color-text-secondary)" }}>
+        Compass
+      </span>
+    </motion.div>
+  );
+}
+
+function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.JSX.Element {
   const running = group.items.some((item) => item.running);
   const [open, setOpen] = useState(running);
-  const copy = ACTIVITY_COPY[group.activity];
+  const copy = TOOL_ACTIVITY_COPY[group.activity];
 
   useEffect(() => {
     if (running) setOpen(true);
@@ -359,7 +402,7 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
         onClick={() => setOpen((value) => !value)}
       >
         <ToolActivityIcon activity={group.activity} />
-        <span>{t(running ? copy.active : copy.complete)}</span>
+        <span>{running ? copy.active : copy.complete}</span>
         <ChevronRight
           aria-hidden
           className={`tool-activity-chevron${open ? " open" : ""}`}
@@ -377,38 +420,81 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
           >
             <ul className="tool-activity-list">
-              {group.items.map((item) => {
-                const summary = summarizeToolActivity(item);
-                const state = item.running ? t(copy.itemActive) : item.isError ? t("thread.failed") : t(copy.itemComplete);
-                const showOutput = group.activity !== "command" && Boolean(item.output || item.running);
-                return (
-                  <li
-                    key={item.id}
-                    className={`tool-activity-entry${item.running ? " running" : ""}${item.isError ? " error" : ""}`}
-                    data-tool-call-id={item.callId}
-                    data-tool-name={item.name}
-                    title={summary}
-                  >
-                    <div className="tool-activity-row">
-                      <ToolActivityIcon activity={group.activity} size={14} />
-                      <span className="tool-activity-state">{state}</span>
-                      <span className="tool-activity-summary">{summary}</span>
-                      {item.running && <span className="tool-activity-running-dot" aria-hidden />}
-                    </div>
-                    {showOutput && (
-                      <div className="tool-activity-output-shell">
-                        {item.output && (
-                          <CopyButton className="tool-copy-button" label={t("thread.copyToolOutput")} text={item.output} />
-                        )}
-                        <pre className={`tool-activity-output${item.isError ? " error" : ""}`}>
-                          {item.output || t("thread.waitingOutput")}
-                        </pre>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
+              {group.items.map((item) => (
+                <ToolActivityEntry key={item.id} activity={group.activity} item={item} />
+              ))}
             </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.section>
+  );
+}
+
+function SingleToolActivity({ group }: { group: ToolActivityGroupItem }): React.JSX.Element {
+  const item = group.items[0];
+  if (!item) return <></>;
+
+  return (
+    <div className="tool-activity-single" data-tool-activity={group.activity}>
+      <ul className="tool-activity-list tool-activity-list-single">
+        <ToolActivityEntry activity={group.activity} item={item} />
+      </ul>
+    </div>
+  );
+}
+
+function ToolExplorationGroup({ exploration }: { exploration: ToolExplorationGroupItem }): React.JSX.Element {
+  const running = exploration.groups.some((group) => group.items.some((item) => item.running));
+  const [open, setOpen] = useState(running);
+  const wasRunning = useRef(running);
+
+  useEffect(() => {
+    if (running) {
+      setOpen(true);
+    } else if (wasRunning.current) {
+      setOpen(false);
+    }
+    wasRunning.current = running;
+  }, [exploration.groups.length, running]);
+
+  return (
+    <motion.section
+      className={`tool-exploration${running ? " running" : ""}`}
+      data-tool-exploration="true"
+      data-tool-call-ids={exploration.groups.flatMap((group) => group.items.map((item) => item.callId)).join(" ")}
+      {...entrance}
+    >
+      <button
+        type="button"
+        className="tool-exploration-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="tool-exploration-label">Exploring</span>
+        <ChevronRight
+          aria-hidden
+          className={`tool-exploration-chevron${open ? " open" : ""}`}
+          size={14}
+          strokeWidth={1.65}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            className="tool-exploration-body-clip"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="tool-exploration-body">
+              {exploration.groups.map((group) => (
+                group.items.length === 1
+                  ? <SingleToolActivity key={group.id} group={group} />
+                  : <ToolActivityGroup key={group.id} group={group} />
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -466,7 +552,7 @@ export function Thread(): React.JSX.Element {
   const thread = useCompass((s) => s.thread) ?? [];
   const approvals = useCompass((s) => s.approvals) ?? [];
   const sessionId = useCompass((s) => s.stats?.sessionId);
-  const renderItems = useMemo(() => groupToolActivities(thread), [thread]);
+  const renderItems = useMemo(() => placeAssistantIdentities(groupToolActivities(thread)), [thread]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -510,10 +596,12 @@ export function Thread(): React.JSX.Element {
                 return <UserMessage key={item.id} item={item} />;
               case "assistant":
                 return <AssistantMessage key={item.id} item={item} />;
+              case "assistant-identity":
+                return <AssistantIdentity key={item.id} />;
               case "tool":
                 return <ToolCard key={item.id} item={item} />;
-              case "tool-activity-group":
-                return <ToolActivityGroup key={item.id} group={item} />;
+              case "tool-exploration-group":
+                return <ToolExplorationGroup key={item.id} exploration={item} />;
               case "notice":
                 return (
                   <div key={item.id} className={`notice-row${item.tone === "warn" ? " warn" : ""}`}>

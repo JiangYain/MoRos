@@ -1,5 +1,4 @@
 import { Folder, X } from "lucide-react";
-import { useState } from "react";
 import { api } from "../../ipc";
 import { type TranslationKey, useI18n } from "../../i18n";
 import { useCompass } from "../../store";
@@ -38,7 +37,6 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
   const { t } = useI18n();
   const settings = useCompass((state) => state.settings);
   const stats = useCompass((state) => state.stats);
-  const [reportOpen, setReportOpen] = useState(true);
   const rawPercent = stats?.contextPercent;
   const contextPercent = Math.min(100, Math.max(0, rawPercent ?? 0));
   const contextKnown = rawPercent !== null && rawPercent !== undefined;
@@ -61,6 +59,23 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
   const displayTokens = contextTokens > 0
     ? contextTokens
     : rows.reduce((total, segment) => total + segment.tokens, 0);
+  const breakdownTokens = rows.reduce((total, segment) => total + segment.tokens, 0);
+  const ringScale = contextWindow > 0
+    ? 100 / contextWindow
+    : breakdownTokens > 0
+      ? contextPercent / breakdownTokens
+      : 0;
+  let ringOffset = 0;
+  const ringSegments = rows.flatMap((segment) => {
+    const length = Math.min(Math.max(segment.tokens * ringScale, 0), 100 - ringOffset);
+    if (length <= 0) return [];
+    const ringSegment = { ...segment, length, offset: ringOffset };
+    ringOffset += length;
+    return [ringSegment];
+  });
+  const ringLabel = contextKnown
+    ? t("composer.contextUsedPercent", { percent: Math.round(contextPercent) })
+    : t("composer.contextUnknown");
 
   return (
     <div className={`workspace-context-shell${expanded ? " expanded" : ""}`}>
@@ -71,45 +86,52 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
               <div className="context-usage-head">
                 <span>{t("composer.contextUsage")}</span>
                 <div>
-                  <button
-                    type="button"
-                    className="context-report-toggle"
-                    aria-expanded={reportOpen}
-                    onClick={() => setReportOpen((current) => !current)}
-                  >
-                    {breakdown.estimated ? t("composer.estimatedBreakdown") : t("composer.viewReport")}
-                  </button>
                   <button type="button" className="context-close" aria-label={t("composer.closeContext")} onClick={onClose}>
                     <X size={14} strokeWidth={1.55} />
                   </button>
                 </div>
               </div>
-              <div className="context-usage-meta">
-                <span>{contextKnown ? t("composer.contextFull", { percent: Math.round(contextPercent) }) : t("composer.contextNoPercent")}</span>
-                <span>{formatCount(displayTokens)} / {formatCount(contextWindow)} {t("composer.tokens")}</span>
-              </div>
-              <div className="context-usage-meter" aria-hidden="true">
-                {rows.filter((segment) => segment.tokens > 0).map((segment) => (
-                  <span
-                    key={segment.key}
-                    style={{
-                      backgroundColor: segment.color,
-                      flexBasis: `${contextWindow > 0 ? (segment.tokens / contextWindow) * 100 : 0}%`,
-                    }}
-                  />
-                ))}
-              </div>
-              {reportOpen && (
-                <div className="context-usage-list">
-                  {rows.map((segment) => (
-                    <div className="context-usage-row" key={segment.key}>
-                      <span className="context-usage-swatch" style={{ backgroundColor: segment.color }} />
-                      <span>{t(segment.labelKey as TranslationKey)}</span>
-                      <b>{formatCount(segment.tokens, breakdown.estimated)}</b>
-                    </div>
-                  ))}
+              <div className="context-usage-content">
+                <div className="context-usage-details">
+                  <div className="context-usage-meta">
+                    <span>{contextKnown ? t("composer.contextFull", { percent: Math.round(contextPercent) }) : t("composer.contextNoPercent")}</span>
+                    <span>{formatCount(displayTokens)} / {formatCount(contextWindow)} {t("composer.tokens")}</span>
+                  </div>
+                  <div className="context-usage-list">
+                    {rows.map((segment) => (
+                      <div className="context-usage-row" key={segment.key}>
+                        <span className="context-usage-swatch" style={{ backgroundColor: segment.color }} />
+                        <span>{t(segment.labelKey as TranslationKey)}</span>
+                        <b>{formatCount(segment.tokens, breakdown.estimated)}</b>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
+                <div className="context-usage-visual" role="img" aria-label={ringLabel}>
+                  <div className="context-usage-ring-shell">
+                    <svg className="context-usage-ring" viewBox="0 0 100 100" aria-hidden="true">
+                      <circle className="context-usage-ring-track" cx="50" cy="50" r="40" />
+                      {ringSegments.map((segment) => (
+                        <circle
+                          className="context-usage-ring-segment"
+                          key={segment.key}
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          pathLength="100"
+                          stroke={segment.color}
+                          strokeDasharray={`${segment.length} ${100 - segment.length}`}
+                          strokeDashoffset={-segment.offset}
+                        />
+                      ))}
+                    </svg>
+                    <div className="context-usage-ring-value" aria-hidden="true">
+                      <strong>{contextKnown ? `${Math.round(contextPercent)}%` : "—"}</strong>
+                      <span>{formatCount(displayTokens)} {t("composer.tokens")}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
         )}

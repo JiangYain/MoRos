@@ -1,12 +1,53 @@
 param(
-  [string]$TargetPath = "C:\Program Files (x86)\Phonak\Phonak Target [Internal] 12.0.0.3627 (Alpha 0) master (2)\Target.exe",
+  [string]$TargetPath,
+  [string]$SearchRoot = "${env:ProgramFiles(x86)}\Phonak",
   [int]$TimeoutSeconds = 45
 )
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Test-Path -LiteralPath $TargetPath)) {
-  throw "Target.exe not found: $TargetPath"
+function Resolve-TargetExecutable {
+  param(
+    [string]$ExplicitPath,
+    [string]$Root
+  )
+
+  if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
+    if (-not (Test-Path -LiteralPath $ExplicitPath -PathType Leaf)) {
+      throw "Target.exe not found at the explicit path: $ExplicitPath"
+    }
+
+    $resolvedExplicitPath = (Get-Item -LiteralPath $ExplicitPath).FullName
+    return [pscustomobject]@{
+      Path = $resolvedExplicitPath
+      Source = "ExplicitPath"
+      CandidateCount = 1
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root -PathType Container)) {
+    throw "Phonak search root not found: $Root. Pass -TargetPath with the full path to Target.exe."
+  }
+
+  $candidates = @(
+    Get-ChildItem -LiteralPath $Root -Filter "Target.exe" -File -Recurse -Force -ErrorAction SilentlyContinue |
+      Sort-Object -Property FullName
+  )
+
+  if ($candidates.Count -eq 0) {
+    throw "Target.exe was not found under: $Root. Pass -TargetPath with the full path to Target.exe."
+  }
+
+  if ($candidates.Count -gt 1) {
+    $candidateText = ($candidates.FullName | ForEach-Object { "- $_" }) -join "`n"
+    Write-Warning "Multiple Target.exe files were found. Selecting the first path in sorted order:`n$candidateText"
+  }
+
+  return [pscustomobject]@{
+    Path = $candidates[0].FullName
+    Source = "AutoDiscovery"
+    CandidateCount = $candidates.Count
+  }
 }
 
 function Get-TargetMainWindow {
@@ -19,8 +60,10 @@ function Get-TargetMainWindow {
 }
 
 $targetProcess = Get-TargetMainWindow
+$selection = $null
 if (-not $targetProcess) {
-  [void](Start-Process -FilePath $TargetPath -PassThru)
+  $selection = Resolve-TargetExecutable -ExplicitPath $TargetPath -Root $SearchRoot
+  [void](Start-Process -FilePath $selection.Path -PassThru)
 }
 
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -48,4 +91,7 @@ if (-not $targetProcess) {
   ProcessName = $targetProcess.ProcessName
   MainWindowTitle = $targetProcess.MainWindowTitle
   Path = $targetProcess.Path
+  SelectedTargetPath = if ($selection) { $selection.Path } else { $targetProcess.Path }
+  SelectionSource = if ($selection) { $selection.Source } else { "ExistingProcess" }
+  CandidateCount = if ($selection) { $selection.CandidateCount } else { 0 }
 } | Format-List

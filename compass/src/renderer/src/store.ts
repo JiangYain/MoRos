@@ -27,7 +27,7 @@ import { create } from "zustand";
 import { api } from "./ipc";
 import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
 
-export type SettingsSection = "general" | "profile" | "models" | "skills";
+export type SettingsSection = "general" | "appearance" | "profile" | "models" | "skills";
 
 interface StreamingAssistant {
   id: string;

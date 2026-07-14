@@ -152,25 +152,35 @@
   gap: 0.8rem;
 }
 
-.msg-assistant .who {
+.assistant-identity {
   display: flex;
   align-items: center;
   gap: 0.55rem;
 }
 
-.msg-assistant .who .dot {
+.assistant-identity .dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--color-accent);
 }
 
+.assistant-identity + .msg-assistant,
+.assistant-identity + .tool-exploration,
+.assistant-identity + .tool-card {
+  margin-top: -1.1rem;
+}
+
 .assistant-body {
   font-size: 13.5px;
   color: var(--color-text-secondary);
-  line-height: 1.75;
+  line-height: 1.64;
   user-select: text;
   cursor: text;
+}
+
+.tool-exploration + .msg-assistant {
+  margin-top: -1.4rem;
 }
 
 .copy-button {
@@ -461,6 +471,105 @@
 }
 
 /* ---------------- unified tool activity groups */
+.tool-exploration {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.tool-exploration-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.2rem 0;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-align: left;
+  transition: color 0.14s var(--ease-out-power3);
+}
+
+.tool-exploration-toggle:hover,
+.tool-exploration.running .tool-exploration-toggle {
+  color: var(--color-text-primary);
+}
+
+.tool-exploration-label {
+  color: inherit;
+}
+
+.tool-exploration.running .tool-exploration-label {
+  color: transparent;
+  background-image: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 0%,
+    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 42%,
+    color-mix(in srgb, var(--color-accent) 48%, var(--color-on-accent)) 48%,
+    var(--color-accent) 50%,
+    color-mix(in srgb, var(--color-accent) 48%, var(--color-on-accent)) 52%,
+    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 58%,
+    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 100%
+  );
+  background-position: 145% 50%;
+  background-size: 260% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: exploration-shimmer 2.6s ease-in-out infinite;
+}
+
+.tool-exploration.running .tool-exploration-chevron {
+  color: color-mix(in srgb, var(--color-accent) 68%, var(--color-text-tertiary));
+}
+
+@keyframes exploration-shimmer {
+  0% {
+    background-position: 145% 50%;
+  }
+  72%,
+  100% {
+    background-position: -105% 50%;
+  }
+}
+
+.tool-exploration-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  transition: transform 0.22s var(--ease-out-power3);
+}
+
+.tool-exploration-chevron.open {
+  transform: rotate(90deg);
+}
+
+.tool-exploration-body-clip {
+  width: 100%;
+  overflow: hidden;
+}
+
+.tool-exploration-body {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.12rem;
+  margin: 0.34rem 0 0;
+  padding: 0 0 0 1.55rem;
+}
+
+.tool-exploration-body > .tool-activity-group {
+  width: 100%;
+}
+
+.tool-activity-single {
+  min-width: 0;
+}
+
+.tool-activity-list.tool-activity-list-single {
+  margin: 0;
+  padding: 0;
+}
+
 .tool-activity-group {
   display: flex;
   min-width: 0;
@@ -475,7 +584,7 @@
   min-width: 0;
   padding: 0.2rem 0;
   color: var(--color-text-secondary);
-  font-size: 12.5px;
+  font-size: 11.5px;
   line-height: 1.35;
   text-align: left;
   transition: color 0.14s var(--ease-out-power3);
@@ -543,8 +652,10 @@
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: -0.006em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -922,8 +1033,36 @@
   margin-bottom: 0.35rem;
 }
 
+.msg-assistant .md p {
+  margin-bottom: 0.65rem;
+}
+
+.msg-assistant .md h1,
+.msg-assistant .md h2,
+.msg-assistant .md h3,
+.msg-assistant .md h4 {
+  margin: 1.05rem 0 0.5rem;
+}
+
+.msg-assistant .md ul,
+.msg-assistant .md ol {
+  margin-bottom: 0.65rem;
+}
+
+.msg-assistant .md li {
+  margin-bottom: 0.2rem;
+}
+
 .md li::marker {
   color: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-exploration.running .tool-exploration-label {
+    color: var(--color-accent);
+    background: none;
+    animation: none;
+  }
 }
 
 .md a {

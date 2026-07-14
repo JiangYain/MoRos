@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ClientRegistry } from "../src/shared/client-registry.ts";
-import { buildClientContext, buildLanguageContext } from "../src/main/compass-context.ts";
+import { buildClientContext, buildLanguageContext, COMPASS_CONTEXT } from "../src/main/compass-context.ts";
 
 test("buildClientContext follows the persisted session assignment", () => {
   const registry: ClientRegistry = {
@@ -36,4 +36,9 @@ test("buildLanguageContext follows the selected interface language", () => {
   assert.match(buildLanguageContext("zh-TW"), /繁體中文/);
   assert.match(buildLanguageContext("en"), /respond in English/);
   assert.match(buildLanguageContext("de"), /auf Deutsch/);
+});
+
+test("Compass avoids canned completion openers after tool work", () => {
+  assert.match(COMPASS_CONTEXT, /空泛开场/);
+  assert.match(COMPASS_CONTEXT, /Done — both actions were completed\./);
 });

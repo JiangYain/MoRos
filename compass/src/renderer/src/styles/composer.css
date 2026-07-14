@@ -199,16 +199,6 @@
   gap: 10px;
 }
 
-.context-report-toggle {
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  transition: color 0.12s var(--ease-out-power3);
-}
-
-.context-report-toggle:hover {
-  color: var(--color-text-primary);
-}
-
 .context-close {
   width: 22px;
   height: 22px;
@@ -225,26 +215,80 @@
 
 .context-usage-meta {
   justify-content: space-between;
-  margin-top: 5px;
   color: var(--color-text-secondary);
   font-size: 10.5px;
 }
 
-.context-usage-meter {
-  width: 100%;
-  height: 5px;
+.context-usage-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 178px;
+  gap: 18px;
   margin-top: 6px;
-  border-radius: var(--border-radius-pill);
-  background: var(--color-border-strong);
-  display: flex;
-  gap: 2px;
-  overflow: hidden;
 }
 
-.context-usage-meter > span {
+.context-usage-details {
+  min-width: 0;
+}
+
+.context-usage-visual {
+  min-height: 166px;
+  display: grid;
+  place-items: center;
+  padding-left: 18px;
+  border-left: 0.5px solid var(--color-border-subtle);
+}
+
+.context-usage-ring-shell {
+  position: relative;
+  width: 138px;
+  height: 138px;
+}
+
+.context-usage-ring {
+  display: block;
+  width: 100%;
   height: 100%;
-  flex-grow: 0;
-  flex-shrink: 0;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.context-usage-ring-track,
+.context-usage-ring-segment {
+  fill: none;
+  stroke-width: 8.5;
+}
+
+.context-usage-ring-track {
+  stroke: var(--color-border-subtle);
+}
+
+.context-usage-ring-segment {
+  transition: stroke-dasharray 0.24s var(--ease-out-power3), stroke-dashoffset 0.24s var(--ease-out-power3);
+}
+
+.context-usage-ring-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.context-usage-ring-value strong {
+  color: var(--color-text-primary);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.context-usage-ring-value span {
+  font-size: 9.5px;
+  line-height: 1.2;
 }
 
 .context-usage-list {
@@ -1065,6 +1109,30 @@
 
   .context-usage-inner {
     padding-inline: 13px;
+  }
+
+  .context-usage-content {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 10px;
+  }
+
+  .context-usage-visual {
+    min-height: 130px;
+    padding-left: 10px;
+  }
+
+  .context-usage-ring-shell {
+    width: 96px;
+    height: 96px;
+  }
+
+  .context-usage-ring-value strong {
+    font-size: 15px;
+  }
+
+  .context-usage-ring-value span {
+    max-width: 68px;
+    font-size: 8.5px;
   }
 }
 

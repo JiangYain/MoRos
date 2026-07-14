@@ -95,7 +95,7 @@ const zhCN = {
   "settings.search": "搜索设置",
   "settings.navigation": "设置导航",
   "settings.nav.general": "通用",
-  "settings.nav.generalDescription": "工作区、外观与权限",
+  "settings.nav.generalDescription": "语言、工作区与权限",
   "settings.nav.profile": "个人资料",
   "settings.nav.profileDescription": "身份与本地活动",
   "settings.nav.models": "Provider 与模型",
@@ -342,6 +342,7 @@ const zhCN = {
   "hero.prompt1": "打开 Phonak Target，等待主窗口就绪并完成桌面布局",
   "hero.prompt2": "为顾客录入双耳听力图：右耳 250=40 500=45 1k=50 2k=60 4k=70，左耳形态相近",
   "hero.prompt3": "顾客反馈「自己说话像在瓮里、环境声太吵」，请给出可解释的调参建议",
+  "thread.activity.exploring": "Exploring",
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
@@ -383,7 +384,7 @@ Object.assign(zhTW, {
   "titlebar.skills": "技能", "titlebar.about": "關於 Compass", "titlebar.profile": "個人資料",
   "titlebar.minimize": "最小化", "titlebar.maximize": "最大化",
   "settings.search": "搜尋設定", "settings.navigation": "設定導覽",
-  "settings.nav.general": "一般", "settings.nav.generalDescription": "工作區、外觀與權限",
+  "settings.nav.general": "一般", "settings.nav.generalDescription": "語言、工作區與權限",
   "settings.nav.profile": "個人資料", "settings.nav.profileDescription": "身分與本機活動",
   "settings.nav.models": "Provider 與模型", "settings.nav.modelsDescription": "Provider 存取與模型選擇",
   "settings.nav.skills": "技能", "settings.nav.skillsDescription": "Agent 能力",
@@ -438,6 +439,7 @@ Object.assign(zhTW, {
 
 const en: Dictionary = Object.fromEntries(Object.keys(zhCN).map((key) => [key, key])) as Dictionary;
 Object.assign(en, {
+  "thread.activity.exploring": "Exploring",
   "common.back": "Back", "common.cancel": "Cancel", "common.close": "Close", "common.change": "Change",
   "common.save": "Save", "common.saving": "Saving…", "common.remove": "Remove", "common.add": "Add", "common.open": "Open",
   "common.insert": "Insert", "common.refresh": "Refresh", "common.copy": "Copy", "common.copied": "Copied",
@@ -467,7 +469,7 @@ Object.assign(en, {
   "sidebar.rename": "Rename", "sidebar.archive": "Archive", "sidebar.delete": "Delete", "sidebar.copySessionId": "Copy Session ID",
   "sidebar.resize": "Resize sidebar", "sidebar.renameEmpty": "Conversation name cannot be empty.", "sidebar.copyIdFailed": "Could not copy the Session ID",
   "settings.search": "Search settings", "settings.navigation": "Settings navigation", "settings.nav.general": "General",
-  "settings.nav.generalDescription": "Workspace, appearance, and permissions", "settings.nav.profile": "Profile",
+  "settings.nav.generalDescription": "Language, workspace, and permissions", "settings.nav.profile": "Profile",
   "settings.nav.profileDescription": "Identity and local activity", "settings.nav.models": "Provider & Model",
   "settings.nav.modelsDescription": "Provider access and model selection", "settings.nav.skills": "Skills",
   "settings.nav.skillsDescription": "Agent capabilities", "settings.preferences": "Compass preferences", "settings.general": "General",
@@ -589,7 +591,7 @@ Object.assign(de, {
   "sidebar.rename": "Umbenennen", "sidebar.archive": "Archivieren", "sidebar.delete": "Löschen", "sidebar.copySessionId": "Session-ID kopieren",
   "sidebar.resize": "Seitenleiste skalieren", "sidebar.renameEmpty": "Der Name der Unterhaltung darf nicht leer sein.",
   "sidebar.copyIdFailed": "Session-ID konnte nicht kopiert werden", "settings.search": "Einstellungen durchsuchen",
-  "settings.navigation": "Einstellungsnavigation", "settings.nav.general": "Allgemein", "settings.nav.generalDescription": "Arbeitsbereich, Darstellung und Berechtigungen",
+  "settings.navigation": "Einstellungsnavigation", "settings.nav.general": "Allgemein", "settings.nav.generalDescription": "Sprache, Arbeitsbereich und Berechtigungen",
   "settings.nav.profile": "Profil", "settings.nav.profileDescription": "Identität und lokale Aktivität", "settings.nav.models": "Provider & Modell",
   "settings.nav.modelsDescription": "Provider-Zugriff und Modellauswahl", "settings.nav.skills": "Skills", "settings.nav.skillsDescription": "Agent-Funktionen",
   "settings.preferences": "Compass-Einstellungen", "settings.general": "Allgemein",

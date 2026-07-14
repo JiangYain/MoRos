@@ -28,13 +28,13 @@ description: "用于准备和控制 Phonak Target 的行动指南，面向 CLI �
 在 PowerShell 中依次运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\open-target.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\phonak-target-control\scripts\open-target.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\arrange-compass-target.ps1"
 ```
 
 预期结果：
 
-- `open-target.ps1` 输出 `Ready`，并显示 Target 进程 ID 与主窗口标题。
+- `open-target.ps1` 输出 `Ready`、Target 进程 ID、主窗口标题、最终选择的可执行文件路径与选择来源。
 - `arrange-compass-target.ps1` 输出 `AppliedLayoutRatio=Compass=25.4% Target=74.6%` 附近的比例、`CompassMoveOk=True`、`TargetMoveOk=True`、`CompassWidthOk=True`、`TargetLeftOk=True`、`SeamOk=True`、`OverlapWithinTolerance=True`，并打印两个窗口的 `*WindowRect` 与 `*VisualRect`。脚本会用 DWM 可见边界补偿 Windows frameless resize 边界，让 Compass 肉眼可见左边界贴到工作区左侧，并让 Target 对 seam 做很小的受控覆盖；随后短暂提升两个窗口到前台层级后恢复普通窗口，不会保留置顶。
 
 ## 快速语言切换
@@ -182,18 +182,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 优先运行内置脚本：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\phonak-target-control\scripts\open-target.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\phonak-target-control\scripts\open-target.ps1"
 ```
 
-默认可执行文件路径：
+默认搜索根目录：
 
 ```text
-C:\Program Files (x86)\Phonak\Phonak Target [Internal] 12.0.0.3627 (Alpha 0) master (2)\Target.exe
+C:\Program Files (x86)\Phonak
 ```
 
 执行要求：
 
-- 除非用户明确提供其他路径，否则使用上面的精确路径。
+- 需要启动 Target 且显式传入 `-TargetPath` 时，优先使用并验证该路径；已有可用主窗口时直接复用现有进程。
+- 未传入 `-TargetPath` 时，在 `-SearchRoot` 下递归查找 `Target.exe`；候选按完整路径排序，存在多个时选择第一个并输出告警。`-SearchRoot` 默认指向上面的 Phonak 安装根目录。
 - 不使用开始菜单，也不使用 Windows Run 对话框。
 - 仅在当前没有可用的 `Phonak Target 12.0` 主窗口时，才用 `Start-Process` 启动 Target。
 - 启动后轮询等待可见的 Target 主窗口出现。
@@ -202,7 +203,7 @@ C:\Program Files (x86)\Phonak\Phonak Target [Internal] 12.0.0.3627 (Alpha 0) mas
 给其他 Agent 的极简提示：
 
 ```text
-用 PowerShell 启动 "C:\Program Files (x86)\Phonak\Phonak Target [Internal] 12.0.0.3627 (Alpha 0) master (2)\Target.exe"，然后等待主窗口标题 "Phonak Target 12.0" 出现。
+运行 open-target.ps1；让脚本从 Phonak 安装根目录自动发现 Target.exe，然后等待主窗口标题 "Phonak Target 12.0" 出现。
 ```
 
 ## 操作 2：按当前验证比例排列 Compass 和 Target
@@ -469,7 +470,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\chord\Desktop\FAI\
 
 ## 失败处理
 
-- 如果 Target 可执行文件路径不存在，向用户询问当前安装的 `Target.exe` 路径。
+- 如果默认搜索根目录不存在或其中没有 `Target.exe`，报告脚本输出的搜索根目录；需要时再让用户通过 `-TargetPath` 提供完整路径。
 - 如果 Target 已启动但超时前没有出现 `Phonak Target 12.0` 标题，列出正在运行的 `Target` 进程及其窗口标题。
 - 如果 Compass 没有主窗口句柄，要求用户先让 Compass 桌面应用保持可见。
 - 如果窗口移动返回 `False`，报告 `GetLastWin32Error` 返回的 Win32 错误码。

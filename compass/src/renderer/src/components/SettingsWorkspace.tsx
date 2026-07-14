@@ -44,15 +44,13 @@ import {
   EyeOff,
   FolderOpen,
   KeyRound,
-  Monitor,
-  Moon,
+  Palette,
   Puzzle,
   RotateCw,
   Search,
   Settings2,
   ShieldCheck,
   Sparkles,
-  Sun,
   Terminal,
   Trash2,
   UserRound,
@@ -72,21 +70,17 @@ import { Toggle } from "./ui/Toggle";
 const NAV_ITEMS: Array<{
   id: SettingsSection;
   icon: typeof Settings2;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
 }> = [
-  { id: "general", icon: Settings2 },
-  { id: "profile", icon: UserRound },
-  { id: "models", icon: Box },
-  { id: "skills", icon: Puzzle },
+  { id: "general", icon: Settings2, labelKey: "settings.nav.general", descriptionKey: "settings.nav.generalDescription" },
+  { id: "appearance", icon: Palette, labelKey: "settings.appearance", descriptionKey: "settings.colorTheme" },
+  { id: "profile", icon: UserRound, labelKey: "settings.nav.profile", descriptionKey: "settings.nav.profileDescription" },
+  { id: "models", icon: Box, labelKey: "settings.nav.models", descriptionKey: "settings.nav.modelsDescription" },
+  { id: "skills", icon: Puzzle, labelKey: "settings.nav.skills", descriptionKey: "settings.nav.skillsDescription" },
 ];
 
-const THEME_OPTIONS: Array<{
-  id: ThemePreference;
-  icon: typeof Sun;
-}> = [
-  { id: "system", icon: Monitor },
-  { id: "light", icon: Sun },
-  { id: "dark", icon: Moon },
-];
+const THEME_OPTIONS: ThemePreference[] = ["system", "light", "dark"];
 
 function ModelBrandIcon({ model, provider, size = 19 }: { model: string; provider: string; size?: number }): React.JSX.Element {
   const identity = `${model} ${provider}`.toLowerCase();
@@ -213,7 +207,6 @@ function GeneralSettings(): React.JSX.Element {
   const setPermissionMode = useCompass((state) => state.setPermissionMode);
   const setLanguage = useCompass((state) => state.setLanguage);
   const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
-  const [theme, setTheme] = useThemePreference();
 
   return (
     <div className="settings-page">
@@ -242,34 +235,6 @@ function GeneralSettings(): React.JSX.Element {
               {language === option && <Check size={14} strokeWidth={1.7} />}
             </button>
           ))}
-        </div>
-      </section>
-
-      <section className="settings-section-block settings-appearance-block">
-        <div className="settings-section-title">
-          <div><h2>{t("settings.appearance")}</h2><p>{t("settings.appearanceDescription")}</p></div>
-        </div>
-        <div className="settings-theme-options" role="radiogroup" aria-label={t("settings.colorTheme")}>
-          {THEME_OPTIONS.map((option) => {
-            const Icon = option.icon;
-            return (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={theme === option.id}
-                className={theme === option.id ? "selected" : ""}
-                key={option.id}
-                onClick={() => setTheme(option.id)}
-              >
-                <Icon size={15} strokeWidth={1.55} />
-                <span>
-                  <strong>{t(`settings.theme.${option.id}` as TranslationKey)}</strong>
-                  <small>{t(`settings.theme.${option.id}Description` as TranslationKey)}</small>
-                </span>
-                {theme === option.id && <Check size={14} strokeWidth={1.7} />}
-              </button>
-            );
-          })}
         </div>
       </section>
 
@@ -323,6 +288,82 @@ function GeneralSettings(): React.JSX.Element {
       </section>
 
       <div className="settings-version">Compass {version || "0.1.0"}</div>
+    </div>
+  );
+}
+
+function ThemePreviewScene({ tone }: { tone: "light" | "dark" }): React.JSX.Element {
+  return (
+    <div className={`appearance-preview-scene appearance-preview-scene-${tone}`}>
+      <div className="appearance-preview-titlebar"><i /><i /></div>
+      <div className="appearance-preview-sidebar">
+        <span className="active" />
+        <span />
+        <span />
+      </div>
+      <div className="appearance-preview-content">
+        <span className="appearance-preview-heading" />
+        <span className="appearance-preview-copy wide" />
+        <span className="appearance-preview-copy" />
+        <span className="appearance-preview-copy short" />
+        <div className="appearance-preview-composer"><i /><i /></div>
+      </div>
+    </div>
+  );
+}
+
+function ThemePreview({ theme }: { theme: ThemePreference }): React.JSX.Element {
+  return (
+    <div className={`appearance-theme-preview appearance-theme-preview-${theme}`} aria-hidden="true">
+      <ThemePreviewScene tone="light" />
+      <ThemePreviewScene tone="dark" />
+    </div>
+  );
+}
+
+function AppearanceSettings(): React.JSX.Element {
+  const { t } = useI18n();
+  const [theme, setTheme] = useThemePreference();
+
+  return (
+    <div className="settings-page settings-appearance-page">
+      <header className="settings-page-head">
+        <span className="settings-eyebrow">{t("settings.preferences")}</span>
+        <h1>{t("settings.appearance")}</h1>
+        <p>{t("settings.appearanceDescription")}</p>
+      </header>
+
+      <section className="settings-section-block appearance-theme-section">
+        <div className="settings-section-title">
+          <div><h2>{t("settings.colorTheme")}</h2></div>
+        </div>
+        <div className="appearance-theme-grid" role="radiogroup" aria-label={t("settings.colorTheme")}>
+          {THEME_OPTIONS.map((option) => {
+            const selected = theme === option;
+            return (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={`appearance-theme-card${selected ? " selected" : ""}`}
+                key={option}
+                onClick={() => setTheme(option)}
+              >
+                <ThemePreview theme={option} />
+                <span className="appearance-theme-card-copy">
+                  <span>
+                    <strong>{t(`settings.theme.${option}` as TranslationKey)}</strong>
+                    <small>{t(`settings.theme.${option}Description` as TranslationKey)}</small>
+                  </span>
+                  <span className="appearance-theme-check" aria-hidden="true">
+                    {selected && <Check size={12} strokeWidth={2} />}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
@@ -872,8 +913,8 @@ export function SettingsWorkspace(): React.JSX.Element {
               >
                 <Icon size={15} strokeWidth={1.55} />
                 <span>
-                  <strong>{t(`settings.nav.${item.id}` as TranslationKey)}</strong>
-                  <small>{t(`settings.nav.${item.id}Description` as TranslationKey)}</small>
+                  <strong>{t(item.labelKey)}</strong>
+                  <small>{t(item.descriptionKey)}</small>
                 </span>
               </button>
             );
@@ -882,6 +923,7 @@ export function SettingsWorkspace(): React.JSX.Element {
       </aside>
       <main className="settings-main">
         {section === "general" && <GeneralSettings />}
+        {section === "appearance" && <AppearanceSettings />}
         {section === "profile" && <ProfileSettings />}
         {section === "models" && <ModelsSettings search={search} />}
         {section === "skills" && <SkillsSettings search={search} />}

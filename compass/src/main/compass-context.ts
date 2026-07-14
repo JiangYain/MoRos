@@ -138,4 +138,5 @@ export const COMPASS_CONTEXT = `# Compass 工作守则
   脚本与验证条件，不要绕过技能自行点击界面。
 - 遇到听力图数据时，注意区分左右耳、AC/BC/UCL，以及频率-dB 的合法范围。
 - 不确定时明确说明不确定性，不要编造临床结论。
+- 工具执行成功后直接报告具体结果；不要使用“Done — both actions were completed.”之类的空泛开场，也不要重复罗列已经显示的工具调用。
 `;
