@@ -169,7 +169,7 @@ function SkillBlock({ text }: { text: string }): React.JSX.Element {
 
 function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }): React.JSX.Element {
   return (
-    <motion.div className="msg-user" {...entrance}>
+    <motion.div className="msg-user" data-thread-prompt-id={item.id} {...entrance}>
       {item.images && item.images.length > 0 && (
         <div className="msg-user-images">
           {item.images.map((image, index) => (
@@ -368,6 +368,123 @@ function ToolActivityEntry({
   );
 }
 
+type UserThreadItem = Extract<UiThreadItem, { kind: "user" }>;
+
+interface PromptRailEntry {
+  prompt: UserThreadItem;
+  response: string;
+}
+
+function buildPromptRailEntries(items: UiThreadItem[]): PromptRailEntry[] {
+  const entries: PromptRailEntry[] = [];
+  let current: PromptRailEntry | undefined;
+
+  for (const item of items) {
+    if (item.kind === "user") {
+      current = { prompt: item, response: "" };
+      entries.push(current);
+      continue;
+    }
+
+    if (item.kind !== "assistant" || !current) continue;
+    const reply = item.blocks
+      .filter((block) => block.type === "text")
+      .map((block) => block.text.trim())
+      .filter(Boolean)
+      .join("\n\n");
+    if (!reply) continue;
+    current.response = [current.response, reply].filter(Boolean).join("\n\n");
+  }
+
+  return entries;
+}
+
+function ThreadPromptRail({
+  entries,
+  scrollRoot,
+}: {
+  entries: PromptRailEntry[];
+  scrollRoot: React.RefObject<HTMLDivElement | null>;
+}): React.JSX.Element | null {
+  const [activePromptId, setActivePromptId] = useState(entries.at(-1)?.prompt.id);
+
+  useEffect(() => {
+    const root = scrollRoot.current;
+    if (!root || entries.length === 0) return;
+
+    let frame = 0;
+    const updateActivePrompt = (): void => {
+      frame = 0;
+      const focusY = root.getBoundingClientRect().top + root.clientHeight * 0.28;
+      const nodes = Array.from(root.querySelectorAll<HTMLElement>("[data-thread-prompt-id]"));
+      let closestId = nodes[0]?.dataset.threadPromptId;
+      let closestDistance = Number.POSITIVE_INFINITY;
+
+      for (const node of nodes) {
+        const distance = Math.abs(node.getBoundingClientRect().top - focusY);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestId = node.dataset.threadPromptId;
+        }
+      }
+
+      if (closestId) setActivePromptId((current) => current === closestId ? current : closestId);
+    };
+    const scheduleUpdate = (): void => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateActivePrompt);
+    };
+
+    updateActivePrompt();
+    root.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      root.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [entries, scrollRoot]);
+
+  if (entries.length === 0) return null;
+
+  const jumpToPrompt = (promptId: string): void => {
+    const root = scrollRoot.current;
+    const target = Array.from(root?.querySelectorAll<HTMLElement>("[data-thread-prompt-id]") ?? [])
+      .find((node) => node.dataset.threadPromptId === promptId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  return (
+    <nav className="thread-prompt-rail" aria-label="Conversation prompts">
+      {entries.map(({ prompt, response }, index) => {
+        const summary = prompt.text.trim() || prompt.skillName || "Image prompt";
+        const edgeClass = index === 0
+          ? " first"
+          : index === entries.length - 1
+            ? " last"
+            : "";
+
+        return (
+          <button
+            key={prompt.id}
+            type="button"
+            className={`thread-prompt-marker${activePromptId === prompt.id ? " active" : ""}${edgeClass}`}
+            aria-label={`Prompt ${index + 1}: ${summary}`}
+            onClick={() => jumpToPrompt(prompt.id)}
+          >
+            <span className="thread-prompt-marker-dash" aria-hidden />
+            <span className="thread-prompt-preview" role="tooltip">
+              <span className="thread-prompt-preview-prompt">{summary}</span>
+              <span className="thread-prompt-preview-response">{response || "…"}</span>
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function AssistantIdentity(): React.JSX.Element {
   return (
     <motion.div className="assistant-identity" {...entrance}>
@@ -381,19 +498,14 @@ function AssistantIdentity(): React.JSX.Element {
 
 function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.JSX.Element {
   const running = group.items.some((item) => item.running);
-  const [open, setOpen] = useState(running);
+  const [open, setOpen] = useState(true);
   const copy = TOOL_ACTIVITY_COPY[group.activity];
 
-  useEffect(() => {
-    if (running) setOpen(true);
-  }, [group.items.length, running]);
-
   return (
-    <motion.section
+    <section
       className={`tool-activity-group${running ? " running" : ""}`}
       data-tool-activity={group.activity}
       data-tool-call-ids={group.items.map((item) => item.callId).join(" ")}
-      {...entrance}
     >
       <button
         type="button"
@@ -427,43 +539,19 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.section>
-  );
-}
-
-function SingleToolActivity({ group }: { group: ToolActivityGroupItem }): React.JSX.Element {
-  const item = group.items[0];
-  if (!item) return <></>;
-
-  return (
-    <div className="tool-activity-single" data-tool-activity={group.activity}>
-      <ul className="tool-activity-list tool-activity-list-single">
-        <ToolActivityEntry activity={group.activity} item={item} />
-      </ul>
-    </div>
+    </section>
   );
 }
 
 function ToolExplorationGroup({ exploration }: { exploration: ToolExplorationGroupItem }): React.JSX.Element {
   const running = exploration.groups.some((group) => group.items.some((item) => item.running));
-  const [open, setOpen] = useState(running);
-  const wasRunning = useRef(running);
-
-  useEffect(() => {
-    if (running) {
-      setOpen(true);
-    } else if (wasRunning.current) {
-      setOpen(false);
-    }
-    wasRunning.current = running;
-  }, [exploration.groups.length, running]);
+  const [open, setOpen] = useState(true);
 
   return (
-    <motion.section
+    <section
       className={`tool-exploration${running ? " running" : ""}`}
       data-tool-exploration="true"
       data-tool-call-ids={exploration.groups.flatMap((group) => group.items.map((item) => item.callId)).join(" ")}
-      {...entrance}
     >
       <button
         type="button"
@@ -490,15 +578,13 @@ function ToolExplorationGroup({ exploration }: { exploration: ToolExplorationGro
           >
             <div className="tool-exploration-body">
               {exploration.groups.map((group) => (
-                group.items.length === 1
-                  ? <SingleToolActivity key={group.id} group={group} />
-                  : <ToolActivityGroup key={group.id} group={group} />
+                <ToolActivityGroup key={group.id} group={group} />
               ))}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.section>
+    </section>
   );
 }
 
@@ -553,6 +639,7 @@ export function Thread(): React.JSX.Element {
   const approvals = useCompass((s) => s.approvals) ?? [];
   const sessionId = useCompass((s) => s.stats?.sessionId);
   const renderItems = useMemo(() => placeAssistantIdentities(groupToolActivities(thread)), [thread]);
+  const promptEntries = useMemo(() => buildPromptRailEntries(thread), [thread]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -588,6 +675,7 @@ export function Thread(): React.JSX.Element {
 
   return (
     <div className={`thread-shell${showJumpToLatest ? " reading-history" : ""}`}>
+      <ThreadPromptRail entries={promptEntries} scrollRoot={scrollRef} />
       <div className="thread-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="thread-inner" style={reduced ? { scrollBehavior: "auto" } : undefined}>
           {renderItems.map((item) => {

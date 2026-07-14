@@ -11,7 +11,6 @@ import {
   Folder,
   FolderOpen,
   Gauge,
-  Link2,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -26,7 +25,6 @@ import {
 import { api } from "../ipc";
 import { localeFor, useI18n } from "../i18n";
 import { useCompass } from "../store";
-import { ClientAssignmentDialog } from "./ClientAssignmentDialog";
 import { ClientProfileDialog } from "./ClientProfileDialog";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { SessionSearchOverlay, type SessionSearchEntry } from "./SessionSearchOverlay";
@@ -63,10 +61,6 @@ interface ContextMenuState {
   session: UiSessionInfo;
 }
 
-interface ClientDialogState {
-  session?: UiSessionInfo;
-}
-
 interface SessionConfirmationState {
   path: string;
   action: ThreadConfirmationAction;
@@ -79,6 +73,13 @@ interface SidebarResizeState {
   startWidth: number;
   currentWidth: number;
 }
+
+interface DraggedSessionState {
+  sessionId: string;
+  clientId: string;
+}
+
+type SessionOrderByClient = Record<string, string[]>;
 
 function OpenAIComposeIcon({ size = 16 }: { size?: number }): React.JSX.Element {
   return (
@@ -111,6 +112,7 @@ function OpenAIComposeIcon({ size = 16 }: { size?: number }): React.JSX.Element 
 
 const PROFILE_NAME = "ChordJiang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "compass.sidebar.width.v1";
+const SESSION_ORDER_STORAGE_KEY = "compass.sidebar.session-order.v1";
 const SIDEBAR_TREE_ICON_SIZE = 16;
 const UNASSIGNED_CLIENT = {
   id: "client:unassigned",
@@ -241,6 +243,38 @@ function groupSessionsByClient(sessions: UiSessionInfo[], registry: ClientRegist
     });
 }
 
+function readSessionOrder(): SessionOrderByClient {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SESSION_ORDER_STORAGE_KEY) ?? "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([clientId, sessionIds]) => (
+        Array.isArray(sessionIds)
+          ? [[clientId, sessionIds.filter((sessionId): sessionId is string => typeof sessionId === "string")]]
+          : []
+      )),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function orderSessions(sessions: UiSessionInfo[], order: string[] | undefined): UiSessionInfo[] {
+  if (!order?.length) return sessions;
+  const rank = new Map(order.map((sessionId, index) => [sessionId, index]));
+  return sessions
+    .map((session, index) => ({ session, index }))
+    .sort((left, right) => {
+      const leftRank = rank.get(left.session.id);
+      const rightRank = rank.get(right.session.id);
+      if (leftRank === undefined && rightRank === undefined) return left.index - right.index;
+      if (leftRank === undefined) return 1;
+      if (rightRank === undefined) return -1;
+      return leftRank - rightRank;
+    })
+    .map(({ session }) => session);
+}
+
 export function Sidebar(): React.JSX.Element {
   const { language, t } = useI18n();
   const sessions = useCompass((state) => state.sessions);
@@ -279,15 +313,21 @@ export function Sidebar(): React.JSX.Element {
   const [profileOpen, setProfileOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = useState<{ left: number; top: number } | null>(null);
-  const [clientDialog, setClientDialog] = useState<ClientDialogState | null>(null);
+  const [clientDialogOpen, setClientDialogOpen] = useState(false);
   const [sessionConfirmation, setSessionConfirmation] = useState<SessionConfirmationState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [sessionOrderByClient, setSessionOrderByClient] = useState<SessionOrderByClient>(readSessionOrder);
+  const [draggedSession, setDraggedSession] = useState<DraggedSessionState | null>(null);
+  const [dragOverClientId, setDragOverClientId] = useState<string | null>(null);
   const legacyAssignmentMigrations = useRef(new Set<string>());
 
   const clientGroups = useMemo(
-    () => groupSessionsByClient(sessions, clientRegistry),
-    [clientRegistry, sessions],
+    () => groupSessionsByClient(sessions, clientRegistry).map((group) => ({
+      ...group,
+      sessions: orderSessions(group.sessions, sessionOrderByClient[group.id]),
+    })),
+    [clientRegistry, sessionOrderByClient, sessions],
   );
   const activeSessionId = stats?.sessionId;
   const searchEntries = useMemo<SessionSearchEntry[]>(
@@ -459,6 +499,57 @@ export function Sidebar(): React.JSX.Element {
     if (sessionId) await persistSessionClient(sessionId, group.name);
   };
 
+  const persistSessionOrder = (next: SessionOrderByClient): void => {
+    setSessionOrderByClient(next);
+    try {
+      window.localStorage.setItem(SESSION_ORDER_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Session ordering remains available for the current window when storage is unavailable.
+    }
+  };
+
+  const reorderSession = (group: ClientGroup, sessionId: string, beforeSessionId: string): void => {
+    if (sessionId === beforeSessionId) return;
+    const ids = group.sessions.map((session) => session.id);
+    const fromIndex = ids.indexOf(sessionId);
+    const targetIndex = ids.indexOf(beforeSessionId);
+    if (fromIndex < 0 || targetIndex < 0) return;
+    ids.splice(fromIndex, 1);
+    ids.splice(targetIndex, 0, sessionId);
+    persistSessionOrder({ ...sessionOrderByClient, [group.id]: ids });
+  };
+
+  const dropSessionIntoGroup = (group: ClientGroup, beforeSessionId?: string): void => {
+    const dragged = draggedSession;
+    if (!dragged) return;
+    const targetIds = group.sessions
+      .map((session) => session.id)
+      .filter((sessionId) => sessionId !== dragged.sessionId);
+    const targetIndex = beforeSessionId ? targetIds.indexOf(beforeSessionId) : -1;
+    if (targetIndex >= 0) targetIds.splice(targetIndex, 0, dragged.sessionId);
+    else targetIds.push(dragged.sessionId);
+
+    const nextOrder = { ...sessionOrderByClient, [group.id]: targetIds };
+    if (dragged.clientId !== group.id) {
+      const source = clientGroups.find((candidate) => candidate.id === dragged.clientId);
+      if (source) {
+        nextOrder[source.id] = source.sessions
+          .map((session) => session.id)
+          .filter((sessionId) => sessionId !== dragged.sessionId);
+      }
+      if (group.unassigned) void removeSessionClient(dragged.sessionId);
+      else void persistSessionClient(dragged.sessionId, group.name);
+    }
+    persistSessionOrder(nextOrder);
+    setDraggedSession(null);
+    setDragOverClientId(null);
+  };
+
+  const finishSessionDrag = (): void => {
+    setDraggedSession(null);
+    setDragOverClientId(null);
+  };
+
   const closeThreadMenu = (): void => {
     setContextMenu(null);
     setContextMenuPosition(null);
@@ -523,30 +614,9 @@ export function Sidebar(): React.JSX.Element {
     setRenameDraft("");
   };
 
-  const openClientDialog = (session?: UiSessionInfo): void => {
-    closeThreadMenu();
-    setClientDialog({ session });
-  };
-
-  const saveClient = (name: string): void => {
-    const normalized = normalizeClientName(name);
-    if (!normalized) return;
-    const session = clientDialog?.session;
-    if (!session) return;
-    void persistSessionClient(session.id, normalized);
-    setClientDialog(null);
-  };
-
   const saveClientProfile = (profile: ClientProfileDraft): void => {
     void persistClientProfile(profile);
-    setClientDialog(null);
-  };
-
-  const clearClientAssignment = (): void => {
-    const session = clientDialog?.session;
-    if (!session) return;
-    void removeSessionClient(session.id);
-    setClientDialog(null);
+    setClientDialogOpen(false);
   };
 
   const requestSessionAction = (
@@ -573,8 +643,6 @@ export function Sidebar(): React.JSX.Element {
     setSessionConfirmation((current) => current?.path === confirmation.path ? null : current);
   };
 
-  const dialogSession = clientDialog?.session;
-  const dialogClient = dialogSession ? inferClient(dialogSession, clientRegistry) : undefined;
   const availableClientNames = clientGroups
     .filter((group) => !group.unassigned)
     .map((group) => group.name);
@@ -662,7 +730,7 @@ export function Sidebar(): React.JSX.Element {
                 className="file-section-add"
                 aria-label={t("sidebar.newClient")}
                 title={t("sidebar.newClient")}
-                onClick={() => openClientDialog()}
+                onClick={() => setClientDialogOpen(true)}
               >
                 <Plus size={SIDEBAR_TREE_ICON_SIZE} strokeWidth={1.6} />
               </button>
@@ -700,7 +768,26 @@ export function Sidebar(): React.JSX.Element {
                         ease: [0.22, 1, 0.36, 1],
                       }}
                     >
-                      <div className="file-item folder-row">
+                      <div
+                        className={`file-item folder-row${dragOverClientId === group.id ? " drag-over" : ""}`}
+                        onDragEnter={() => {
+                          if (draggedSession) setDragOverClientId(group.id);
+                        }}
+                        onDragOver={(event) => {
+                          if (!draggedSession) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                        }}
+                        onDragLeave={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                            setDragOverClientId((current) => current === group.id ? null : current);
+                          }
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          dropSessionIntoGroup(group);
+                        }}
+                      >
                         <button
                           type="button"
                           className="file-item-main"
@@ -766,8 +853,31 @@ export function Sidebar(): React.JSX.Element {
                             const relativeAge = sessionRelativeAge(session, t("common.now"));
                             return (
                               <div
-                                className={`file-tree-item thread-item-shell${active ? " active" : ""}${confirmation ? " confirming" : ""}`}
+                                className={`file-tree-item thread-item-shell${active ? " active" : ""}${confirmation ? " confirming" : ""}${draggedSession?.sessionId === session.id ? " dragging" : ""}`}
                                 key={session.path}
+                                draggable={!renaming && !confirmation}
+                                onDragStart={(event) => {
+                                  event.dataTransfer.effectAllowed = "move";
+                                  event.dataTransfer.setData("text/plain", session.id);
+                                  setDraggedSession({ sessionId: session.id, clientId: group.id });
+                                }}
+                                onDragEnter={() => {
+                                  if (!draggedSession) return;
+                                  setDragOverClientId(group.id);
+                                  if (draggedSession.clientId === group.id) {
+                                    reorderSession(group, draggedSession.sessionId, session.id);
+                                  }
+                                }}
+                                onDragOver={(event) => {
+                                  if (!draggedSession) return;
+                                  event.preventDefault();
+                                  event.dataTransfer.dropEffect = "move";
+                                }}
+                                onDrop={(event) => {
+                                  event.preventDefault();
+                                  dropSessionIntoGroup(group, session.id);
+                                }}
+                                onDragEnd={finishSessionDrag}
                                 onContextMenu={(event) => openThreadContextMenu(event, session)}
                               >
                                 {renaming ? (
@@ -965,11 +1075,6 @@ export function Sidebar(): React.JSX.Element {
           }}
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button type="button" role="menuitem" onClick={() => openClientDialog(contextMenu.session)}>
-            <Link2 size={14} strokeWidth={1.55} />
-            {t("sidebar.assignClient")}
-          </button>
-          <div className="context-menu-rule" />
           <button type="button" role="menuitem" onClick={() => startRename(contextMenu.session)}>
             <Pencil size={14} strokeWidth={1.55} />
             {t("sidebar.rename")}
@@ -978,36 +1083,29 @@ export function Sidebar(): React.JSX.Element {
             <Archive size={14} strokeWidth={1.55} />
             {t("sidebar.archive")}
           </button>
-          <button type="button" role="menuitem" onClick={() => requestSessionAction(contextMenu.session, "delete")}>
-            <Trash2 size={14} strokeWidth={1.55} />
-            {t("sidebar.delete")}
-          </button>
           <button type="button" role="menuitem" onClick={() => void copySessionId(contextMenu.session)}>
             <Copy size={14} strokeWidth={1.55} />
             {t("sidebar.copySessionId")}
           </button>
+          <button
+            type="button"
+            className="context-menu-delete"
+            role="menuitem"
+            onClick={() => requestSessionAction(contextMenu.session, "delete")}
+          >
+            <Trash2 size={14} strokeWidth={1.55} />
+            {t("sidebar.delete")}
+          </button>
         </div>,
         document.body,
       )}
-      {clientDialog && createPortal(
-        dialogSession ? (
-          <ClientAssignmentDialog
-            key={dialogSession.id}
-            clients={availableClientNames}
-            currentClient={dialogClient?.unassigned ? undefined : dialogClient?.name}
-            sessionTitle={sessionTitle(dialogSession, t("common.untitledSession"))}
-            onClose={() => setClientDialog(null)}
-            onSave={saveClient}
-            onUnassign={!dialogClient?.unassigned ? clearClientAssignment : undefined}
-          />
-        ) : (
-          <ClientProfileDialog
-            key="new-client"
-            existingClients={availableClientNames}
-            onClose={() => setClientDialog(null)}
-            onSave={saveClientProfile}
-          />
-        ),
+      {clientDialogOpen && createPortal(
+        <ClientProfileDialog
+          key="new-client"
+          existingClients={availableClientNames}
+          onClose={() => setClientDialogOpen(false)}
+          onSave={saveClientProfile}
+        />,
         document.body,
       )}
       <div
