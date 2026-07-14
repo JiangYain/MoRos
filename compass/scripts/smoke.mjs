@@ -148,6 +148,11 @@ try {
   await page.locator(".user-profile").click();
   await page.locator(".profile-menu button").filter({ hasText: "Settings" }).click();
   await page.getByRole("heading", { name: "General" }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Settings navigation" })
+    .getByRole("button", { name: /Appearance/ })
+    .click();
+  await page.getByRole("heading", { name: "Appearance" }).waitFor();
   const previousTheme = await page.evaluate(() => {
     const value = window.localStorage.getItem("compass.theme.v1");
     return value === "light" || value === "dark" || value === "system" ? value : "system";
@@ -166,7 +171,7 @@ try {
   await shot("04a-dark-theme");
   const themeLabel = previousTheme === "light" ? /Light/ : previousTheme === "dark" ? /Dark/ : /System/;
   await page.getByRole("radio", { name: themeLabel }).click();
-  await shot("04-general-settings");
+  await shot("04-appearance-settings");
   await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   const textarea = page.locator(".composer textarea");
@@ -459,7 +464,8 @@ try {
     throw new Error(`Context ring must be 3.4px: ${contextRingWidth}px`);
   }
   await page.getByRole("region", { name: "Context usage" }).waitFor();
-  await page.getByText("Estimated breakdown", { exact: true }).waitFor();
+  await page.locator(".context-usage-list").waitFor();
+  await page.locator(".context-usage-visual").waitFor();
   if ((await page.locator(".workspace-context-surface .workspace-tab").count()) !== 1) {
     throw new Error("Context Usage is not integrated into the workspace surface");
   }
@@ -583,14 +589,16 @@ try {
     }
   });
 
-  const activitySelector = [
-    '[data-tool-call-ids~="smoke-bash-call"] > .tool-activity-toggle',
-    '[data-tool-call-ids~="smoke-read-call"] > .tool-activity-toggle',
-    '[data-tool-call-ids~="smoke-write-call"] > .tool-activity-toggle',
-    '[data-tool-call-ids~="smoke-edit-call"] > .tool-activity-toggle',
-  ].join(", ");
-  const activityToggles = page.locator(activitySelector);
-  await activityToggles.first().waitFor();
+  const exploration = page.locator(
+    '[data-tool-exploration="true"][data-tool-call-ids~="smoke-bash-call"]',
+  );
+  const explorationToggle = exploration.locator(":scope > .tool-exploration-toggle");
+  await explorationToggle.waitFor();
+  if ((await explorationToggle.getAttribute("aria-expanded")) !== "true") {
+    await explorationToggle.click();
+  }
+  await exploration.locator(".tool-exploration-body").waitFor();
+  const activityRows = exploration.locator(".tool-activity-row");
   const overflowAnchor = await page.locator(".thread-scroll").evaluate((element) =>
     getComputedStyle(element).overflowAnchor,
   );
@@ -613,49 +621,36 @@ try {
     });
     await jumpToLatest.waitFor({ state: "detached" });
   }
-  if ((await activityToggles.count()) !== 4) {
-    throw new Error("Read, Write, Edit and Bash did not render as four unified activity rows");
+  if ((await activityRows.count()) !== 4) {
+    throw new Error("Read, Write, Edit and Bash did not render inside one exploration group");
   }
-  const activityStyles = await activityToggles.evaluateAll((buttons) => buttons.map((button) => {
-    const style = getComputedStyle(button);
+  const activityStyles = await activityRows.evaluateAll((rows) => rows.map((row) => {
+    const style = getComputedStyle(row);
     return {
       display: style.display,
       fontSize: style.fontSize,
       gap: style.gap,
-      left: button.getBoundingClientRect().left,
+      left: row.getBoundingClientRect().left,
       padding: style.padding,
-      parent: button.parentElement?.parentElement?.classList.contains("thread-inner") ?? false,
     };
   }));
-  const sharedStyles = new Set(activityStyles.map(({ left: _left, parent: _parent, ...style }) => JSON.stringify(style)));
+  const sharedStyles = new Set(activityStyles.map(({ left: _left, ...style }) => JSON.stringify(style)));
   const activityLefts = activityStyles.map(({ left }) => left);
   if (sharedStyles.size !== 1 || activityLefts.some((left) => Math.abs(left - activityLefts[0]) > 1)) {
     throw new Error(`Tool activity rows do not share one visual hierarchy: ${JSON.stringify(activityStyles)}`);
   }
-  if (activityStyles.some(({ parent }) => !parent)) {
-    throw new Error("At least one tool activity row is nested below a different thread layer");
+  if (!(await exploration.evaluate((element) => element.parentElement?.classList.contains("thread-inner") ?? false))) {
+    throw new Error("The tool exploration group is nested below an unexpected thread layer");
   }
-
-  const readGroup = page.locator('[data-tool-call-ids~="smoke-read-call"]');
-  const readToggle = readGroup.locator(".tool-activity-toggle");
-  if ((await readToggle.getAttribute("aria-expanded")) !== "true") await readToggle.click();
-  const readItem = readGroup.locator('[data-tool-call-id="smoke-read-call"]');
-  await readItem.locator(".tool-activity-output").waitFor();
-  if (!String(await readItem.locator(".tool-activity-output").textContent()).includes("Line two is visible")) {
-    throw new Error("Expanded Read activity did not expose tool output");
+  for (const callId of ["smoke-bash-call", "smoke-read-call", "smoke-write-call", "smoke-edit-call"]) {
+    if ((await exploration.locator(`[data-tool-call-id="${callId}"]`).count()) !== 1) {
+      throw new Error(`Exploration group omitted ${callId}`);
+    }
   }
-  await readItem.getByRole("button", { name: "Copy tool output" }).click();
-  await readItem.locator(".tool-copy-button.copied").waitFor();
-  await page.waitForTimeout(350);
-  await shot("12c-read-preview");
-
-  const commandGroup = page.locator('[data-tool-call-ids~="smoke-bash-call"]');
-  const commandToggle = commandGroup.locator(".tool-activity-toggle");
-  if ((await commandToggle.getAttribute("aria-expanded")) !== "true") await commandToggle.click();
-  await commandGroup.locator(".tool-activity-list").waitFor();
-  if ((await commandGroup.locator(".tool-activity-row").count()) === 0) {
-    throw new Error("Expanded command activity did not render command summaries");
+  if ((await exploration.locator(".tool-activity-output").count()) !== 0) {
+    throw new Error("Successful tool output is not compacted inside the exploration group");
   }
+  await shot("12c-tool-exploration");
 
   await app.evaluate(({ BrowserWindow }) => {
     const contents = BrowserWindow.getAllWindows()[0]?.webContents;
@@ -686,12 +681,15 @@ try {
   if (plainBubbleHeight > 48) {
     throw new Error(`Plain user message bubble is too tall: ${plainBubbleHeight}`);
   }
-  const liveReadGroup = page.locator('[data-tool-call-ids~="smoke-live-read-call"]');
-  const liveReadToggle = liveReadGroup.locator(".tool-activity-toggle");
+  const liveReadGroup = page.locator(
+    '[data-tool-exploration="true"][data-tool-call-ids~="smoke-live-read-call"]',
+  );
+  const liveReadToggle = liveReadGroup.locator(":scope > .tool-exploration-toggle");
   await liveReadToggle.waitFor();
   if ((await liveReadToggle.getAttribute("aria-expanded")) !== "true") {
-    throw new Error("A running tool activity group did not open automatically");
+    throw new Error("A running tool exploration did not open automatically");
   }
+  await liveReadGroup.locator('[data-tool-call-id="smoke-live-read-call"].running').waitFor();
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
       kind: "tool-end",
@@ -700,13 +698,21 @@ try {
       isError: false,
     });
   });
-  await liveReadGroup.locator(".tool-activity-output").waitFor();
+  await page.waitForFunction((callId) => {
+    const group = document.querySelector(`[data-tool-call-ids~="${callId}"]`);
+    return group?.querySelector(":scope > .tool-exploration-toggle")?.getAttribute("aria-expanded") === "false";
+  }, "smoke-live-read-call");
+  if ((await liveReadGroup.locator(".tool-activity-output").count()) !== 0) {
+    throw new Error("Successful live tool output remained expanded after completion");
+  }
+  await liveReadToggle.click();
+  await liveReadGroup.locator(".tool-exploration-body").waitFor();
   if ((await liveReadToggle.getAttribute("aria-expanded")) !== "true") {
-    throw new Error("A tool activity group collapsed as soon as execution completed");
+    throw new Error("A completed tool exploration could not be expanded manually");
   }
   await liveReadToggle.click();
   if ((await liveReadToggle.getAttribute("aria-expanded")) !== "false") {
-    throw new Error("A completed tool activity group could not be collapsed manually");
+    throw new Error("A completed tool exploration could not be collapsed manually");
   }
 
   await app.evaluate(({ BrowserWindow }) => {
@@ -764,6 +770,12 @@ try {
   if ((await assistantCopyButton.evaluate((element) => getComputedStyle(element).alignSelf)) !== "flex-start") {
     throw new Error("Assistant copy action is not aligned to the left");
   }
+  await reasoningMessage.hover();
+  await page.waitForFunction((element) => {
+    if (!(element instanceof HTMLElement)) return false;
+    const style = getComputedStyle(element);
+    return style.pointerEvents === "auto" && Number.parseFloat(style.opacity) > 0.99;
+  }, await assistantCopyButton.elementHandle());
   await assistantCopyButton.click();
   await reasoningMessage.locator(".assistant-copy-button.copied").waitFor();
   await shot("12d-reasoning-copy");
