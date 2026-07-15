@@ -1,5 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://trae.obscurus.tech/sitemap.xml
-
+Sitemap: https://compass4trae.obscurus.tech/sitemap.xml

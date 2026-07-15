@@ -1,5 +1,5 @@
 [Unit]
-Description=Compass presentation site for trae.obscurus.tech
+Description=Compass presentation site for compass4trae.obscurus.tech
 After=network-online.target
 Wants=network-online.target
 
