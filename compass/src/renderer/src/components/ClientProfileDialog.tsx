@@ -24,7 +24,7 @@ interface ClientProfileDialogProps {
 
 const EMPTY_PROFILE: ClientProfileDraft = {
   name: "",
-  gender: "unspecified",
+  gender: null,
   age: null,
   contact: "",
   notes: "",

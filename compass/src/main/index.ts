@@ -188,6 +188,9 @@ function registerIpc(api: CompassBackendApi): void {
     api.setPermissionMode(mode),
   );
   ipcMain.handle("settings:set-language", (_event, language) => api.setLanguage(language));
+  ipcMain.handle("settings:set-quick-prompts", (_event, prompts) =>
+    api.setQuickPrompts(prompts),
+  );
   ipcMain.handle("auth:set-key", (_event, provider: string, key: string) =>
     api.setApiKey(provider, key),
   );

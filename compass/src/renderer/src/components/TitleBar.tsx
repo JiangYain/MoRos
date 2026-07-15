@@ -98,7 +98,7 @@ export function TitleBar({
   return (
     <header className="titlebar">
       <div className="titlebar-brand" role="img" aria-label="Compass">
-        <CompassLogo size={17} />
+        <CompassLogo size={15} />
       </div>
       <div className="titlebar-navigation-controls" aria-label={t("titlebar.navigation")}>
         <button

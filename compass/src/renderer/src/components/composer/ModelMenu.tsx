@@ -5,10 +5,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../../store";
 import { useI18n } from "../../i18n";
 
-type ModelMenuView = "root" | "model" | "effort" | "speed";
+type ModelMenuView = "root" | "model" | "effort";
 type ModelSubmenuView = Exclude<ModelMenuView, "root">;
 
-const SUBMENU_HOVER_DELAY_MS = 260;
+const SUBMENU_HOVER_DELAY_MS = 120;
 
 interface ModelMenuProps {
   open: boolean;
@@ -121,7 +121,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                   transition={{ duration: 0.12 }}
                 >
                   <div className="model-submenu-title">
-                    {view === "model" ? t("composer.model") : view === "effort" ? t("composer.effort") : t("composer.speed")}
+                    {view === "model" ? t("composer.model") : t("composer.effort")}
                   </div>
                   {view === "model" && (
                     <div className="model-submenu-list model-options-list">
@@ -162,14 +162,6 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                       ))}
                     </div>
                   )}
-                  {view === "speed" && (
-                    <div className="model-submenu-list">
-                      <button type="button" onClick={onClose}>
-                        <span>{t("composer.standard")}</span>
-                        <Check size={14} strokeWidth={1.65} />
-                      </button>
-                    </div>
-                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -178,7 +170,6 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
               <div className="model-menu-main">
                 <MenuRow view="model" label={t("composer.model")} value={stats?.model?.name ?? t("composer.select")} active={view === "model"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
                 <MenuRow view="effort" label={t("composer.effort")} value={supportsThinking ? activeEffortLabel : "—"} active={view === "effort"} disabled={!supportsThinking} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
-                <MenuRow view="speed" label={t("composer.speed")} value={t("composer.standard")} active={view === "speed"} onHoverStart={scheduleView} onHoverEnd={cancelScheduledView} onOpen={openView} />
               </div>
               <div className="model-menu-rule" />
               <button

@@ -63,7 +63,7 @@ function readImageFile(file: File, t: ReturnType<typeof useI18n>["t"]): Promise<
   });
 }
 
-export function Composer(): React.JSX.Element {
+export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: boolean }): React.JSX.Element {
   const { t } = useI18n();
   const streaming = useCompass((state) => state.streaming);
   const stats = useCompass((state) => state.stats);
@@ -375,14 +375,6 @@ export function Composer(): React.JSX.Element {
   return (
     <div className="composer-zone">
       <AnimatePresence>
-        {noModel && (
-          <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <div className="model-banner-inner">
-              <span>{stats?.model ? t("composer.noCredential") : t("composer.configureModel")}</span>
-              <button type="button" className="go" onClick={() => openSettings()}>{t("composer.openSettings")}</button>
-            </div>
-          </motion.div>
-        )}
         {lastError && (
           <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="model-banner-inner error">
@@ -405,7 +397,7 @@ export function Composer(): React.JSX.Element {
           </div>
         )}
 
-        <ContextUsageSurface expanded={contextExpanded} onClose={() => setContextExpanded(false)} />
+        <ContextUsageSurface expanded={contextExpanded} onClose={() => setContextExpanded(false)} showQuickPrompts={showQuickPrompts} />
 
         <div
           className={`composer${dragActive ? " drag-active" : ""}`}

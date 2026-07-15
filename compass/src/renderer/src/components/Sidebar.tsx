@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Ear,
   Folder,
   FolderOpen,
   Gauge,
@@ -294,6 +295,8 @@ export function Sidebar(): React.JSX.Element {
   const openSettings = useCompass((state) => state.openSettings);
   const sidebarOpen = useCompass((state) => state.sidebarOpen);
   const setSidebarOpen = useCompass((state) => state.setSidebarOpen);
+  const mainView = useCompass((state) => state.mainView);
+  const setMainView = useCompass((state) => state.setMainView);
   const reduced = useReducedMotion();
   const profileRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -657,11 +660,32 @@ export function Sidebar(): React.JSX.Element {
         onClose={() => setSearchOpen(false)}
         onSelect={(entry) => {
           setSearchOpen(false);
-          if (!entry.active) void openSession(entry.path);
+          if (entry.active) setMainView("assistant");
+          else void openSession(entry.path);
         }}
       />
 
       <nav className="sidebar-nav" aria-label="Compass">
+        <div className="sidebar-brand-row">
+          <div className="sidebar-brand-name" aria-label="Compass.">
+            <span>Compass</span>
+            <span className="sidebar-brand-dot">.</span>
+          </div>
+          <button
+            type="button"
+            className={`sidebar-brand-search${searchOpen ? " active" : ""}`}
+            aria-label={t("sidebar.search")}
+            title={t("sidebar.search")}
+            aria-expanded={searchOpen}
+            aria-controls="session-search-dialog"
+            onClick={() => {
+              setSearchOpen(true);
+              closeMobileSidebar();
+            }}
+          >
+            <Search size={17} strokeWidth={1.65} aria-hidden="true" />
+          </button>
+        </div>
         <button
           type="button"
           className="sidebar-nav-item"
@@ -675,17 +699,15 @@ export function Sidebar(): React.JSX.Element {
         </button>
         <button
           type="button"
-          className={`sidebar-nav-item${searchOpen ? " active" : ""}`}
-          aria-label={t("sidebar.search")}
-          aria-expanded={searchOpen}
-          aria-controls="session-search-dialog"
+          className={`sidebar-nav-item${mainView === "hearing-health" ? " active" : ""}`}
+          aria-current={mainView === "hearing-health" ? "page" : undefined}
           onClick={() => {
-            setSearchOpen((current) => !current);
             closeMobileSidebar();
+            setMainView("hearing-health");
           }}
         >
-          <Search size={16} strokeWidth={1.65} aria-hidden="true" />
-          <span>{t("sidebar.search")}</span>
+          <Ear size={16} strokeWidth={1.65} aria-hidden="true" />
+          <span>{t("sidebar.hearingHealth")}</span>
         </button>
         <button
           type="button"
@@ -927,7 +949,8 @@ export function Sidebar(): React.JSX.Element {
                                       className={`file-item thread-file-item${active ? " active" : ""}`}
                                       onClick={() => {
                                         closeMobileSidebar();
-                                        if (!active) void openSession(session.path);
+                                        if (active) setMainView("assistant");
+                                        else void openSession(session.path);
                                       }}
                                       title={`${sessionTime(session, language, t)} · ${relativeAge} · ${sessionTitle(session, t("common.untitledSession"))}`}
                                     >

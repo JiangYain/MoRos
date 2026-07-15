@@ -12,7 +12,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const CLIENT_DATABASE_SCHEMA_VERSION = 1;
+const CLIENT_DATABASE_SCHEMA_VERSION = 2;
 const MAX_LEGACY_REGISTRY_BYTES = 8_000_000;
 
 interface ClientRow {
@@ -47,7 +47,7 @@ function clientRow(value: Record<string, unknown>): ClientRow {
     id: numberValue(value.id),
     client_key: String(value.client_key),
     display_name: String(value.display_name),
-    gender: String(value.gender) as ClientProfile["gender"],
+    gender: (value.gender === null ? null : String(value.gender)) as ClientProfile["gender"],
     age: value.age === null ? null : numberValue(value.age),
     contact: String(value.contact),
     notes: String(value.notes),
@@ -94,45 +94,91 @@ export class ClientDatabase {
     }
     if (version === CLIENT_DATABASE_SCHEMA_VERSION) return;
 
-    this.transaction(() => {
-      this.database.exec(`
-        CREATE TABLE IF NOT EXISTS clients (
-          id INTEGER PRIMARY KEY,
-          client_key TEXT NOT NULL UNIQUE,
-          display_name TEXT NOT NULL,
-          gender TEXT NOT NULL DEFAULT 'unspecified'
-            CHECK (gender IN ('female', 'male', 'non-binary', 'unspecified')),
-          age INTEGER CHECK (age IS NULL OR (age >= 0 AND age <= 130)),
-          contact TEXT NOT NULL DEFAULT '',
-          notes TEXT NOT NULL DEFAULT '',
-          has_profile INTEGER NOT NULL DEFAULT 0 CHECK (has_profile IN (0, 1)),
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
+    if (version === 0) {
+      this.transaction(() => {
+        this.database.exec(`
+          CREATE TABLE IF NOT EXISTS clients (
+            id INTEGER PRIMARY KEY,
+            client_key TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            gender TEXT CHECK (gender IS NULL OR gender IN ('female', 'male')),
+            age INTEGER CHECK (age IS NULL OR (age >= 0 AND age <= 130)),
+            contact TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            has_profile INTEGER NOT NULL DEFAULT 0 CHECK (has_profile IN (0, 1)),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
 
-        CREATE TABLE IF NOT EXISTS client_hearing_aid_brands (
-          client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-          brand TEXT NOT NULL,
-          PRIMARY KEY (client_id, brand)
-        );
+          CREATE TABLE IF NOT EXISTS client_hearing_aid_brands (
+            client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+            brand TEXT NOT NULL,
+            PRIMARY KEY (client_id, brand)
+          );
 
-        CREATE TABLE IF NOT EXISTS session_client_assignments (
-          session_id TEXT PRIMARY KEY,
-          client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-          assigned_at INTEGER NOT NULL
-        );
+          CREATE TABLE IF NOT EXISTS session_client_assignments (
+            session_id TEXT PRIMARY KEY,
+            client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+            assigned_at INTEGER NOT NULL
+          );
 
-        CREATE INDEX IF NOT EXISTS idx_session_client_assignments_client
-          ON session_client_assignments(client_id);
+          CREATE INDEX IF NOT EXISTS idx_session_client_assignments_client
+            ON session_client_assignments(client_id);
 
-        CREATE TABLE IF NOT EXISTS app_metadata (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
+          CREATE TABLE IF NOT EXISTS app_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          );
 
-        PRAGMA user_version = 1;
-      `);
-    });
+          PRAGMA user_version = ${CLIENT_DATABASE_SCHEMA_VERSION};
+        `);
+      });
+      return;
+    }
+
+    // version 1 → 2: relax clients.gender to allow NULL and only female/male.
+    // Retired values ("unspecified", "non-binary") are converted to NULL.
+    // SQLite cannot alter a column constraint in place, so the clients table
+    // is rebuilt while foreign keys are briefly disabled.
+    this.database.exec("PRAGMA foreign_keys = OFF");
+    try {
+      this.transaction(() => {
+        this.database.exec(`
+          CREATE TABLE clients_new (
+            id INTEGER PRIMARY KEY,
+            client_key TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            gender TEXT CHECK (gender IS NULL OR gender IN ('female', 'male')),
+            age INTEGER CHECK (age IS NULL OR (age >= 0 AND age <= 130)),
+            contact TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            has_profile INTEGER NOT NULL DEFAULT 0 CHECK (has_profile IN (0, 1)),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+
+          INSERT INTO clients_new (
+            id, client_key, display_name, gender, age, contact, notes,
+            has_profile, created_at, updated_at
+          )
+          SELECT
+            id, client_key, display_name,
+            CASE WHEN gender IN ('female', 'male') THEN gender ELSE NULL END,
+            age, contact, notes, has_profile, created_at, updated_at
+          FROM clients;
+
+          DROP TABLE clients;
+          ALTER TABLE clients_new RENAME TO clients;
+        `);
+        const violations = this.database.prepare("PRAGMA foreign_key_check").all();
+        if (violations.length > 0) {
+          throw new Error("Client database v1→v2 migration produced orphaned foreign keys.");
+        }
+        this.database.exec(`PRAGMA user_version = ${CLIENT_DATABASE_SCHEMA_VERSION};`);
+      });
+    } finally {
+      this.database.exec("PRAGMA foreign_keys = ON");
+    }
   }
 
   private transaction<T>(operation: () => T): T {
@@ -154,7 +200,7 @@ export class ClientDatabase {
     this.database.prepare(`
       INSERT OR IGNORE INTO clients (
         client_key, display_name, gender, age, contact, notes, has_profile, created_at, updated_at
-      ) VALUES (?, ?, 'unspecified', NULL, '', '', 0, ?, ?)
+      ) VALUES (?, ?, NULL, NULL, '', '', 0, ?, ?)
     `).run(key, displayName, now, now);
     const row = this.database.prepare("SELECT id FROM clients WHERE client_key = ?").get(key);
     if (!row) throw new Error("无法创建客户记录。");

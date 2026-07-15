@@ -11,6 +11,7 @@ import {
   type PermissionMode,
   type ThinkingLevel,
 } from "@shared/types";
+import { normalizeQuickPrompts } from "@shared/quick-prompts";
 
 export interface AppSettings {
   language: AppLanguage;
@@ -26,6 +27,8 @@ export interface AppSettings {
   /** Model keys explicitly shown in the composer model picker. */
   enabledModels: string[];
   thinkingLevel?: ThinkingLevel;
+  /** User-defined shortcuts shown beside the composer. Undefined uses localized defaults. */
+  quickPrompts?: string[];
 }
 
 function settingsPath(): string {
@@ -70,6 +73,9 @@ export function loadSettings(): AppSettings {
         ),
       ),
     ];
+    const quickPrompts = normalizeQuickPrompts(parsed.quickPrompts);
+    if (quickPrompts) merged.quickPrompts = quickPrompts;
+    else delete merged.quickPrompts;
     if (
       !merged.summaryModel ||
       typeof merged.summaryModel.provider !== "string" ||

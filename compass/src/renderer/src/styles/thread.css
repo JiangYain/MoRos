@@ -223,7 +223,7 @@
   corner-shape: var(--corner-shape-continuous);
   background: var(--msg-user-bubble-bg);
   font-size: 13.5px;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--color-text-primary);
   overflow-wrap: anywhere;
   text-align: left;
@@ -495,10 +495,10 @@
   border-radius: 50%;
   background: var(--color-accent);
   margin-left: 4px;
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  animation: thinking-live-pulse 1.4s ease-in-out infinite;
 }
 
-@keyframes pulse-dot {
+@keyframes thinking-live-pulse {
   0%, 100% { transform: scale(0.8); opacity: 0.5; }
   50% { transform: scale(1.2); opacity: 1; }
 }
@@ -583,7 +583,6 @@
 }
 
 .skill-chev {
-  font-size: 10px;
   color: var(--color-text-tertiary);
   transition: transform 0.22s var(--ease-out-power3);
   flex: 0 0 auto;
@@ -795,7 +794,7 @@
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--color-accent);
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  animation: tool-running-pulse 1.4s ease-in-out infinite;
 }
 
 .tool-activity-output-shell {
@@ -826,7 +825,7 @@
   color: var(--color-danger);
 }
 
-@keyframes pulse-dot {
+@keyframes tool-running-pulse {
   0%,
   100% {
     opacity: 0.38;
@@ -963,7 +962,7 @@
 
 .tool-head .tool-dot.running {
   background: var(--color-accent);
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  animation: tool-running-pulse 1.4s ease-in-out infinite;
 }
 
 .tool-head .tool-dot.failed {
@@ -1003,7 +1002,6 @@
 }
 
 .tool-chev {
-  font-size: 8px;
   color: var(--color-text-tertiary);
   transition: transform 0.22s var(--ease-out-power3);
   flex: 0 0 auto;
@@ -1115,7 +1113,7 @@
 .md p {
   margin: 0 0 0.9rem;
   color: var(--color-text-secondary);
-  font-weight: 300;
+  font-weight: 400;
 }
 
 .md strong {

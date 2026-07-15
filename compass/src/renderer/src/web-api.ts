@@ -231,6 +231,7 @@ export function createWebApi(): CompassApi {
     setThinkingLevel: (level: ThinkingLevel) => rpc<AgentStats>("setThinkingLevel", [level]),
     setPermissionMode: (mode: PermissionMode) => rpc("setPermissionMode", [mode]),
     setLanguage: (language) => rpc("setLanguage", [language]),
+    setQuickPrompts: (prompts) => rpc("setQuickPrompts", [prompts]),
     setApiKey: (provider, key) => rpc<InitPayload>("setApiKey", [provider, key]),
     loginProvider: (provider) => rpc<InitPayload>("loginProvider", [provider]),
     removeApiKey: (provider) => rpc<InitPayload>("removeApiKey", [provider]),

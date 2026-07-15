@@ -148,6 +148,34 @@ try {
   await page.locator(".user-profile").click();
   await page.locator(".profile-menu button").filter({ hasText: "Settings" }).click();
   await page.getByRole("heading", { name: "General" }).waitFor();
+  const smokeQuickPrompts = [
+    "Smoke quick prompt one with enough text to exercise the fixed-width shortcut surface",
+    "Smoke quick prompt two",
+    "Smoke quick prompt three",
+    "Smoke quick prompt four",
+    "Smoke quick prompt five",
+  ];
+  const quickPromptEditor = page.locator(".settings-quick-prompts-editor");
+  const quickPromptInputs = quickPromptEditor.locator(".settings-quick-prompt-row textarea");
+  if ((await quickPromptInputs.count()) !== 3) {
+    throw new Error("Quick prompt settings did not start with the three localized defaults");
+  }
+  for (let index = 0; index < 3; index += 1) {
+    await quickPromptInputs.nth(index).fill(smokeQuickPrompts[index]);
+  }
+  const addQuickPrompt = quickPromptEditor.getByRole("button", { name: "Add quick prompt", exact: true });
+  for (let index = 3; index < smokeQuickPrompts.length; index += 1) {
+    await addQuickPrompt.click();
+    await quickPromptInputs.nth(index).fill(smokeQuickPrompts[index]);
+  }
+  if (!(await addQuickPrompt.isDisabled()) || (await quickPromptInputs.count()) !== 5) {
+    throw new Error("Quick prompt settings did not enforce the five-item maximum");
+  }
+  await quickPromptEditor.getByRole("button", { name: "Save", exact: true }).click();
+  await page.waitForFunction(async (expected) => {
+    const payload = await window.compass.init();
+    return JSON.stringify(payload.settings.quickPrompts) === JSON.stringify(expected);
+  }, smokeQuickPrompts);
   await page
     .getByRole("navigation", { name: "Settings navigation" })
     .getByRole("button", { name: /Appearance/ })
@@ -175,6 +203,25 @@ try {
   await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   const textarea = page.locator(".composer textarea");
+  const quickPrompts = page.locator(".quick-prompts");
+  await quickPrompts.waitFor();
+  if ((await quickPrompts.locator(".quick-prompt-btn").count()) !== 1) {
+    throw new Error("The workspace must show exactly one quick prompt at a time");
+  }
+  const quickPromptText = quickPrompts.locator(".quick-prompt-text");
+  if ((await quickPromptText.textContent()) !== smokeQuickPrompts[0]) {
+    throw new Error("The first saved quick prompt did not appear in the workspace strip");
+  }
+  await quickPrompts.locator(".quick-prompt-btn").click();
+  await page.waitForFunction((expected) => (
+    document.querySelector(".composer textarea")?.value === expected
+  ), smokeQuickPrompts[0]);
+  await textarea.fill("");
+  await quickPrompts.hover();
+  await page.mouse.wheel(0, 80);
+  await page.waitForFunction((expected) => (
+    document.querySelector(".quick-prompt-text")?.textContent === expected
+  ), smokeQuickPrompts[1]);
   await textarea.click();
   await textarea.fill("请帮我执行 /");
   await page.locator(".slash-popover").waitFor();
@@ -296,23 +343,9 @@ try {
       throw new Error(`Model menu rendered unsupported thinking levels: ${renderedLevels.join(", ")}`);
     }
 
-    const maxOption = page.locator('.model-submenu [data-thinking-level="max"]');
-    if (await maxOption.count()) {
-      const speedButton = page.locator('[data-model-menu-view="speed"]');
-      const effortBounds = await effortButton.boundingBox();
-      const speedBounds = await speedButton.boundingBox();
-      const maxBounds = await maxOption.boundingBox();
-      if (!effortBounds || !speedBounds || !maxBounds) {
-        throw new Error("Model menu intent bounds are unavailable");
-      }
-      await page.mouse.move(effortBounds.x + effortBounds.width / 2, effortBounds.y + effortBounds.height / 2);
-      await page.mouse.move(speedBounds.x + speedBounds.width / 2, speedBounds.y + speedBounds.height / 2);
-      await page.mouse.move(maxBounds.x + maxBounds.width / 2, maxBounds.y + maxBounds.height / 2);
-      await page.waitForTimeout(120);
-      if ((await page.locator(".model-submenu").getAttribute("data-model-submenu")) !== "effort") {
-        throw new Error("Crossing the Speed row incorrectly replaced the Effort submenu");
-      }
-    }
+  }
+  if ((await page.locator('[data-model-menu-view="speed"]').count()) !== 0) {
+    throw new Error("The removed fixed Speed row is still present in the model menu");
   }
   await shot("06-model-picker");
   await page.getByRole("button", { name: "Add Model" }).click();
@@ -466,7 +499,12 @@ try {
   await page.getByRole("region", { name: "Context usage" }).waitFor();
   await page.locator(".context-usage-list").waitFor();
   await page.locator(".context-usage-visual").waitFor();
-  if ((await page.locator(".workspace-context-surface .workspace-tab").count()) !== 1) {
+  const workspaceContextStrip = page.locator(".workspace-context-surface .workspace-context-strip");
+  if (
+    (await workspaceContextStrip.count()) !== 1
+    || (await workspaceContextStrip.locator(".workspace-client-name").count()) !== 1
+    || (await workspaceContextStrip.locator(".quick-prompts").count()) !== 1
+  ) {
     throw new Error("Context Usage is not integrated into the workspace surface");
   }
   await shot("08-context-usage");
@@ -523,6 +561,7 @@ try {
   await shot("12-session-search-overlay");
   await sessionSearch.fill("");
   const searchResultCount = await page.locator('.session-search-result[role="option"]').count();
+  let openedSearchResult = false;
   if (searchResultCount > 0) {
     const selectedBefore = await sessionSearch.getAttribute("aria-activedescendant");
     await sessionSearch.press("ArrowDown");
@@ -531,10 +570,26 @@ try {
       throw new Error("ArrowDown did not move the session search selection");
     }
     await sessionSearch.press("Enter");
+    openedSearchResult = true;
   } else {
     await page.keyboard.press("Escape");
   }
   await page.locator(".session-search-dialog").waitFor({ state: "detached" });
+  if (openedSearchResult) {
+    await page.getByRole("button", { name: "Hearing health", exact: true }).click();
+    const hearingHealthWorkspace = page.getByRole("region", { name: "Hearing health", exact: true });
+    await hearingHealthWorkspace.waitFor();
+    await page.keyboard.press("Control+P");
+    const activeSessionSearch = page.locator(".session-search-input input");
+    await activeSessionSearch.waitFor();
+    await page.waitForFunction(() => Boolean(
+      document.querySelector(".session-search-input input")?.getAttribute("aria-activedescendant"),
+    ));
+    await activeSessionSearch.press("Enter");
+    await page.locator(".session-search-dialog").waitFor({ state: "detached" });
+    await hearingHealthWorkspace.waitFor({ state: "detached" });
+    await page.locator(".composer").waitFor();
+  }
 
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
