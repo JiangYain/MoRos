@@ -204,24 +204,42 @@ try {
 
   const textarea = page.locator(".composer textarea");
   const quickPrompts = page.locator(".quick-prompts");
-  await quickPrompts.waitFor();
-  if ((await quickPrompts.locator(".quick-prompt-btn").count()) !== 1) {
-    throw new Error("The workspace must show exactly one quick prompt at a time");
+  const workspacePayload = await page.evaluate(() => window.compass.init());
+  const workspaceHasUsableModel = Boolean(
+    workspacePayload.stats.model && workspacePayload.stats.modelAuthConfigured,
+  );
+  if (workspaceHasUsableModel) {
+    await quickPrompts.waitFor();
+    if ((await quickPrompts.locator(".quick-prompt-btn").count()) !== 1) {
+      throw new Error("The workspace must show exactly one quick prompt at a time");
+    }
+    const quickPromptText = quickPrompts.locator(".quick-prompt-text");
+    if ((await quickPromptText.textContent()) !== smokeQuickPrompts[0]) {
+      throw new Error("The first saved quick prompt did not appear in the workspace strip");
+    }
+    await quickPrompts.locator(".quick-prompt-btn").click();
+    await page.waitForFunction((expected) => (
+      document.querySelector(".composer textarea")?.value === expected
+    ), smokeQuickPrompts[0]);
+    await textarea.fill("");
+    await quickPrompts.hover();
+    await page.mouse.wheel(0, 80);
+    await page.waitForFunction((expected) => (
+      document.querySelector(".quick-prompt-text")?.textContent === expected
+    ), smokeQuickPrompts[1]);
+  } else {
+    const modelNotice = page.locator(".workspace-model-notice");
+    await modelNotice.waitFor();
+    const expectedNotice = workspacePayload.stats.model
+      ? "No credentials configured — configure"
+      : "No model configured — configure";
+    if ((await modelNotice.getByRole("button").textContent())?.trim() !== expectedNotice) {
+      throw new Error("The workspace did not show the correct model configuration action");
+    }
+    if ((await quickPrompts.count()) !== 0) {
+      throw new Error("Quick prompts must yield to the model configuration action when no model is usable");
+    }
   }
-  const quickPromptText = quickPrompts.locator(".quick-prompt-text");
-  if ((await quickPromptText.textContent()) !== smokeQuickPrompts[0]) {
-    throw new Error("The first saved quick prompt did not appear in the workspace strip");
-  }
-  await quickPrompts.locator(".quick-prompt-btn").click();
-  await page.waitForFunction((expected) => (
-    document.querySelector(".composer textarea")?.value === expected
-  ), smokeQuickPrompts[0]);
-  await textarea.fill("");
-  await quickPrompts.hover();
-  await page.mouse.wheel(0, 80);
-  await page.waitForFunction((expected) => (
-    document.querySelector(".quick-prompt-text")?.textContent === expected
-  ), smokeQuickPrompts[1]);
   await textarea.click();
   await textarea.fill("请帮我执行 /");
   await page.locator(".slash-popover").waitFor();
@@ -500,10 +518,13 @@ try {
   await page.locator(".context-usage-list").waitFor();
   await page.locator(".context-usage-visual").waitFor();
   const workspaceContextStrip = page.locator(".workspace-context-surface .workspace-context-strip");
+  const expectedWorkspaceAccessory = workspaceHasUsableModel
+    ? workspaceContextStrip.locator(".quick-prompts")
+    : workspaceContextStrip.locator(".workspace-model-notice");
   if (
     (await workspaceContextStrip.count()) !== 1
     || (await workspaceContextStrip.locator(".workspace-client-name").count()) !== 1
-    || (await workspaceContextStrip.locator(".quick-prompts").count()) !== 1
+    || (await expectedWorkspaceAccessory.count()) !== 1
   ) {
     throw new Error("Context Usage is not integrated into the workspace surface");
   }
