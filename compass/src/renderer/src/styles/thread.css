@@ -341,12 +341,12 @@
 }
 
 .copy-button:hover {
-  background: var(--color-hover);
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
 .copy-button:focus-visible {
-  outline: 2px solid var(--color-focus);
+  outline: 2px solid var(--color-border-focus);
   outline-offset: 2px;
 }
 
