@@ -469,22 +469,30 @@
 
         /* HERO SECTION */
         .hero {
-            padding: 7rem 0 5rem 0;
+            padding: 3.5rem 0 3rem;
             border-bottom: 0.5px solid var(--color-border);
             min-height: calc(100dvh - 7.25rem);
             display: flex;
-            align-items: center;
+            align-items: flex-start;
         }
 
         .hero-grid {
             display: grid;
+            width: 100%;
             grid-template-columns: var(--golden-ratio-large) var(--golden-ratio-small);
             gap: var(--grid-gap);
         }
 
+        .hero-title-area {
+            grid-column: 1 / -1;
+            justify-self: start;
+            width: 100%;
+            max-width: 42.5rem;
+        }
+
         .hero-title-area h1 {
             font-size: 5rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem;
             font-weight: 300;
         }
 
@@ -567,17 +575,25 @@
             font-weight: 300;
             letter-spacing: 0.15em;
             color: var(--color-text-secondary);
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
             border-left: 1.5px solid var(--color-accent);
             padding-left: 1.5rem;
             line-height: 1.5;
         }
 
         .hero-description {
-            font-size: 1.1rem;
-            line-height: 1.8;
+            font-size: 1.05rem;
+            line-height: 1.7;
             color: var(--color-text-secondary);
-            max-width: 90%;
+            max-width: 100%;
+        }
+
+        .hero-description p {
+            margin-bottom: 1rem;
+        }
+
+        .hero-description p:last-child {
+            margin-bottom: 0;
         }
 
         .spec-table {
