@@ -34,6 +34,7 @@ const api: CompassApi = {
   setThinkingLevel: (level: ThinkingLevel) => ipcRenderer.invoke("thinking:set", level),
   setPermissionMode: (mode: PermissionMode) => ipcRenderer.invoke("permissions:set", mode),
   setLanguage: (language: AppLanguage) => ipcRenderer.invoke("settings:set-language", language),
+  setQuickPrompts: (prompts) => ipcRenderer.invoke("settings:set-quick-prompts", prompts),
   setApiKey: (provider, key) => ipcRenderer.invoke("auth:set-key", provider, key),
   loginProvider: (provider) => ipcRenderer.invoke("auth:login-provider", provider),
   removeApiKey: (provider) => ipcRenderer.invoke("auth:remove", provider),

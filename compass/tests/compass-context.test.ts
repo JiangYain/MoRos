@@ -31,6 +31,37 @@ test("buildClientContext follows the persisted session assignment", () => {
   assert.equal(buildClientContext(registry, "unassigned-session"), undefined);
 });
 
+test("buildClientContext surfaces the missing-value copy when gender is null", () => {
+  const registry: ClientRegistry = {
+    clients: ["Pat"],
+    assignments: { "session-pat": "Pat" },
+    profiles: {
+      pat: {
+        displayName: "Pat",
+        name: "Pat",
+        gender: null,
+        age: null,
+        contact: "",
+        notes: "",
+        hearingAidBrands: [],
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    },
+  };
+
+  // zh-CN: missing copy is "未填写", and null must not leak "null" or a default gender label.
+  const zh = buildClientContext(registry, "session-pat", "zh-CN") ?? "";
+  assert.match(zh, /姓名：Pat/);
+  assert.match(zh, /性别：未填写/);
+  assert.doesNotMatch(zh, /性别：null/);
+  assert.doesNotMatch(zh, /性别：(男|女)/);
+
+  const en = buildClientContext(registry, "session-pat", "en") ?? "";
+  assert.match(en, /Gender: Not provided/);
+  assert.doesNotMatch(en, /Gender: (Male|Female|null)/);
+});
+
 test("buildLanguageContext follows the selected interface language", () => {
   assert.match(buildLanguageContext("zh-CN"), /简体中文/);
   assert.match(buildLanguageContext("zh-TW"), /繁體中文/);

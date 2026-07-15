@@ -199,6 +199,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     },
     setPermissionMode: async (mode) => service.setPermissionMode(mode),
     setLanguage: async (language) => service.setLanguage(language),
+    setQuickPrompts: async (prompts) => service.setQuickPrompts(prompts),
     setApiKey: async (provider, key) => {
       await service.setApiKey(provider, key);
       return buildAndPublish();

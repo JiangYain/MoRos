@@ -463,28 +463,36 @@
             font-weight: 500;
         }
 
+        .meta-item .status-value {
+            text-transform: none;
+        }
+
         /* HERO SECTION */
         .hero {
-            padding: 7rem 0 5rem 0;
+            padding: 3.5rem 0 3rem;
             border-bottom: 0.5px solid var(--color-border);
             min-height: calc(100dvh - 7.25rem);
             display: flex;
-            align-items: center;
+            align-items: flex-start;
         }
 
         .hero-grid {
             display: grid;
+            width: 100%;
             grid-template-columns: var(--golden-ratio-large) var(--golden-ratio-small);
             gap: var(--grid-gap);
         }
 
-        .hero-meta-area {
-            margin-top: 6.75rem;
+        .hero-title-area {
+            grid-column: 1 / -1;
+            justify-self: start;
+            width: 100%;
+            max-width: 42.5rem;
         }
 
         .hero-title-area h1 {
             font-size: 5rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem;
             font-weight: 300;
         }
 
@@ -567,17 +575,25 @@
             font-weight: 300;
             letter-spacing: 0.15em;
             color: var(--color-text-secondary);
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
             border-left: 1.5px solid var(--color-accent);
             padding-left: 1.5rem;
             line-height: 1.5;
         }
 
         .hero-description {
-            font-size: 1.1rem;
-            line-height: 1.8;
+            font-size: 1.05rem;
+            line-height: 1.7;
             color: var(--color-text-secondary);
-            max-width: 90%;
+            max-width: 100%;
+        }
+
+        .hero-description p {
+            margin-bottom: 1rem;
+        }
+
+        .hero-description p:last-child {
+            margin-bottom: 0;
         }
 
         .spec-table {
@@ -1123,7 +1139,6 @@
                 gap: 3rem;
             }
             .hero-title-area,
-            .hero-meta-area,
             .section-sidebar,
             .section-content,
             .footer-right {
@@ -1147,9 +1162,6 @@
             .header-meta {
                 justify-content: flex-start;
                 margin-top: 1.5rem;
-            }
-            .hero-meta-area {
-                margin-top: 0;
             }
             .hero,
             .section,
@@ -1211,7 +1223,7 @@
             <div class="header-meta uppercase tracking-wide">
                 <div class="meta-item">赛道：<span>社会服务 + 社会公益</span></div>
                 <div class="meta-item">比赛：<span>TRAE AI 创造力大赛</span></div>
-                <div class="meta-item">状态：<span>PROPOSAL / 提案阶段</span></div>
+                <div class="meta-item">状态：<span class="status-value">初赛/Demo阶段</span></div>
             </div>
         </div>
     </header>
@@ -1229,33 +1241,9 @@
                 </h1>
                 <div class="subtitle">基于 Agent 的智能助听器验配助手</div>
                 <div class="hero-description">
-                    <p>助听器验配并非简单地把声音放大，而是一项需要精密听力学知识、参数调试能力、用户沟通技巧和长期随访经验共同支撑的专业康复服务。当前基层服务网点中，“<strong>需求爆发增长</strong>”与“<strong>专业经验短缺</strong>”的矛盾极其严重。</p>
-                    <p><strong class="brand-name">Compass<span class="brand-dot">.</span></strong> 是一套专为助听器验配师打造的智能辅助决策系统。它采用 Electron 架构构建 Windows 桌面端，核心依托 Agent 所具备的理解自然语言、分析结构化数据、生成操作建议和执行验配任务的能力，将听损用户主观、模糊、碎片化的日常反馈翻译为精准、科学、可直接执行的助听器调参参数，确保先进的助听技术能够真正、无损地交付给每一位有需要的听损患者。</p>
+                    <p><strong class="brand-name">Compass<span class="brand-dot">.</span></strong> 是一套专为助听器验配师打造的智能辅助决策系统。它采用 <strong>Electron 架构构建 Windows 桌面端</strong>，核心依托 Agent 所具备的理解自然语言、分析结构化数据、生成操作建议和执行验配任务的能力，将听损用户主观、模糊、碎片化的日常反馈翻译为精准、科学、可直接执行的助听器调参参数，确保先进的助听技术能够真正、无损地交付给每一位有需要的听损患者。</p>
+                    <p><strong>Compass 的完整功能需要运行在专业听力诊断与助听器验配环境中，并与 OTOsuite 等听力诊断软件、Phonak Target 和 Oticon Genie 等助听器验配软件，以及 Noahlink Wireless 等专用编程设备协同工作</strong>。因此，本项目需通过 Windows 桌面客户端进行体验。考虑到评审环境可能暂不具备上述软件及硬件条件，我们特别录制了完整的<strong>功能演示视频</strong>，以直观呈现产品的核心流程与实际效果；同时也提供 <strong>Windows 客户端exe下载链接</strong>，供下载安装并进行实际测试。</p>
                 </div>
-            </div>
-            <div class="hero-meta-area">
-                <table class="spec-table">
-                    <tr>
-                        <td class="uppercase tracking-wide">Product Form</td>
-                        <td>Windows 桌面端软件 (Electron)</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Target Users</td>
-                        <td>门店验配师、基层听力服务人员</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Core Engine</td>
-                        <td>Agent Runtime + Audiology Knowledge</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Design Philosophy</td>
-                        <td>可解释 · 可确认 · 可执行 · 可验证 · 可记录</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Release Date</td>
-                        <td>June 30, 2026</td>
-                    </tr>
-                </table>
             </div>
         </div>
     </section>
@@ -1922,7 +1910,6 @@
                 const titleEcho = ".hero-title-echo";
                 const subtitle = ".hero-title-area .subtitle";
                 const heroParagraphs = ".hero-description p";
-                const metaRows = ".hero-meta-area tr";
                 const mm = window.gsap.matchMedia();
 
                 mm.add(
@@ -1937,7 +1924,7 @@
                             window.gsap.set(titleChars, { autoAlpha: 1, yPercent: 0, rotationX: 0, filter: "blur(0px)" });
                             window.gsap.set(titleDot, { autoAlpha: 1, yPercent: 0, scale: 1, rotation: 0, filter: "blur(0px)" });
                             window.gsap.set(titleEcho, { autoAlpha: 0 });
-                            window.gsap.set([subtitle, heroParagraphs, metaRows], { autoAlpha: 1, y: 0, filter: "blur(0px)" });
+                            window.gsap.set([subtitle, heroParagraphs], { autoAlpha: 1, y: 0, filter: "blur(0px)" });
                             return;
                         }
 
@@ -1962,7 +1949,7 @@
                             scale: 1,
                             filter: "blur(0px)"
                         });
-                        window.gsap.set([subtitle, heroParagraphs, metaRows], {
+                        window.gsap.set([subtitle, heroParagraphs], {
                             autoAlpha: 0,
                             y: 18,
                             filter: "blur(6px)"
@@ -1986,11 +1973,6 @@
                                 { autoAlpha: 0, y: 18, filter: "blur(6px)" },
                                 { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.68, ease: "power3.out" },
                                 "intro+=0.62"
-                            )
-                            .fromTo(metaRows,
-                                { autoAlpha: 0, y: 14, filter: "blur(5px)" },
-                                { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.58, ease: "power2.out", stagger: 0.065 },
-                                "intro+=0.74"
                             )
                             .fromTo(heroParagraphs,
                                 { autoAlpha: 0, y: 18, filter: "blur(6px)" },

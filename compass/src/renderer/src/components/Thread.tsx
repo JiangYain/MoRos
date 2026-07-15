@@ -138,13 +138,13 @@ function SkillBlock({ text }: { text: string }): React.JSX.Element {
 
   return (
     <div className="skill-block">
-      <button className="skill-head" onClick={() => setOpen((value) => !value)}>
+      <button type="button" className="skill-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <span className="skill-dot" />
         <span className="skill-kind">Skill</span>
         <span className="skill-name">{skill.name}</span>
         <span className="skill-preview">{skill.preview}</span>
         <span className="skill-meta">{t("thread.lines", { count: skill.lineCount })}</span>
-        <span className={`skill-chev${open ? " open" : ""}`}>{">"}</span>
+        <ChevronRight className={`skill-chev${open ? " open" : ""}`} size={13} strokeWidth={2} aria-hidden />
       </button>
       <AnimatePresence initial={false}>
         {open && (
@@ -286,7 +286,7 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
         <span className={`tool-status${item.isError ? " error" : ""}`}>
           {item.running ? t("thread.running") : item.isError ? t("thread.failed") : t("thread.complete")}
         </span>
-        <span className={`tool-chev${open ? " open" : ""}`}>▶</span>
+        <ChevronRight className={`tool-chev${open ? " open" : ""}`} size={13} strokeWidth={2} aria-hidden />
       </button>
       <AnimatePresence initial={false}>
         {open && (

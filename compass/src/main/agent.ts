@@ -36,6 +36,7 @@ import type {
   UiThreadItem,
 } from "@shared/types";
 import { DEFAULT_SUMMARY_MODEL, isAppLanguage, isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import { isQuickPromptList } from "@shared/quick-prompts";
 import { compactSkillText } from "../shared/skill-display.ts";
 import { app } from "electron";
 import { mkdir, rename, unlink } from "node:fs/promises";
@@ -911,6 +912,7 @@ export class AgentService {
       permissionMode: this.settings.permissionMode,
       enabledModels: this.enabledModelKeys(),
       summaryModel: { ...(this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL) },
+      ...(this.settings.quickPrompts ? { quickPrompts: [...this.settings.quickPrompts] } : {}),
     };
   }
 
@@ -1147,6 +1149,20 @@ export class AgentService {
   setLanguage(language: AppSettingsView["language"]): AppSettingsView {
     if (!isAppLanguage(language)) throw new Error("Invalid application language");
     this.settings.language = language;
+    saveSettings(this.settings);
+    return this.getSettingsView();
+  }
+
+  setQuickPrompts(prompts: unknown): AppSettingsView {
+    if (prompts === null) {
+      delete this.settings.quickPrompts;
+      saveSettings(this.settings);
+      return this.getSettingsView();
+    }
+    if (!isQuickPromptList(prompts)) {
+      throw new Error("Quick prompts must contain between 1 and 5 non-empty items.");
+    }
+    this.settings.quickPrompts = prompts.map((prompt) => prompt.trim());
     saveSettings(this.settings);
     return this.getSettingsView();
   }

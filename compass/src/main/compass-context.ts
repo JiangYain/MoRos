@@ -6,10 +6,10 @@ import {
 import type { AppLanguage } from "../shared/types.ts";
 
 const GENDER_LABELS: Record<AppLanguage, Record<ClientGender, string>> = {
-  "zh-CN": { female: "女", male: "男", "non-binary": "非二元", unspecified: "未填写" },
-  "zh-TW": { female: "女", male: "男", "non-binary": "非二元", unspecified: "未填寫" },
-  en: { female: "Female", male: "Male", "non-binary": "Non-binary", unspecified: "Not provided" },
-  de: { female: "Weiblich", male: "Männlich", "non-binary": "Nichtbinär", unspecified: "Nicht angegeben" },
+  "zh-CN": { female: "女", male: "男" },
+  "zh-TW": { female: "女", male: "男" },
+  en: { female: "Female", male: "Male" },
+  de: { female: "Weiblich", male: "Männlich" },
 };
 
 const BRAND_LABELS: Record<string, string> = {
@@ -92,7 +92,7 @@ export function buildClientContext(
   const details = profile
     ? [
         `- ${copy.name}${copy.separator}${profile.displayName}`,
-        `- ${copy.gender}${copy.separator}${GENDER_LABELS[language][profile.gender]}`,
+        `- ${copy.gender}${copy.separator}${profile.gender ? GENDER_LABELS[language][profile.gender] : copy.missing}`,
         `- ${copy.age}${copy.separator}${profile.age ?? copy.missing}`,
         `- ${copy.contact}${copy.separator}${profile.contact || copy.missing}`,
         `- ${copy.notes}${copy.separator}${profile.notes || copy.missing}`,

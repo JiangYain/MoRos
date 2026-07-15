@@ -238,6 +238,7 @@ export interface AppSettingsView {
   permissionMode: PermissionMode;
   enabledModels: string[];
   summaryModel: ModelSelection;
+  quickPrompts?: string[];
 }
 
 interface RuntimePrerequisiteActionBase {
@@ -318,6 +319,7 @@ export interface CompassApi {
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
   setPermissionMode(mode: PermissionMode): Promise<AppSettingsView>;
   setLanguage(language: AppLanguage): Promise<AppSettingsView>;
+  setQuickPrompts(prompts: string[] | null): Promise<AppSettingsView>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
   loginProvider(provider: string): Promise<InitPayload>;
   removeApiKey(provider: string): Promise<InitPayload>;

@@ -29,6 +29,8 @@ import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session"
 
 export type SettingsSection = "general" | "appearance" | "profile" | "models" | "skills";
 
+export type MainView = "assistant" | "hearing-health";
+
 interface StreamingAssistant {
   id: string;
   blocks: Map<number, UiBlock>;
@@ -52,6 +54,7 @@ interface CompassState {
   queue: { steering: string[]; followUp: string[] };
   settingsSection: SettingsSection | null;
   sidebarOpen: boolean;
+  mainView: MainView;
   /** one-shot text the composer should insert (e.g. /skill:name) */
   composerSeed: string | null;
   lastError: string | null;
@@ -62,6 +65,7 @@ interface CompassState {
   openSettings(section?: SettingsSection): void;
   closeSettings(): void;
   setSidebarOpen(open: boolean): void;
+  setMainView(view: MainView): void;
   seedComposer(text: string): void;
   clearComposerSeed(): void;
   setError(message: string | null): void;
@@ -86,6 +90,7 @@ interface CompassState {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   setLanguage(language: AppLanguage): Promise<void>;
+  setQuickPrompts(prompts: string[] | null): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
   loginProvider(provider: string): Promise<void>;
   removeApiKey(provider: string): Promise<void>;
@@ -192,6 +197,7 @@ export const useCompass = create<CompassState>((set, get) => {
   queue: { steering: [], followUp: [] },
   settingsSection: null,
   sidebarOpen: false,
+  mainView: "assistant",
   composerSeed: null,
   lastError: null,
   streamingBlocks: new Map(),
@@ -405,7 +411,8 @@ export const useCompass = create<CompassState>((set, get) => {
   openSettings: (settingsSection = "general") => set({ settingsSection }),
   closeSettings: () => set({ settingsSection: null }),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-  seedComposer: (text) => set({ composerSeed: text, settingsSection: null }),
+  setMainView: (mainView) => set({ mainView }),
+  seedComposer: (text) => set({ composerSeed: text, settingsSection: null, mainView: "assistant" }),
   clearComposerSeed: () => set({ composerSeed: null }),
   setError: (message) => set({ lastError: message }),
   setProfileAvatar: (profileAvatar) => {
@@ -487,6 +494,7 @@ export const useCompass = create<CompassState>((set, get) => {
   newSession: async () => {
     try {
       const payload = await api.newSession();
+      set({ mainView: "assistant" });
       get().applyInit(payload);
       return true;
     } catch (error) {
@@ -498,6 +506,7 @@ export const useCompass = create<CompassState>((set, get) => {
   openSession: async (path) => {
     try {
       const payload = await api.openSession(path);
+      set({ mainView: "assistant" });
       get().applyInit(payload);
       return true;
     } catch (error) {
@@ -593,6 +602,11 @@ export const useCompass = create<CompassState>((set, get) => {
   setLanguage: (language) => runIpc(async () => {
     const settings = await api.setLanguage(language);
     document.documentElement.lang = settings.language;
+    set({ settings });
+  }),
+
+  setQuickPrompts: (prompts) => runIpc(async () => {
+    const settings = await api.setQuickPrompts(prompts);
     set({ settings });
   }),
 

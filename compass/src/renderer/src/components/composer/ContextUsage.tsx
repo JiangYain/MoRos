@@ -1,7 +1,7 @@
-import { Folder, X } from "lucide-react";
-import { api } from "../../ipc";
+import { X } from "lucide-react";
 import { type TranslationKey, useI18n } from "../../i18n";
 import { useCompass } from "../../store";
+import { QuickPrompts } from "../QuickPrompts";
 
 const CONTEXT_SEGMENTS = [
   { key: "systemPrompt", labelKey: "composer.segment.systemPrompt", color: "#777777" },
@@ -12,11 +12,6 @@ const CONTEXT_SEGMENTS = [
   { key: "subagents", labelKey: "composer.segment.subagents", color: "#2d7fc0" },
   { key: "conversation", labelKey: "composer.segment.conversation", color: "#d83a1f" },
 ] as const;
-
-function workspaceName(path: string | undefined, fallback: string): string {
-  const parts = path?.split(/[\\/]/).filter(Boolean) ?? [];
-  return parts.at(-1) ?? fallback;
-}
 
 function formatCount(value: number, approximate = false): string {
   const rounded = approximate && value < 1_000 ? Math.round(value / 10) * 10 : value;
@@ -31,12 +26,18 @@ function formatCount(value: number, approximate = false): string {
 interface ContextUsageSurfaceProps {
   expanded: boolean;
   onClose(): void;
+  showQuickPrompts?: boolean;
 }
 
-export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfaceProps): React.JSX.Element {
+export function ContextUsageSurface({ expanded, onClose, showQuickPrompts = false }: ContextUsageSurfaceProps): React.JSX.Element {
   const { t } = useI18n();
-  const settings = useCompass((state) => state.settings);
   const stats = useCompass((state) => state.stats);
+  const clientRegistry = useCompass((state) => state.clientRegistry);
+  const openSettings = useCompass((state) => state.openSettings);
+  const sessionId = stats?.sessionId;
+  const clientName = sessionId ? clientRegistry.assignments[sessionId] : undefined;
+  const clientDisplayName = clientName || t("context.unassigned");
+  const noModel = !stats?.model || !stats.modelAuthConfigured;
   const rawPercent = stats?.contextPercent;
   const contextPercent = Math.min(100, Math.max(0, rawPercent ?? 0));
   const contextKnown = rawPercent !== null && rawPercent !== undefined;
@@ -136,17 +137,18 @@ export function ContextUsageSurface({ expanded, onClose }: ContextUsageSurfacePr
           </section>
         )}
 
-        <button
-          type="button"
-          className="workspace-tab"
-          title={settings?.workspaceDir}
-          onClick={() => {
-            if (settings?.workspaceDir) void api.openPath(settings.workspaceDir);
-          }}
-        >
-          <Folder size={15} strokeWidth={1.6} />
-          <span>{workspaceName(settings?.workspaceDir, t("composer.chooseWorkspace"))}</span>
-        </button>
+        <div className="workspace-context-strip">
+          <div className="workspace-client" title={clientName ?? t("context.unassigned")}>
+            <span className="workspace-client-name">{clientDisplayName}</span>
+          </div>
+          {noModel ? (
+            <div className="workspace-model-notice">
+              <button type="button" onClick={() => openSettings("models")}>
+                {t(stats?.model ? "composer.configureCredentialsAction" : "composer.configureModelAction")}
+              </button>
+            </div>
+          ) : showQuickPrompts ? <QuickPrompts /> : null}
+        </div>
       </div>
     </div>
   );
