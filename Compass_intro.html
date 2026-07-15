@@ -3,7 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Compass智能验配</title>
+    <title>Compass 智能验配｜基于 Agent 的助听器验配助手</title>
+    <meta name="description" content="Compass 是面向助听器验配师的智能辅助决策系统，基于 Agent 将用户主诉转化为可解释、可确认、可执行、可验证、可记录的助听器调参建议。">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <meta name="author" content="Compass">
+    <meta name="theme-color" content="#f7f7f5">
+    <link rel="canonical" href="https://trae.obscurus.tech/">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="zh_CN">
+    <meta property="og:site_name" content="Compass">
+    <meta property="og:title" content="Compass 智能验配｜基于 Agent 的助听器验配助手">
+    <meta property="og:description" content="让专业、规范、可追溯的助听器验配服务下沉到更多基层场景。">
+    <meta property="og:url" content="https://trae.obscurus.tech/">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Compass 智能验配｜基于 Agent 的助听器验配助手">
+    <meta name="twitter:description" content="基于 Agent 的智能助听器验配助手。">
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            "name": "Compass 智能验配",
+            "alternateName": "Compass",
+            "url": "https://trae.obscurus.tech/",
+            "description": "面向助听器验配师的智能辅助决策系统，将用户主诉转化为可解释、可确认、可执行、可验证、可记录的调参建议。",
+            "applicationCategory": "HealthApplication",
+            "operatingSystem": "Windows",
+            "inLanguage": "zh-CN"
+        }
+    </script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA3MzIgNzMyIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtNzgsLTEzMy41KSB0cmFuc2xhdGUoMCw0OTkuNSkgc2NhbGUoMSwwLjg1NDE0MjM1NzEpIHRyYW5zbGF0ZSgwLC00OTkuNSkiPjxwYXRoIGQ9Ik0gMjgwIDcxIEwgNzggMjE0IEwgNzggOTI4IEwgNTUyIDkyOCBMIDU1MiA4NTQgTCAxNjkgODUyIEwgMjk5IDcyMiBMIDYwMyA3MjIgTCA2MDggNjk1IEwgMzA3IDY5NCBMIDMwNyAzMTYgTCAyODAgMzE2IEwgMjgwIDcwMiBMIDE1MiA4MjkgTCAxNTIgMjkwIEwgNTUyIDI4OSBMIDU1MiAyMTUgTCAxMjggMjEzIEwgMjg4IDk4IEwgNzU0IDk4IEwgODA2IDcxIFoiIGZpbGw9IiMxMTExMTEiLz48cGF0aCBkPSJNIDgxMCAxMDMgTCA1OTQgMjE1IEwgNTk3IDI4NyBMIDcxNiAyMjkgTCA1OTQgOTI3IEwgNjY2IDkyNyBMIDgxMCA3ODMgTCA4MDcgNzAwIEwgNjg4IDgwMyBaIiBmaWxsPSIjRDk0NjMyIi8+PC9nPjwvc3ZnPg==">
     <style>
         /* Embedded fonts: Inter and Cormorant Garamond are stored inside this HTML file. */
@@ -274,11 +301,11 @@
 
         /* CSS RESET & VARIABLES */
         :root {
-            --color-accent: #D94632;       /* Terracotta/Vermilion Red */
+            --color-accent: #D33F2C;       /* Accessible Terracotta/Vermilion Red */
             --color-bg: #FFFFFF;           /* Pure White */
             --color-text-primary: #111111;  /* Rich Near-Black */
             --color-text-secondary: #555555;/* Restrained Charcoal Grey */
-            --color-text-tertiary: #999999; /* Muted Light Grey */
+            --color-text-tertiary: #707070; /* Accessible Muted Grey */
             --color-border: rgba(17, 17, 17, 0.08); /* Minimalist divider line */
             --color-border-strong: rgba(17, 17, 17, 0.15);
             --color-surface: #FAF9F6;      /* Off-White / Alabaster background for cards */
@@ -606,8 +633,7 @@
             font-family: var(--font-serif);
             font-size: 4rem;
             line-height: 1;
-            color: var(--color-text-tertiary);
-            opacity: 0.4;
+            color: #878787;
             margin-bottom: 1.5rem;
         }
 
@@ -1020,14 +1046,88 @@
             font-style: italic;
         }
 
+        .footer-filing {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.5rem;
+            margin-top: 2rem;
+            padding-top: 1.25rem;
+            border-top: 0.5px solid var(--color-border);
+            letter-spacing: 0.08em;
+        }
+
+        .footer-filing-label {
+            color: var(--color-text-secondary);
+            font-family: var(--font-serif);
+            font-size: 0.9rem;
+            letter-spacing: 0;
+        }
+
+        .footer-filing-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            color: var(--color-text-secondary);
+            font-size: 11px;
+            font-weight: 400;
+            text-decoration: none;
+            transition: color 180ms ease;
+        }
+
+        .footer-filing-link::before {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--color-accent);
+            content: "";
+            flex: 0 0 auto;
+        }
+
+        .footer-filing-link:hover,
+        .footer-filing-link:focus-visible {
+            color: var(--color-accent);
+        }
+
+        .footer-filing-link:focus-visible,
+        .skip-link:focus-visible {
+            outline: 1px solid var(--color-accent);
+            outline-offset: 4px;
+        }
+
+        .skip-link {
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 1000;
+            padding: 0.65rem 0.9rem;
+            background: var(--color-text-primary);
+            color: var(--color-bg);
+            font-size: 12px;
+            text-decoration: none;
+            transform: translateY(calc(-100% - 2rem));
+            transition: transform 180ms ease;
+        }
+
+        .skip-link:focus {
+            transform: translateY(0);
+        }
+
         /* RESPONSIVE DESIGN */
         @media (max-width: 992px) {
             .container {
                 padding: 0 2rem;
             }
             .hero-grid, .section-grid, .nav-grid, .footer-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 3rem;
+            }
+            .hero-title-area,
+            .hero-meta-area,
+            .section-sidebar,
+            .section-content,
+            .footer-right {
+                min-width: 0;
             }
             .section-sidebar {
                 padding-right: 0;
@@ -1065,9 +1165,36 @@
                 gap: 1.25rem;
             }
         }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 0 1.5rem;
+            }
+            .stat-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+            .visual-container {
+                padding: 1rem;
+            }
+            .visual-container svg {
+                width: 100%;
+                max-width: 100%;
+                height: auto;
+            }
+            .footer-evidence-title,
+            .footer-filing {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+            .footer-filing {
+                gap: 0.75rem;
+            }
+        }
     </style>
 </head>
 <body>
+
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
 
     <!-- HEADER / NAVIGATION -->
     <header>
@@ -1089,6 +1216,7 @@
         </div>
     </header>
 
+    <main id="main-content">
     <!-- HERO SECTION -->
     <section class="hero">
         <div class="container hero-grid">
@@ -1386,6 +1514,8 @@
         </div>
     </section>
 
+    </main>
+
     <!-- FOOTER -->
     <footer>
         <div class="container footer-grid">
@@ -1429,6 +1559,10 @@
                                 <li>国家卫生健康委等部门. “人工智能+医疗卫生”相关实施意见. 提出到 2027 年形成一批临床专病专科垂直大模型和智能体应用，到 2030 年基层诊疗智能辅助应用基本实现全覆盖。</li>
                             </ol>
                         </div>
+                    </div>
+                    <div class="footer-filing">
+                        <span class="footer-filing-label">Compass<span class="accent">.</span> · Intelligent Hearing-Aid Fitting</span>
+                        <a class="footer-filing-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">浙ICP备2025189127号</a>
                     </div>
                 </div>
             </div>
