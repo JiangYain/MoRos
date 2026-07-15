@@ -596,6 +596,56 @@
             margin-bottom: 0;
         }
 
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        .hero-action {
+            display: inline-flex;
+            min-height: 2.875rem;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.25rem;
+            padding: 0.78rem 1.1rem;
+            border: 1px solid var(--color-text-primary);
+            color: var(--color-text-primary);
+            font-family: var(--font-sans);
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            line-height: 1;
+            text-decoration: none;
+            transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+        }
+
+        .hero-action--primary {
+            background: var(--color-text-primary);
+            color: var(--color-bg);
+        }
+
+        .hero-action--primary:hover {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+
+        .hero-action--secondary:hover {
+            background: var(--color-surface);
+            border-color: var(--color-accent);
+        }
+
+        .hero-action:focus-visible {
+            outline: 2px solid var(--color-accent);
+            outline-offset: 3px;
+        }
+
+        .hero-action-icon {
+            font-size: 1rem;
+            line-height: 0.75;
+        }
+
         .spec-table {
             border-collapse: collapse;
             width: 100%;
@@ -1182,6 +1232,13 @@
             .container {
                 padding: 0 1.5rem;
             }
+            .hero-actions {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+            }
+            .hero-action {
+                width: 100%;
+            }
             .stat-grid {
                 grid-template-columns: minmax(0, 1fr);
             }
@@ -1244,6 +1301,16 @@
                     <p><strong class="brand-name">Compass<span class="brand-dot">.</span></strong> 是一套专为助听器验配师打造的智能辅助决策系统。它采用 <strong>Electron 架构构建 Windows 桌面端</strong>，核心依托 Agent 所具备的理解自然语言、分析结构化数据、生成操作建议和执行验配任务的能力，将听损用户主观、模糊、碎片化的日常反馈翻译为精准、科学、可直接执行的助听器调参参数，确保先进的助听技术能够真正、无损地交付给每一位有需要的听损患者。</p>
                     <p><strong>Compass 的完整功能需要运行在专业听力诊断与助听器验配环境中，并与 OTOsuite 等听力诊断软件、Phonak Target 和 Oticon Genie 等助听器验配软件，以及 Noahlink Wireless 等专用编程设备协同工作</strong>。因此，本项目需通过 Windows 桌面客户端进行体验。考虑到评审环境可能暂不具备上述软件及硬件条件，我们特别录制了完整的<strong>功能演示视频</strong>，以直观呈现产品的核心流程与实际效果；同时也提供 <strong>Windows 客户端exe下载链接</strong>，供下载安装并进行实际测试。</p>
                 </div>
+                <nav class="hero-actions" aria-label="项目相关链接">
+                    <a class="hero-action hero-action--primary" href="https://pub-7d7bca9bac3247e9a10fa5dec4817657.r2.dev/Compass%20Setup%200.1.0.exe" download="Compass Setup 0.1.0.exe" type="application/vnd.microsoft.portable-executable" aria-label="下载 Compass Windows 客户端">
+                        <span>下载 Windows 客户端</span>
+                        <span class="hero-action-icon" aria-hidden="true">↓</span>
+                    </a>
+                    <a class="hero-action hero-action--secondary" href="https://chord.obscurus.tech/">
+                        <span>About Me</span>
+                        <span class="hero-action-icon" aria-hidden="true">↗</span>
+                    </a>
+                </nav>
             </div>
         </div>
     </section>
@@ -1910,6 +1977,7 @@
                 const titleEcho = ".hero-title-echo";
                 const subtitle = ".hero-title-area .subtitle";
                 const heroParagraphs = ".hero-description p";
+                const heroActions = ".hero-actions";
                 const mm = window.gsap.matchMedia();
 
                 mm.add(
@@ -1924,7 +1992,7 @@
                             window.gsap.set(titleChars, { autoAlpha: 1, yPercent: 0, rotationX: 0, filter: "blur(0px)" });
                             window.gsap.set(titleDot, { autoAlpha: 1, yPercent: 0, scale: 1, rotation: 0, filter: "blur(0px)" });
                             window.gsap.set(titleEcho, { autoAlpha: 0 });
-                            window.gsap.set([subtitle, heroParagraphs], { autoAlpha: 1, y: 0, filter: "blur(0px)" });
+                            window.gsap.set([subtitle, heroParagraphs, heroActions], { autoAlpha: 1, y: 0, filter: "blur(0px)" });
                             return;
                         }
 
@@ -1949,7 +2017,7 @@
                             scale: 1,
                             filter: "blur(0px)"
                         });
-                        window.gsap.set([subtitle, heroParagraphs], {
+                        window.gsap.set([subtitle, heroParagraphs, heroActions], {
                             autoAlpha: 0,
                             y: 18,
                             filter: "blur(6px)"
@@ -1978,6 +2046,11 @@
                                 { autoAlpha: 0, y: 18, filter: "blur(6px)" },
                                 { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.66, ease: "power3.out", stagger: 0.11 },
                                 "intro+=0.86"
+                            )
+                            .fromTo(heroActions,
+                                { autoAlpha: 0, y: 18, filter: "blur(6px)" },
+                                { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "power3.out" },
+                                "intro+=1.08"
                             );
 
                         heroLoopEnabled = true;
