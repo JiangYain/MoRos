@@ -15,7 +15,7 @@ except ImportError:  # The build remains functional without optional image conve
 
 
 DEPLOY_DIR = Path(__file__).resolve().parent
-SOURCE_HTML = DEPLOY_DIR.parent.parent / "Compass_intro.html"
+SOURCE_HTML = DEPLOY_DIR.parent.parent / "Compass_intro_compass4trae.html"
 DIST_DIR = DEPLOY_DIR / "dist"
 ASSET_DIR = DIST_DIR / "assets"
 
@@ -145,4 +145,3 @@ def build() -> dict[str, int | bool]:
 
 if __name__ == "__main__":
     print(json.dumps(build(), ensure_ascii=False, indent=2))
-
