@@ -482,10 +482,6 @@
             gap: var(--grid-gap);
         }
 
-        .hero-meta-area {
-            margin-top: 6.75rem;
-        }
-
         .hero-title-area h1 {
             font-size: 5rem;
             margin-bottom: 1.5rem;
@@ -1127,7 +1123,6 @@
                 gap: 3rem;
             }
             .hero-title-area,
-            .hero-meta-area,
             .section-sidebar,
             .section-content,
             .footer-right {
@@ -1151,9 +1146,6 @@
             .header-meta {
                 justify-content: flex-start;
                 margin-top: 1.5rem;
-            }
-            .hero-meta-area {
-                margin-top: 0;
             }
             .hero,
             .section,
@@ -1235,30 +1227,6 @@
                 <div class="hero-description">
                     <p><strong class="brand-name">Compass<span class="brand-dot">.</span></strong> 是一套专为助听器验配师打造的智能辅助决策系统。它采用 Electron 架构构建 Windows 桌面端，核心依托 Agent 所具备的理解自然语言、分析结构化数据、生成操作建议和执行验配任务的能力，将听损用户主观、模糊、碎片化的日常反馈翻译为精准、科学、可直接执行的助听器调参参数，确保先进的助听技术能够真正、无损地交付给每一位有需要的听损患者。</p>
                 </div>
-            </div>
-            <div class="hero-meta-area">
-                <table class="spec-table">
-                    <tr>
-                        <td class="uppercase tracking-wide">Product Form</td>
-                        <td>Windows 桌面端软件 (Electron)</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Target Users</td>
-                        <td>门店验配师、基层听力服务人员</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Core Engine</td>
-                        <td>Agent Runtime + Audiology Knowledge</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Design Philosophy</td>
-                        <td>可解释 · 可确认 · 可执行 · 可验证 · 可记录</td>
-                    </tr>
-                    <tr>
-                        <td class="uppercase tracking-wide">Release Date</td>
-                        <td>June 30, 2026</td>
-                    </tr>
-                </table>
             </div>
         </div>
     </section>
@@ -1925,7 +1893,6 @@
                 const titleEcho = ".hero-title-echo";
                 const subtitle = ".hero-title-area .subtitle";
                 const heroParagraphs = ".hero-description p";
-                const metaRows = ".hero-meta-area tr";
                 const mm = window.gsap.matchMedia();
 
                 mm.add(
@@ -1940,7 +1907,7 @@
                             window.gsap.set(titleChars, { autoAlpha: 1, yPercent: 0, rotationX: 0, filter: "blur(0px)" });
                             window.gsap.set(titleDot, { autoAlpha: 1, yPercent: 0, scale: 1, rotation: 0, filter: "blur(0px)" });
                             window.gsap.set(titleEcho, { autoAlpha: 0 });
-                            window.gsap.set([subtitle, heroParagraphs, metaRows], { autoAlpha: 1, y: 0, filter: "blur(0px)" });
+                            window.gsap.set([subtitle, heroParagraphs], { autoAlpha: 1, y: 0, filter: "blur(0px)" });
                             return;
                         }
 
@@ -1965,7 +1932,7 @@
                             scale: 1,
                             filter: "blur(0px)"
                         });
-                        window.gsap.set([subtitle, heroParagraphs, metaRows], {
+                        window.gsap.set([subtitle, heroParagraphs], {
                             autoAlpha: 0,
                             y: 18,
                             filter: "blur(6px)"
@@ -1989,11 +1956,6 @@
                                 { autoAlpha: 0, y: 18, filter: "blur(6px)" },
                                 { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.68, ease: "power3.out" },
                                 "intro+=0.62"
-                            )
-                            .fromTo(metaRows,
-                                { autoAlpha: 0, y: 14, filter: "blur(5px)" },
-                                { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.58, ease: "power2.out", stagger: 0.065 },
-                                "intro+=0.74"
                             )
                             .fromTo(heroParagraphs,
                                 { autoAlpha: 0, y: 18, filter: "blur(6px)" },
