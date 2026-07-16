@@ -7,6 +7,7 @@ import {
   type UiImageAttachment,
   type WebRpcMethod,
 } from "@shared/types";
+import { isQuickPromptList } from "@shared/quick-prompts";
 import type { ClientProfileDraft } from "@shared/client-registry";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -153,6 +154,13 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
       const language = args[0];
       if (!isAppLanguage(language)) throw new Error("Invalid application language.");
       return api.setLanguage(language);
+    },
+    setQuickPrompts: (args) => {
+      const prompts = args[0];
+      if (prompts !== null && !isQuickPromptList(prompts)) {
+        throw new Error("Quick prompts must contain between 1 and 5 non-empty items.");
+      }
+      return api.setQuickPrompts(prompts);
     },
     setApiKey: (args) =>
       api.setApiKey(stringArg(args, 0, "provider"), stringArg(args, 1, "key")),

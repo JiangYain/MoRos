@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./components/Composer";
+import { HearingHealthWorkspace } from "./components/HearingHealthWorkspace";
 import { Hero } from "./components/Hero";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { Sidebar } from "./components/Sidebar";
@@ -13,7 +14,8 @@ import { useThemePreference } from "./theme";
 type NavigationTarget =
   | { key: "workspace"; kind: "workspace" }
   | { key: `session:${string}`; kind: "session"; path: string }
-  | { key: `settings:${SettingsSection}`; kind: "settings"; section: SettingsSection };
+  | { key: `settings:${SettingsSection}`; kind: "settings"; section: SettingsSection }
+  | { key: "hearing-health"; kind: "hearing-health" };
 
 interface NavigationAvailability {
   canGoBack: boolean;
@@ -37,6 +39,8 @@ export default function App(): React.JSX.Element {
   const settingsSection = useCompass((s) => s.settingsSection);
   const sidebarOpen = useCompass((s) => s.sidebarOpen);
   const setSidebarOpen = useCompass((s) => s.setSidebarOpen);
+  const mainView = useCompass((s) => s.mainView);
+  const setMainView = useCompass((s) => s.setMainView);
   const historyRef = useRef<NavigationTarget[]>([]);
   const historyIndexRef = useRef(-1);
   const pendingNavigationKeyRef = useRef<NavigationTarget["key"] | null>(null);
@@ -57,6 +61,9 @@ export default function App(): React.JSX.Element {
         section: settingsSection,
       };
     }
+    if (mainView === "hearing-health") {
+      return { key: "hearing-health", kind: "hearing-health" };
+    }
     if (activeSessionPath) {
       return {
         key: `session:${activeSessionPath}`,
@@ -65,7 +72,7 @@ export default function App(): React.JSX.Element {
       };
     }
     return { key: "workspace", kind: "workspace" };
-  }, [activeSessionPath, settingsSection]);
+  }, [activeSessionPath, mainView, settingsSection]);
 
   const syncNavigationAvailability = useCallback((): void => {
     const index = historyIndexRef.current;
@@ -80,10 +87,16 @@ export default function App(): React.JSX.Element {
       openSettings(target.section);
       return;
     }
+    if (target.kind === "hearing-health") {
+      closeSettings();
+      setMainView("hearing-health");
+      return;
+    }
     closeSettings();
+    setMainView("assistant");
     if (target.kind === "session") return openSession(target.path);
     return newSession();
-  }, [closeSettings, newSession, openSession, openSettings]);
+  }, [closeSettings, newSession, openSession, openSettings, setMainView]);
 
   const navigateHistory = useCallback((offset: -1 | 1): void => {
     const previousIndex = historyIndexRef.current;
@@ -221,8 +234,14 @@ export default function App(): React.JSX.Element {
             )}
             <Sidebar />
             <main className="main-col">
-              {ready && thread.length === 0 && approvals.length === 0 ? <Hero /> : <Thread />}
-              <Composer />
+              {mainView === "hearing-health" ? (
+                <HearingHealthWorkspace />
+              ) : (
+                <>
+                  {ready && thread.length === 0 && approvals.length === 0 ? <Hero /> : <Thread />}
+                  <Composer showQuickPrompts={ready && thread.length === 0 && approvals.length === 0} />
+                </>
+              )}
             </main>
           </>
         )}

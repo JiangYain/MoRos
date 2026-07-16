@@ -4,6 +4,7 @@ import {
   addClient,
   addClientProfile,
   assignSessionToClient,
+  normalizeClientProfileDraft,
   parseClientRegistry,
   unassignSession,
 } from "../src/shared/client-registry.ts";
@@ -82,4 +83,54 @@ test("legacy detailed profiles migrate into the compact profile shape", () => {
     ["unitron", "oticon", "other", "phonak"],
   );
   assert.ok((registry.profiles["王小明"].age ?? 0) > 0);
+});
+
+test("retired, missing, and invalid gender values normalize to null while female/male survive", () => {
+  // normalizeClientProfileDraft covers drafts coming from the editor and IPC payloads.
+  assert.equal(
+    normalizeClientProfileDraft({ name: "A", gender: "female", age: null, contact: "", notes: "", hearingAidBrands: [] })?.gender,
+    "female",
+  );
+  assert.equal(
+    normalizeClientProfileDraft({ name: "B", gender: "male", age: null, contact: "", notes: "", hearingAidBrands: [] })?.gender,
+    "male",
+  );
+  for (const retired of ["unspecified", "non-binary", "other", "unknown", "", "MALE", 1, null, undefined]) {
+    assert.equal(
+      normalizeClientProfileDraft({
+        name: "X",
+        // @ts-expect-error — exercising untyped legacy data paths.
+        gender: retired,
+        age: null,
+        contact: "",
+        notes: "",
+        hearingAidBrands: [],
+      })?.gender,
+      null,
+      `expected "${String(retired)}" to normalize to null`,
+    );
+  }
+  assert.equal(
+    normalizeClientProfileDraft({ name: "Y", age: null, contact: "", notes: "", hearingAidBrands: [] })?.gender,
+    null,
+    "missing gender field must normalize to null, not a hidden default",
+  );
+
+  // parseClientRegistry covers persisted legacy payloads (localStorage import).
+  const registry = parseClientRegistry(JSON.stringify({
+    profiles: {
+      "P1": { name: "P1", gender: "female", createdAt: 1, updatedAt: 1 },
+      "P2": { name: "P2", gender: "non-binary", createdAt: 1, updatedAt: 1 },
+      "P3": { name: "P3", gender: "unspecified", createdAt: 1, updatedAt: 1 },
+      "P4": { name: "P4", gender: null, createdAt: 1, updatedAt: 1 },
+      "P5": { name: "P5", gender: "robot", createdAt: 1, updatedAt: 1 },
+      "P6": { name: "P6", createdAt: 1, updatedAt: 1 },
+    },
+  }));
+  assert.equal(registry.profiles.p1.gender, "female");
+  assert.equal(registry.profiles.p2.gender, null);
+  assert.equal(registry.profiles.p3.gender, null);
+  assert.equal(registry.profiles.p4.gender, null);
+  assert.equal(registry.profiles.p5.gender, null);
+  assert.equal(registry.profiles.p6.gender, null);
 });

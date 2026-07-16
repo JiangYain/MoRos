@@ -1,4 +1,4 @@
-export type ClientGender = "female" | "male" | "non-binary" | "unspecified";
+export type ClientGender = "female" | "male";
 
 const STORED_HEARING_AID_BRANDS = [
   "phonak",
@@ -26,7 +26,7 @@ export type SelectableClientHearingAidBrand = (typeof HEARING_AID_BRANDS)[number
 
 export interface ClientProfileDraft {
   name: string;
-  gender: ClientGender;
+  gender: ClientGender | null;
   age: number | null;
   contact: string;
   notes: string;
@@ -48,7 +48,7 @@ export interface ClientRegistry {
 /** Legacy renderer key. It is read once for migration and then removed. */
 export const CLIENT_REGISTRY_STORAGE_KEY = "compass.clients.v1";
 
-const CLIENT_GENDERS = new Set<ClientGender>(["female", "male", "non-binary", "unspecified"]);
+const CLIENT_GENDERS = new Set<ClientGender>(["female", "male"]);
 const HEARING_AID_BRAND_IDS = new Set<ClientHearingAidBrand>(STORED_HEARING_AID_BRANDS);
 
 export function emptyClientRegistry(): ClientRegistry {
@@ -109,7 +109,7 @@ export function normalizeClientProfileDraft(value: unknown): ClientProfileDraft 
   if (!name) return undefined;
   const gender = typeof record.gender === "string" && CLIENT_GENDERS.has(record.gender as ClientGender)
     ? record.gender as ClientGender
-    : "unspecified";
+    : null;
   return {
     name,
     gender,
@@ -146,7 +146,7 @@ function parseProfile(value: unknown, fallbackName: string): ClientProfile | und
   if (!displayName) return undefined;
   const gender = typeof record.gender === "string" && CLIENT_GENDERS.has(record.gender as ClientGender)
     ? record.gender as ClientGender
-    : "unspecified";
+    : null;
   const legacyContact = [record.homePhone, record.businessPhone, record.email]
     .map((entry) => normalizeField(entry, 120))
     .filter(Boolean)

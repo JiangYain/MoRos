@@ -676,88 +676,144 @@ textarea {
 .hero-inner {
   width: 100%;
   max-width: 600px;
-  padding: 3rem 2rem;
+  padding: 2rem 1.5rem;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
 }
 
-.hero-title {
+:root {
+  --hero-base-opacity-min: 0.28;
+  --hero-base-opacity-max: 0.36;
+}
+
+:root[data-theme="dark"] {
+  --hero-base-opacity-min: 0.20;
+  --hero-base-opacity-max: 0.28;
+}
+
+.hero-ascii-title {
   position: relative;
-  font-family: var(--font-serif);
-  font-weight: 300;
-  font-size: 3.8rem;
-  line-height: 1.0;
-  letter-spacing: -0.01em;
-  color: var(--color-text-primary);
-  margin-bottom: 2rem;
-  display: inline-flex;
-  align-items: baseline;
+  margin: 0;
+  display: inline-block;
+  max-width: 100%;
   isolation: isolate;
-  perspective: 1000px;
-}
-
-.hero-title .char {
-  display: inline-block;
-  will-change: transform, opacity, filter;
-  transform-origin: 50% 84%;
-}
-
-.hero-title .dot {
-  color: var(--color-accent);
-  display: inline-block;
-  transform-origin: 50% 82%;
-  margin-left: -0.02em;
-}
-
-.hero-title .echo {
-  position: absolute;
-  left: 0;
-  top: 0;
-  white-space: nowrap;
-  color: transparent;
-  -webkit-text-stroke: 0.5px color-mix(in srgb, var(--color-accent) 52%, transparent);
-  pointer-events: none;
-  z-index: -1;
-}
-
-.hero-suggests {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
-  margin-top: 1rem;
-}
-
-.suggest-btn {
-  text-align: left;
-  border: 0.5px solid var(--color-border);
-  border-radius: var(--border-radius-md);
-  corner-shape: var(--corner-shape-continuous);
-  background: var(--color-bg);
-  padding: 0.75rem 1rem;
-  font-family: var(--font-sans);
-  font-size: 12.5px;
   font-weight: 400;
-  color: var(--color-text-secondary);
+  font-style: normal;
+}
+
+.hero-ascii-base,
+.hero-ascii-glow {
+  display: block;
+  margin: 0;
+  padding: 0;
+  font-family: Consolas, "Liberation Mono", Menlo, "Courier New", monospace;
+  font-weight: 400;
+  font-style: normal;
+  font-size: clamp(6px, 1.3vw, 12px);
+  line-height: 1.28;
+  letter-spacing: 0.02em;
+  white-space: pre;
+  user-select: none;
+}
+
+.hero-ascii-base {
+  color: var(--color-text-primary);
+  animation: compassBreath 10s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.hero-ascii-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 32%,
+    var(--color-accent) 47%,
+    var(--color-accent) 57%,
+    transparent 72%,
+    transparent 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--color-accent) 22%, transparent));
+  opacity: 0;
+  animation: compassSweep 11.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes compassBreath {
+  0%, 100% { opacity: var(--hero-base-opacity-min); }
+  50% { opacity: var(--hero-base-opacity-max); }
+}
+
+@keyframes compassSweep {
+  0% {
+    opacity: 0;
+    background-position: 120% 0;
+  }
+  12% {
+    opacity: 0.58;
+  }
+  52% {
+    opacity: 0.64;
+    background-position: -20% 0;
+  }
+  70% {
+    opacity: 0;
+    background-position: -120% 0;
+  }
+  100% {
+    opacity: 0;
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-ascii-base {
+    animation: none;
+    opacity: calc((var(--hero-base-opacity-min) + var(--hero-base-opacity-max)) / 2);
+  }
+  .hero-ascii-glow { animation: none; opacity: 0; }
+}
+
+.hearing-health-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  transition: border-color 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3), background-color 0.12s var(--ease-out-power3);
+  justify-content: center;
+  background: var(--color-bg);
+  padding: 3rem 2rem;
 }
 
-.suggest-btn:hover {
-  border-color: var(--color-border-strong);
-  background-color: var(--color-surface);
+.hearing-health-inner {
+  max-width: 520px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hearing-health-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 400;
   color: var(--color-text-primary);
 }
 
-.suggest-btn .idx {
-  font-family: var(--font-serif);
-  font-style: italic;
+.hearing-health-description {
+  margin: 0;
+  font-family: var(--font-sans);
   font-size: 13px;
-  color: var(--color-accent);
-  flex: 0 0 auto;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
 }
 
 /* ============================================================

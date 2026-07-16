@@ -33,6 +33,7 @@ import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
 import type { AppLanguage, RuntimePrerequisites, UiModel, UiProviderStatus } from "@shared/types";
 import { APP_LANGUAGES, DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
+import { MAX_QUICK_PROMPTS } from "@shared/quick-prompts";
 import {
   ArrowLeft,
   Box,
@@ -45,6 +46,7 @@ import {
   FolderOpen,
   KeyRound,
   Palette,
+  Plus,
   Puzzle,
   RotateCw,
   Search,
@@ -55,9 +57,9 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../ipc";
-import { localeFor, type TranslationKey, useI18n } from "../i18n";
+import { localeFor, translate, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
 import { type ThemePreference, useThemePreference } from "../theme";
 import { PERMISSION_OPTIONS } from "./permissions";
@@ -199,6 +201,146 @@ function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }
   );
 }
 
+function QuickPromptSettings(): React.JSX.Element {
+  const { language, t } = useI18n();
+  const configuredPrompts = useCompass((state) => state.settings?.quickPrompts);
+  const setQuickPrompts = useCompass((state) => state.setQuickPrompts);
+  const localizedDefaults = useMemo(() => [
+    translate(language, "hero.prompt1"),
+    translate(language, "hero.prompt2"),
+    translate(language, "hero.prompt3"),
+  ], [language]);
+  const savedPrompts = configuredPrompts ?? localizedDefaults;
+  const savedKey = JSON.stringify(savedPrompts);
+  const [draftPrompts, setDraftPrompts] = useState<string[]>(() => [...savedPrompts]);
+  const [saving, setSaving] = useState(false);
+  const normalizedPrompts = useMemo(
+    () => draftPrompts.map((prompt) => prompt.trim()),
+    [draftPrompts],
+  );
+  const valid = normalizedPrompts.every(Boolean);
+  const dirty = valid && JSON.stringify(normalizedPrompts) !== savedKey;
+  const canRestoreDefaults = configuredPrompts !== undefined
+    || JSON.stringify(draftPrompts) !== JSON.stringify(localizedDefaults);
+
+  useEffect(() => {
+    setDraftPrompts([...savedPrompts]);
+  }, [savedKey]);
+
+  const updatePrompt = (index: number, value: string): void => {
+    setDraftPrompts((current) => current.map((prompt, promptIndex) =>
+      promptIndex === index ? value : prompt,
+    ));
+  };
+
+  const addPrompt = (): void => {
+    setDraftPrompts((current) => current.length >= MAX_QUICK_PROMPTS ? current : [...current, ""]);
+  };
+
+  const removePrompt = (index: number): void => {
+    setDraftPrompts((current) => current.length <= 1
+      ? current
+      : current.filter((_, promptIndex) => promptIndex !== index));
+  };
+
+  const save = async (): Promise<void> => {
+    if (!valid || !dirty || saving) return;
+    setSaving(true);
+    try {
+      await setQuickPrompts(normalizedPrompts);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const restoreDefaults = async (): Promise<void> => {
+    if (!canRestoreDefaults || saving) return;
+    if (configuredPrompts === undefined) {
+      setDraftPrompts([...localizedDefaults]);
+      return;
+    }
+    setSaving(true);
+    try {
+      await setQuickPrompts(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="settings-section-block">
+      <div className="settings-section-title">
+        <div>
+          <h2>{t("settings.quickPrompts")}</h2>
+          <p>{t("settings.quickPromptsDescription", { max: MAX_QUICK_PROMPTS })}</p>
+        </div>
+        <span className="settings-quick-prompts-count">
+          {t("settings.quickPromptsCount", { count: draftPrompts.length, max: MAX_QUICK_PROMPTS })}
+        </span>
+      </div>
+      <div className="settings-card settings-quick-prompts-editor">
+        <div className="settings-quick-prompts-list">
+          {draftPrompts.map((prompt, index) => (
+            <div className="settings-quick-prompt-row" key={index}>
+              <span className="settings-quick-prompt-index" aria-hidden="true">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <textarea
+                value={prompt}
+                rows={2}
+                aria-label={t("settings.quickPromptLabel", { index: index + 1 })}
+                placeholder={t("settings.quickPromptPlaceholder")}
+                onChange={(event) => updatePrompt(index, event.target.value)}
+              />
+              <button
+                type="button"
+                className="settings-quick-prompt-remove"
+                aria-label={t("settings.removeQuickPrompt", { index: index + 1 })}
+                disabled={draftPrompts.length <= 1}
+                onClick={() => removePrompt(index)}
+              >
+                <Trash2 size={14} strokeWidth={1.55} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="settings-quick-prompts-footer">
+          <span className={valid ? "" : "invalid"} aria-live="polite">
+            {t(valid ? "settings.quickPromptsHint" : "settings.quickPromptsRequired")}
+          </span>
+          <div>
+            <button
+              type="button"
+              className="settings-small-btn"
+              disabled={!canRestoreDefaults || saving}
+              onClick={() => void restoreDefaults()}
+            >
+              {t("settings.restoreQuickPromptDefaults")}
+            </button>
+            <button
+              type="button"
+              className="settings-small-btn"
+              disabled={draftPrompts.length >= MAX_QUICK_PROMPTS}
+              onClick={addPrompt}
+            >
+              <Plus size={12} strokeWidth={1.7} />
+              {t("settings.addQuickPrompt")}
+            </button>
+            <button
+              type="button"
+              className="settings-small-btn primary"
+              disabled={!dirty || saving}
+              onClick={() => void save()}
+            >
+              {saving ? t("common.saving") : t("common.save")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettings(): React.JSX.Element {
   const { language, t } = useI18n();
   const settings = useCompass((state) => state.settings);
@@ -237,6 +379,8 @@ function GeneralSettings(): React.JSX.Element {
           ))}
         </div>
       </section>
+
+      <QuickPromptSettings />
 
       <section className="settings-section-block">
         <div className="settings-section-title">
