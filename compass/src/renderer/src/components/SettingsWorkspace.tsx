@@ -31,7 +31,7 @@ import WorkersAIIcon from "@lobehub/icons/es/WorkersAI/components/Color";
 import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
-import type { AppLanguage, RuntimePrerequisites, UiModel, UiProviderStatus } from "@shared/types";
+import type { AppLanguage, RuntimePrerequisites, UiProviderStatus } from "@shared/types";
 import { APP_LANGUAGES, DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
 import { MAX_QUICK_PROMPTS } from "@shared/quick-prompts";
 import {
@@ -51,7 +51,6 @@ import {
   RotateCw,
   Search,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Terminal,
   Trash2,
@@ -62,28 +61,38 @@ import { api } from "../ipc";
 import { localeFor, translate, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
 import { type ThemePreference, useThemePreference } from "../theme";
-import { PERMISSION_OPTIONS } from "./permissions";
 import { CopyButton } from "./CopyButton";
 import { ProfileAvatar } from "./ProfileAvatar";
-import { filterAndSortModels } from "./model-list";
 import { prepareProfileImage } from "./profile-image";
 import { Toggle } from "./ui/Toggle";
 import { filterSettingsTargets, type SettingsSearchMatch, type SettingsSearchTarget } from "./settings-search";
 import { isRadioNavigationKey, nextRadioIndex } from "./radio-keyboard";
-import { elideWorkspacePath, isWorkspacePathLong } from "./workspace-path";
+import { isSettingsDropdownNavigationKey, nextSettingsDropdownIndex } from "./settings-dropdown";
 import { MAX_PROFILE_NAME_LENGTH, MAX_PROFILE_HANDLE_LENGTH, normalizeProfileName, normalizeProfileHandle } from "@shared/profile";
 
-const NAV_ITEMS: Array<{
-  id: SettingsSection;
-  icon: typeof Settings2;
-  labelKey: TranslationKey;
-  descriptionKey: TranslationKey;
+const NAV_CATEGORIES: Array<{
+  titleKey: TranslationKey;
+  items: Array<{
+    id: SettingsSection;
+    icon: typeof Settings2;
+    labelKey: TranslationKey;
+  }>;
 }> = [
-  { id: "general", icon: Settings2, labelKey: "settings.nav.general", descriptionKey: "settings.nav.generalDescription" },
-  { id: "appearance", icon: Palette, labelKey: "settings.appearance", descriptionKey: "settings.colorTheme" },
-  { id: "profile", icon: UserRound, labelKey: "settings.nav.profile", descriptionKey: "settings.nav.profileDescription" },
-  { id: "models", icon: Box, labelKey: "settings.nav.models", descriptionKey: "settings.nav.modelsDescription" },
-  { id: "skills", icon: Puzzle, labelKey: "settings.nav.skills", descriptionKey: "settings.nav.skillsDescription" },
+  {
+    titleKey: "settings.category.personal",
+    items: [
+      { id: "general", icon: Settings2, labelKey: "settings.nav.general" },
+      { id: "profile", icon: UserRound, labelKey: "settings.nav.profile" },
+      { id: "appearance", icon: Palette, labelKey: "settings.appearance" },
+    ],
+  },
+  {
+    titleKey: "settings.category.ai",
+    items: [
+      { id: "models", icon: Box, labelKey: "settings.nav.models" },
+      { id: "skills", icon: Puzzle, labelKey: "settings.nav.skills" },
+    ],
+  },
 ];
 
 const THEME_OPTIONS: ThemePreference[] = ["system", "light", "dark"];
@@ -99,8 +108,6 @@ function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): Setting
     // General
     { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
     { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
-    { sectionId: "general", targetId: "settings-workspace", title: t("settings.workspace"), description: t("settings.workspaceDescription"), keywords: "directory folder cwd" },
-    { sectionId: "general", targetId: "settings-permission", title: t("settings.permissionMode"), description: t("settings.permissionDescription"), keywords: "permission approve ask full" },
     { sectionId: "general", targetId: "settings-runtime", title: t("settings.runtime"), description: t("settings.runtimeDescription"), keywords: "git bash shell" },
     // Appearance
     { sectionId: "appearance", targetId: "settings-theme", title: t("settings.colorTheme"), description: t("settings.appearanceDescription"), keywords: "theme light dark system" },
@@ -112,6 +119,33 @@ function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): Setting
     // Skills
     { sectionId: "skills", targetId: "settings-skills-list", title: t("settings.nav.skills"), description: t("settings.skillsDescription"), keywords: "skill agent tool" },
   ];
+}
+
+function restoreDropdownTrigger(ref: React.RefObject<HTMLButtonElement | null>): void {
+  window.requestAnimationFrame(() => ref.current?.focus());
+}
+
+function handleDropdownMenuKeyDown(
+  event: React.KeyboardEvent<HTMLElement>,
+  menu: HTMLElement | null,
+  closeAndRestoreFocus: () => void,
+): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeAndRestoreFocus();
+    return;
+  }
+  if (!isSettingsDropdownNavigationKey(event.key) || !menu) return;
+  if (event.target instanceof HTMLInputElement && event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+    return;
+  }
+  const options = Array.from(menu.querySelectorAll<HTMLElement>('[role="option"]:not([aria-disabled="true"])'));
+  if (options.length === 0) return;
+  event.preventDefault();
+  const currentIndex = options.findIndex((option) => option === document.activeElement);
+  const nextIndex = nextSettingsDropdownIndex(currentIndex, options.length, event.key);
+  options[nextIndex]?.focus();
 }
 
 function ModelBrandIcon({ model, provider, size = 19 }: { model: string; provider: string; size?: number }): React.JSX.Element {
@@ -172,14 +206,6 @@ function ProviderBrandIcon({ provider, size = 18 }: { provider: string; size?: n
   return <Box size={size - 1} strokeWidth={1.45} />;
 }
 
-function formatContextWindow(tokens: number, language: AppLanguage, t: ReturnType<typeof useI18n>["t"]): string {
-  const value = tokens >= 1_000_000
-    ? `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`
-    : tokens >= 1_000 ? `${Math.round(tokens / 1_000)}K` : String(tokens);
-  void language;
-  return tokens > 0 ? t("settings.context", { value }) : "";
-}
-
 function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }): React.JSX.Element | null {
   const { t } = useI18n();
   const runPrerequisiteAction = useCompass((state) => state.runPrerequisiteAction);
@@ -214,7 +240,7 @@ function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }
         {shell.shellPath && <code>{shell.shellPath}</code>}
       </div>
       <span className={`settings-status${shell.ok ? " ready" : " required"}`}>
-        {shell.ok ? t("common.ready") : t("common.required")}
+        {shell.ok ? <Check size={15} strokeWidth={1.7} /> : t("common.required")}
       </span>
       {!shell.ok && shell.actions.map((action) => (
         <button
@@ -383,17 +409,36 @@ function QuickPromptSettings(): React.JSX.Element {
 
 function GeneralSettings(): React.JSX.Element {
   const { language, t } = useI18n();
-  const settings = useCompass((state) => state.settings);
   const prerequisites = useCompass((state) => state.prerequisites);
-  const version = useCompass((state) => state.version);
-  const setPermissionMode = useCompass((state) => state.setPermissionMode);
   const setLanguage = useCompass((state) => state.setLanguage);
-  const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
-  const [pathExpanded, setPathExpanded] = useState(false);
-  const workspacePath = settings?.workspaceDir ?? "";
-  const pathCanExpand = isWorkspacePathLong(workspacePath, 48);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [langQuery, setLangQuery] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const dropdownMenuRef = useRef<HTMLDivElement>(null);
+  const dropdownTriggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => setPathExpanded(false), [workspacePath]);
+  const closeDropdownAndRestoreFocus = useCallback(() => {
+    setDropdownOpen(false);
+    restoreDropdownTrigger(dropdownTriggerRef);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredLanguages = useMemo(() => {
+    const q = langQuery.trim().toLowerCase();
+    return APP_LANGUAGES.filter((option) => {
+      const label = t(`language.${option}` as TranslationKey).toLowerCase();
+      return !q || label.includes(q);
+    });
+  }, [langQuery, t]);
 
   return (
     <div className="settings-page" id="settings-page-general">
@@ -403,44 +448,87 @@ function GeneralSettings(): React.JSX.Element {
         <p>{t("settings.generalDescription")}</p>
       </header>
 
-      <section className="settings-section-block settings-language-block" id="settings-language">
-        <div className="settings-section-title">
-          <div><h2>{t("language.label")}</h2><p>{t("language.description")}</p></div>
-        </div>
-        <div
-          className="settings-language-options"
-          role="radiogroup"
-          aria-label={t("language.label")}
-          onKeyDown={(event) => {
-            if (!isRadioNavigationKey(event.key)) return;
-            event.preventDefault();
-            const currentIndex = APP_LANGUAGES.findIndex((option) => option === language);
-            const nextIndex = nextRadioIndex(currentIndex, APP_LANGUAGES.length, event.key);
-            const target = APP_LANGUAGES[nextIndex];
-            if (target) {
-              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]?.focus();
-              void setLanguage(target);
-            }
-          }}
-        >
-          {APP_LANGUAGES.map((option) => {
-            const selected = language === option;
-            return (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                tabIndex={selected ? 0 : -1}
-                className={selected ? "selected" : ""}
-                key={option}
-                lang={option}
-                onClick={() => void setLanguage(option)}
+      <section className="settings-section-block" id="settings-language">
+        <div className="settings-card settings-language-row">
+          <div className="settings-language-copy">
+            <strong>{t("language.label")}</strong>
+            <span>{t("language.description")}</span>
+          </div>
+          <div className="settings-language-selector-container" ref={dropdownRef}>
+            <button
+              ref={dropdownTriggerRef}
+              type="button"
+              className={`settings-language-dropdown-btn${dropdownOpen ? " open" : ""}`}
+              aria-label={t("language.label")}
+              aria-haspopup="listbox"
+              aria-expanded={dropdownOpen}
+              aria-controls="settings-language-listbox"
+              onClick={() => {
+                setDropdownOpen((open) => !open);
+                setLangQuery("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                event.preventDefault();
+                setDropdownOpen(true);
+                setLangQuery("");
+              }}
+            >
+              <span>{t(`language.${language}` as TranslationKey)}</span>
+              <ChevronDown size={14} strokeWidth={1.55} />
+            </button>
+            {dropdownOpen && (
+              <div
+                ref={dropdownMenuRef}
+                id="settings-language-listbox"
+                className="settings-language-dropdown-menu"
+                role="listbox"
+                aria-label={t("language.label")}
+                onKeyDown={(event) => handleDropdownMenuKeyDown(
+                  event,
+                  dropdownMenuRef.current,
+                  closeDropdownAndRestoreFocus,
+                )}
               >
-                <span>{t(`language.${option}` as TranslationKey)}</span>
-                {selected && <Check size={14} strokeWidth={1.7} />}
-              </button>
-            );
-          })}
+                <div className="settings-language-dropdown-search">
+                  <Search size={13} strokeWidth={1.55} />
+                  <input
+                    type="text"
+                    value={langQuery}
+                    placeholder={t("common.search")}
+                    autoFocus
+                    onChange={(event) => setLangQuery(event.target.value)}
+                  />
+                </div>
+                <div className="settings-language-dropdown-list">
+                  {filteredLanguages.map((option) => {
+                    const selected = language === option;
+                    return (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={`settings-language-dropdown-item${selected ? " selected" : ""}`}
+                        key={option}
+                        onClick={() => {
+                          void setLanguage(option);
+                          closeDropdownAndRestoreFocus();
+                        }}
+                      >
+                        <span>{t(`language.${option}` as TranslationKey)}</span>
+                        {selected && <Check size={13} strokeWidth={1.7} />}
+                      </button>
+                    );
+                  })}
+                  {filteredLanguages.length === 0 && (
+                    <div className="settings-language-dropdown-empty">
+                      {t("settings.searchNoResults")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -448,101 +536,12 @@ function GeneralSettings(): React.JSX.Element {
         <QuickPromptSettings />
       </div>
 
-      <section className="settings-section-block" id="settings-workspace">
-        <div className="settings-section-title">
-          <div><h2>{t("settings.workspace")}</h2><p>{t("settings.workspaceDescription")}</p></div>
-        </div>
-        <div className="settings-card settings-workspace-row">
-          <div className="settings-row-icon"><FolderOpen size={16} strokeWidth={1.55} /></div>
-          <div className="settings-row-copy">
-            <strong>{t("settings.workingDirectory")}</strong>
-            <div className="settings-workspace-path">
-              <button
-                type="button"
-                className="settings-workspace-path-toggle"
-                aria-expanded={pathExpanded}
-                aria-label={t(pathExpanded ? "settings.collapseWorkspacePath" : "settings.expandWorkspacePath")}
-                title={workspacePath}
-                disabled={!pathCanExpand}
-                onClick={() => setPathExpanded((expanded) => !expanded)}
-              >
-                <code className={pathExpanded ? "full" : ""}>
-                  {pathExpanded
-                    ? workspacePath
-                    : elideWorkspacePath(workspacePath, 48)}
-                </code>
-              </button>
-              <CopyButton
-                className="settings-workspace-copy"
-                label={t("settings.copyWorkspacePath")}
-                text={workspacePath}
-              />
-            </div>
-          </div>
-          <button type="button" className="settings-small-btn" onClick={() => void setWorkspaceDir()}>
-            {t("common.change")}
-          </button>
-        </div>
-      </section>
-
-      <section className="settings-section-block" id="settings-permission">
-        <div className="settings-section-title">
-          <div><h2>{t("settings.permissionMode")}</h2><p>{t("settings.permissionDescription")}</p></div>
-        </div>
-        <div
-          className="settings-card settings-permission-list"
-          role="radiogroup"
-          aria-label={t("settings.permissionMode")}
-          onKeyDown={(event) => {
-            if (!isRadioNavigationKey(event.key)) return;
-            event.preventDefault();
-            const currentIndex = PERMISSION_OPTIONS.findIndex((choice) => choice.id === settings?.permissionMode);
-            const nextIndex = nextRadioIndex(currentIndex, PERMISSION_OPTIONS.length, event.key);
-            const target = PERMISSION_OPTIONS[nextIndex];
-            if (target) {
-              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]?.focus();
-              void setPermissionMode(target.id);
-            }
-          }}
-        >
-          {PERMISSION_OPTIONS.map((choice) => {
-            const selected = settings?.permissionMode === choice.id;
-            return (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                tabIndex={selected ? 0 : -1}
-                className={`settings-choice-row${selected ? " selected" : ""}`}
-                key={choice.id}
-                onClick={() => void setPermissionMode(choice.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    void setPermissionMode(choice.id);
-                  }
-                }}
-              >
-                <ShieldCheck size={16} strokeWidth={1.5} />
-                <span>
-                  <strong>{t(`settings.permission.${choice.id}` as TranslationKey)}</strong>
-                  <small>{t(`settings.permission.${choice.id}Description` as TranslationKey)}</small>
-                </span>
-                {selected && <Check size={15} strokeWidth={1.7} />}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
       <section className="settings-section-block" id="settings-runtime">
         <div className="settings-section-title">
           <div><h2>{t("settings.runtime")}</h2><p>{t("settings.runtimeDescription")}</p></div>
         </div>
         <RuntimeCard prerequisites={prerequisites} />
       </section>
-
-      <div className="settings-version">Compass {version || "0.1.0"}</div>
     </div>
   );
 }
@@ -710,9 +709,10 @@ function ProfileSettings(): React.JSX.Element {
 
   return (
     <div className="settings-page settings-profile-page" id="settings-page-profile">
-      <header className="settings-profile-head">
+      <header className="settings-page-head">
+        <span className="settings-eyebrow">{t("settings.category.personal")}</span>
         <h1>{t("settings.profile")}</h1>
-        <span>{t("settings.localIdentity")}</span>
+        <p>{t("settings.nav.profileDescription")}</p>
       </header>
 
       <section className="settings-profile-identity" id="settings-profile-identity" aria-label={t("settings.profileIdentity")}>
@@ -949,56 +949,70 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
   );
 }
 
-function ModelRow({ model, enabledCount }: { model: UiModel; enabledCount: number }): React.JSX.Element {
+function ModelsSettings(): React.JSX.Element {
   const { language, t } = useI18n();
+  const models = useCompass((state) => state.models);
+  const providers = useCompass((state) => state.providers);
   const settings = useCompass((state) => state.settings);
   const stats = useCompass((state) => state.stats);
   const setModel = useCompass((state) => state.setModel);
   const setModelEnabled = useCompass((state) => state.setModelEnabled);
-  const key = modelSelectionKey(model.provider, model.id);
-  const enabled = settings?.enabledModels?.includes(key) ?? false;
-  const active = stats?.model?.provider === model.provider && stats.model.id === model.id;
-
-  return (
-    <div
-      className={`settings-model-row${enabled ? " enabled" : ""}${active ? " active" : ""}`}
-      data-model-key={key}
-    >
-      <div className="settings-model-icon">
-        <ModelBrandIcon model={model.id} provider={model.provider} size={19} />
-      </div>
-      <div className="settings-model-copy">
-        <strong>{model.name}</strong>
-        <span>{model.providerName}{model.contextWindow > 0 ? ` · ${formatContextWindow(model.contextWindow, language, t)}` : ""}</span>
-      </div>
-      {active ? (
-        <span className="settings-active-model"><Check size={12} strokeWidth={1.8} /> {t("common.active")}</span>
-      ) : enabled ? (
-        <button type="button" className="settings-text-btn" onClick={() => void setModel(model.provider, model.id)}>
-          {t("common.use")}
-        </button>
-      ) : null}
-      <Toggle
-        on={enabled}
-        disabled={active && enabledCount <= 1}
-        onChange={(next) => void setModelEnabled(model.provider, model.id, next)}
-      />
-    </div>
-  );
-}
-
-function ModelsSettings({ search }: { search: string }): React.JSX.Element {
-  const { t } = useI18n();
-  const models = useCompass((state) => state.models);
-  const providers = useCompass((state) => state.providers);
-  const settings = useCompass((state) => state.settings);
-  const boot = useCompass((state) => state.boot);
   const setSummaryModel = useCompass((state) => state.setSummaryModel);
-  const [modelQuery, setModelQuery] = useState(search);
-  const [providersOpen, setProvidersOpen] = useState(models.length === 0);
+  const [providersOpen, setProvidersOpen] = useState(false);
   const [providerQuery, setProviderQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const enabled = new Set(settings?.enabledModels ?? []);
+  const [activeDropdownOpen, setActiveDropdownOpen] = useState(false);
+  const [summaryDropdownOpen, setSummaryDropdownOpen] = useState(false);
+  const [enabledDropdownOpen, setEnabledDropdownOpen] = useState(false);
+  const [activeSearchQuery, setActiveSearchQuery] = useState("");
+  const [summarySearchQuery, setSummarySearchQuery] = useState("");
+  const [enabledSearchQuery, setEnabledSearchQuery] = useState("");
+  const activeDropdownRef = useRef<HTMLDivElement>(null);
+  const summaryDropdownRef = useRef<HTMLDivElement>(null);
+  const enabledDropdownRef = useRef<HTMLDivElement>(null);
+  const activeDropdownMenuRef = useRef<HTMLDivElement>(null);
+  const summaryDropdownMenuRef = useRef<HTMLDivElement>(null);
+  const enabledDropdownMenuRef = useRef<HTMLDivElement>(null);
+  const activeDropdownTriggerRef = useRef<HTMLButtonElement>(null);
+  const summaryDropdownTriggerRef = useRef<HTMLButtonElement>(null);
+  const enabledDropdownTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const closeActiveDropdownAndRestoreFocus = useCallback(() => {
+    setActiveDropdownOpen(false);
+    restoreDropdownTrigger(activeDropdownTriggerRef);
+  }, []);
+  const closeSummaryDropdownAndRestoreFocus = useCallback(() => {
+    setSummaryDropdownOpen(false);
+    restoreDropdownTrigger(summaryDropdownTriggerRef);
+  }, []);
+  const closeEnabledDropdownAndRestoreFocus = useCallback(() => {
+    setEnabledDropdownOpen(false);
+    restoreDropdownTrigger(enabledDropdownTriggerRef);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (activeDropdownRef.current && !activeDropdownRef.current.contains(event.target as Node)) {
+        setActiveDropdownOpen(false);
+      }
+      if (summaryDropdownRef.current && !summaryDropdownRef.current.contains(event.target as Node)) {
+        setSummaryDropdownOpen(false);
+      }
+      if (enabledDropdownRef.current && !enabledDropdownRef.current.contains(event.target as Node)) {
+        setEnabledDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const enabled = useMemo(
+    () => new Set(settings?.enabledModels ?? []),
+    [settings?.enabledModels],
+  );
+
+  const activeModel = stats?.model;
+  const activeModelKey = activeModel ? modelSelectionKey(activeModel.provider, activeModel.id) : "";
+
   const summarySelection = settings?.summaryModel ?? DEFAULT_SUMMARY_MODEL;
   const summaryModelKey = modelSelectionKey(summarySelection.provider, summarySelection.id);
   const selectedSummaryModel = models.find(
@@ -1008,26 +1022,70 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
     (provider) => provider.id === summarySelection.provider && provider.configured,
   );
 
-  const visibleModels = useMemo(() => {
-    const query = (modelQuery || search).trim().toLowerCase();
-    return filterAndSortModels(models, query);
-  }, [modelQuery, models, search]);
+  const filteredActiveModels = useMemo(() => {
+    const q = activeSearchQuery.trim().toLowerCase();
+    return models.filter((model) => {
+      const label = `${model.name} ${model.providerName}`.toLowerCase();
+      return enabled.has(modelSelectionKey(model.provider, model.id)) && (!q || label.includes(q));
+    });
+  }, [activeSearchQuery, enabled, models]);
+
+  const groupedActiveModels = useMemo(() => {
+    const groups: { [providerName: string]: typeof models } = {};
+    for (const model of filteredActiveModels) {
+      const providerName = model.providerName;
+      if (!groups[providerName]) {
+        groups[providerName] = [];
+      }
+      groups[providerName].push(model);
+    }
+    return groups;
+  }, [filteredActiveModels]);
+
+  const filteredSummaryModels = useMemo(() => {
+    const q = summarySearchQuery.trim().toLowerCase();
+    return models.filter((model) => {
+      const label = `${model.name} ${model.providerName}`.toLowerCase();
+      return !q || label.includes(q);
+    });
+  }, [summarySearchQuery, models]);
+
+  const groupedSummaryModels = useMemo(() => {
+    const groups: { [providerName: string]: typeof models } = {};
+    for (const model of filteredSummaryModels) {
+      const providerName = model.providerName;
+      if (!groups[providerName]) {
+        groups[providerName] = [];
+      }
+      groups[providerName].push(model);
+    }
+    return groups;
+  }, [filteredSummaryModels]);
+
+  const filteredEnabledModels = useMemo(() => {
+    const q = enabledSearchQuery.trim().toLowerCase();
+    return models.filter((model) => {
+      const label = `${model.name} ${model.providerName}`.toLowerCase();
+      return !q || label.includes(q);
+    });
+  }, [enabledSearchQuery, models]);
+
+  const groupedEnabledModels = useMemo(() => {
+    const groups: { [providerName: string]: typeof models } = {};
+    for (const model of filteredEnabledModels) {
+      const providerName = model.providerName;
+      if (!groups[providerName]) {
+        groups[providerName] = [];
+      }
+      groups[providerName].push(model);
+    }
+    return groups;
+  }, [filteredEnabledModels]);
 
   const visibleProviders = useMemo(() => {
     const query = providerQuery.trim().toLowerCase();
     return providers.filter((provider) => !query || `${provider.name} ${provider.id}`.toLowerCase().includes(query));
   }, [providerQuery, providers]);
-
-  const refreshProvidersAndModels = async (): Promise<void> => {
-    if (refreshing) return;
-    setRefreshing(true);
-    const minimumFeedback = new Promise<void>((resolve) => window.setTimeout(resolve, 420));
-    try {
-      await Promise.all([boot(), minimumFeedback]);
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   return (
     <div className="settings-page settings-models-page" id="settings-page-models">
@@ -1037,101 +1095,369 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
         <p>{t("settings.modelsDescription")}</p>
       </header>
 
-      <section className={`settings-provider-section${providersOpen ? " open" : ""}`} id="settings-providers" aria-label={t("settings.providersKeys")}>
-        <button type="button" className="settings-provider-toggle" onClick={() => setProvidersOpen((open) => !open)}>
-          <span><KeyRound size={15} strokeWidth={1.55} /><strong>{t("settings.providersKeys")}</strong></span>
-          <span>{t("settings.connectedCount", { count: providers.filter((provider) => provider.configured).length })}</span>
-          {providersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </button>
-        {providersOpen && (
-          <div className="settings-provider-content">
-            <div className="settings-inline-search">
-              <Search size={13} strokeWidth={1.55} />
-              <input value={providerQuery} placeholder={t("settings.searchProviders")} onChange={(event) => setProviderQuery(event.target.value)} />
-            </div>
-            <div className="settings-provider-list">
-              {visibleProviders.map((provider) => <ProviderRow provider={provider} key={provider.id} />)}
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="settings-summary-model" aria-label={t("settings.titleModel")}>
-        <div className="settings-summary-model-icon">
-          {selectedSummaryModel
-            ? <ModelBrandIcon model={selectedSummaryModel.id} provider={selectedSummaryModel.provider} size={17} />
-            : <Sparkles size={16} strokeWidth={1.55} />}
-        </div>
-        <div className="settings-summary-model-copy">
-          <strong>{t("settings.titleModel")}</strong>
-          <span>
-            {t("settings.titleModelDescription")}
-            {summaryProviderConfigured ? "" : ` · ${t("settings.providerNotConnected")}`}
-          </span>
-        </div>
-        <select
-          aria-label={t("settings.summaryModel")}
-          value={summaryModelKey}
-          disabled={models.length === 0}
-          onChange={(event) => {
-            const model = models.find(
-              (candidate) => modelSelectionKey(candidate.provider, candidate.id) === event.target.value,
-            );
-            if (model) void setSummaryModel(model.provider, model.id);
-          }}
+      <div className="settings-card settings-models-card-group" id="settings-models-list">
+        <div
+          id="settings-providers"
+          className={`settings-models-card-row settings-models-card-row-accordion${providersOpen ? " open" : ""}`}
         >
-          {!selectedSummaryModel && (
-            <option value={summaryModelKey}>
-              {summarySelection.id} · {summarySelection.provider}
-            </option>
-          )}
-          {models.map((model) => (
-            <option value={modelSelectionKey(model.provider, model.id)} key={modelSelectionKey(model.provider, model.id)}>
-              {model.name} · {model.providerName}
-            </option>
-          ))}
-        </select>
-      </section>
-
-      <section className="settings-model-surface" id="settings-models-list" aria-label={t("settings.models")}>
-        <div className="settings-model-search">
-          <Search size={14} strokeWidth={1.55} />
-          <input
-            value={modelQuery}
-            placeholder={t("settings.searchModels")}
-            aria-label={t("settings.searchModels")}
-            onChange={(event) => setModelQuery(event.target.value)}
-          />
           <button
             type="button"
-            className={`settings-refresh-button${refreshing ? " refreshing" : ""}`}
-            aria-label={t("settings.refreshModels")}
-            aria-busy={refreshing}
-            disabled={refreshing}
-            onClick={() => void refreshProvidersAndModels()}
+            className="settings-models-card-row-accordion-toggle"
+            aria-expanded={providersOpen}
+            aria-controls="settings-providers-content"
+            onClick={() => setProvidersOpen((open) => !open)}
           >
-            <RotateCw size={12} strokeWidth={1.6} />
-            <span>{t("common.refresh")}</span>
+            <div className="settings-models-card-row-icon">
+              <KeyRound size={14} strokeWidth={1.55} />
+            </div>
+            <div className="settings-models-card-row-copy">
+              <strong>{t("settings.providersKeys")}</strong>
+              <span>{t("settings.connectedCount", { count: providers.filter((provider) => provider.configured).length })}</span>
+            </div>
+            {providersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
-        </div>
-        <div className="settings-model-list">
-          {visibleModels.map((model) => (
-            <ModelRow
-              model={model}
-              enabledCount={enabled.size}
-              key={modelSelectionKey(model.provider, model.id)}
-            />
-          ))}
-          {visibleModels.length === 0 && (
-            <div className="settings-empty-state">
-              <Box size={19} strokeWidth={1.45} />
-              <strong>{t("settings.noModels")}</strong>
-              <span>{t("settings.noModelsDescription")}</span>
+          {providersOpen && (
+            <div id="settings-providers-content" className="settings-models-card-row-accordion-content">
+              <div className="settings-model-search">
+                <Search size={14} strokeWidth={1.55} />
+                <input
+                  value={providerQuery}
+                  placeholder={t("settings.searchProviders")}
+                  aria-label={t("settings.searchProviders")}
+                  onChange={(event) => setProviderQuery(event.target.value)}
+                />
+              </div>
+              <div className="settings-provider-list">
+                {visibleProviders.map((provider) => <ProviderRow provider={provider} key={provider.id} />)}
+              </div>
             </div>
           )}
         </div>
-      </section>
 
+        <div className="settings-models-card-row" ref={enabledDropdownRef}>
+          <div className="settings-models-card-row-icon">
+            <Box size={16} strokeWidth={1.55} />
+          </div>
+          <div className="settings-models-card-row-copy">
+            <strong>{t("settings.enabledModels")}</strong>
+            <span>{t("settings.enabledModelsDescription")}</span>
+          </div>
+          <div className="settings-summary-model-selector">
+            <button
+              ref={enabledDropdownTriggerRef}
+              type="button"
+              className={`settings-summary-model-dropdown-btn${enabledDropdownOpen ? " open" : ""}`}
+              disabled={models.length === 0}
+              aria-label={t("settings.enabledModels")}
+              aria-haspopup="listbox"
+              aria-expanded={enabledDropdownOpen}
+              aria-controls="settings-enabled-models-listbox"
+              onClick={() => {
+                setEnabledDropdownOpen((open) => !open);
+                setEnabledSearchQuery("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                event.preventDefault();
+                setEnabledDropdownOpen(true);
+                setEnabledSearchQuery("");
+              }}
+            >
+              <span>
+                {enabled.size > 0
+                  ? t("settings.enabledCount", { count: enabled.size })
+                  : t("common.notConfigured")}
+              </span>
+              <ChevronDown size={13} strokeWidth={1.55} />
+            </button>
+            {enabledDropdownOpen && (
+              <div
+                ref={enabledDropdownMenuRef}
+                className="settings-summary-model-dropdown-menu"
+                onKeyDown={(event) => handleDropdownMenuKeyDown(
+                  event,
+                  enabledDropdownMenuRef.current,
+                  closeEnabledDropdownAndRestoreFocus,
+                )}
+              >
+                <div className="settings-summary-model-dropdown-search">
+                  <Search size={13} strokeWidth={1.55} />
+                  <input
+                    type="text"
+                    value={enabledSearchQuery}
+                    placeholder={t("common.search")}
+                    aria-label={`${t("common.search")} ${t("settings.enabledModels")}`}
+                    autoFocus
+                    onChange={(event) => setEnabledSearchQuery(event.target.value)}
+                  />
+                </div>
+                <div
+                  id="settings-enabled-models-listbox"
+                  className="settings-summary-model-dropdown-list"
+                  role="listbox"
+                  aria-label={t("settings.enabledModels")}
+                  aria-multiselectable="true"
+                >
+                  {Object.entries(groupedEnabledModels).map(([providerName, groupModels]) => (
+                    <div key={providerName} className="settings-summary-model-dropdown-group">
+                      <div className="settings-summary-model-dropdown-group-title">
+                        {providerName}
+                      </div>
+                      {groupModels.map((model) => {
+                        const key = modelSelectionKey(model.provider, model.id);
+                        const isModelEnabled = enabled.has(key);
+                        const isActiveModel = key === activeModelKey;
+                        return (
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={isModelEnabled}
+                            aria-disabled={isActiveModel && enabled.size <= 1}
+                            className={`settings-summary-model-dropdown-item${isModelEnabled ? " selected" : ""}`}
+                            key={key}
+                            onClick={() => {
+                              void setModelEnabled(model.provider, model.id, !isModelEnabled);
+                            }}
+                            disabled={isActiveModel && enabled.size <= 1}
+                          >
+                            <div className="settings-summary-model-item-content">
+                              <ModelBrandIcon model={model.id} provider={model.provider} size={13} />
+                              <strong>{model.name}</strong>
+                            </div>
+                            {isModelEnabled && <Check size={13} strokeWidth={1.7} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                  {filteredEnabledModels.length === 0 && (
+                    <div className="settings-summary-model-dropdown-empty">
+                      {t("settings.searchNoResults")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="settings-models-card-row" ref={activeDropdownRef}>
+          <div className="settings-models-card-row-icon">
+            {activeModel
+              ? <ModelBrandIcon model={activeModel.id} provider={activeModel.provider} size={17} />
+              : <Box size={16} strokeWidth={1.55} />}
+          </div>
+          <div className="settings-models-card-row-copy">
+            <strong>{t("settings.activeModel")}</strong>
+            <span>{t("settings.activeModelDescription")}</span>
+          </div>
+          <div className="settings-summary-model-selector">
+            <button
+              ref={activeDropdownTriggerRef}
+              type="button"
+              className={`settings-summary-model-dropdown-btn${activeDropdownOpen ? " open" : ""}`}
+              disabled={models.length === 0}
+              aria-label={t("settings.activeModel")}
+              aria-haspopup="listbox"
+              aria-expanded={activeDropdownOpen}
+              aria-controls="settings-active-model-listbox"
+              onClick={() => {
+                setActiveDropdownOpen((open) => !open);
+                setActiveSearchQuery("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                event.preventDefault();
+                setActiveDropdownOpen(true);
+                setActiveSearchQuery("");
+              }}
+            >
+              <span>
+                {activeModel
+                  ? `${activeModel.name}`
+                  : t("composer.selectModel")}
+              </span>
+              <ChevronDown size={13} strokeWidth={1.55} />
+            </button>
+            {activeDropdownOpen && (
+              <div
+                ref={activeDropdownMenuRef}
+                className="settings-summary-model-dropdown-menu"
+                onKeyDown={(event) => handleDropdownMenuKeyDown(
+                  event,
+                  activeDropdownMenuRef.current,
+                  closeActiveDropdownAndRestoreFocus,
+                )}
+              >
+                <div className="settings-summary-model-dropdown-search">
+                  <Search size={13} strokeWidth={1.55} />
+                  <input
+                    type="text"
+                    value={activeSearchQuery}
+                    placeholder={t("common.search")}
+                    aria-label={`${t("common.search")} ${t("settings.activeModel")}`}
+                    autoFocus
+                    onChange={(event) => setActiveSearchQuery(event.target.value)}
+                  />
+                </div>
+                <div
+                  id="settings-active-model-listbox"
+                  className="settings-summary-model-dropdown-list"
+                  role="listbox"
+                  aria-label={t("settings.activeModel")}
+                >
+                  {Object.entries(groupedActiveModels).map(([providerName, groupModels]) => (
+                      <div key={providerName} className="settings-summary-model-dropdown-group">
+                        <div className="settings-summary-model-dropdown-group-title">
+                          {providerName}
+                        </div>
+                        {groupModels.map((model) => {
+                          const key = modelSelectionKey(model.provider, model.id);
+                          const selected = key === activeModelKey;
+                          return (
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              className={`settings-summary-model-dropdown-item${selected ? " selected" : ""}`}
+                              key={key}
+                              onClick={() => {
+                                void setModel(model.provider, model.id);
+                                closeActiveDropdownAndRestoreFocus();
+                              }}
+                            >
+                              <div className="settings-summary-model-item-content">
+                                <ModelBrandIcon model={model.id} provider={model.provider} size={13} />
+                                <strong>{model.name}</strong>
+                              </div>
+                              {selected && <Check size={13} strokeWidth={1.7} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                  ))}
+                  {filteredActiveModels.length === 0 && (
+                    <div className="settings-summary-model-dropdown-empty">
+                      {t("settings.searchNoResults")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="settings-models-card-row" ref={summaryDropdownRef}>
+          <div className="settings-models-card-row-icon">
+            {selectedSummaryModel
+              ? <ModelBrandIcon model={selectedSummaryModel.id} provider={selectedSummaryModel.provider} size={17} />
+              : <Sparkles size={16} strokeWidth={1.55} />}
+          </div>
+          <div className="settings-models-card-row-copy">
+            <strong>{t("settings.titleModel")}</strong>
+            <span>
+              {t("settings.titleModelDescription")}
+              {summaryProviderConfigured ? "" : ` · ${t("settings.providerNotConnected")}`}
+            </span>
+          </div>
+          <div className="settings-summary-model-selector">
+            <button
+              ref={summaryDropdownTriggerRef}
+              type="button"
+              className={`settings-summary-model-dropdown-btn${summaryDropdownOpen ? " open" : ""}`}
+              disabled={models.length === 0}
+              aria-label={t("settings.titleModel")}
+              aria-haspopup="listbox"
+              aria-expanded={summaryDropdownOpen}
+              aria-controls="settings-summary-model-listbox"
+              onClick={() => {
+                setSummaryDropdownOpen((open) => !open);
+                setSummarySearchQuery("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                event.preventDefault();
+                setSummaryDropdownOpen(true);
+                setSummarySearchQuery("");
+              }}
+            >
+              <span>
+                {selectedSummaryModel
+                  ? `${selectedSummaryModel.name}`
+                  : `${summarySelection.id}`}
+              </span>
+              <ChevronDown size={13} strokeWidth={1.55} />
+            </button>
+            {summaryDropdownOpen && (
+              <div
+                ref={summaryDropdownMenuRef}
+                className="settings-summary-model-dropdown-menu"
+                onKeyDown={(event) => handleDropdownMenuKeyDown(
+                  event,
+                  summaryDropdownMenuRef.current,
+                  closeSummaryDropdownAndRestoreFocus,
+                )}
+              >
+                <div className="settings-summary-model-dropdown-search">
+                  <Search size={13} strokeWidth={1.55} />
+                  <input
+                    type="text"
+                    value={summarySearchQuery}
+                    placeholder={t("common.search")}
+                    aria-label={`${t("common.search")} ${t("settings.titleModel")}`}
+                    autoFocus
+                    onChange={(event) => setSummarySearchQuery(event.target.value)}
+                  />
+                </div>
+                <div
+                  id="settings-summary-model-listbox"
+                  className="settings-summary-model-dropdown-list"
+                  role="listbox"
+                  aria-label={t("settings.titleModel")}
+                >
+                  {Object.entries(groupedSummaryModels).map(([providerName, groupModels]) => {
+                    return (
+                      <div key={providerName} className="settings-summary-model-dropdown-group">
+                        <div className="settings-summary-model-dropdown-group-title">
+                          {providerName}
+                        </div>
+                        {groupModels.map((model) => {
+                          const key = modelSelectionKey(model.provider, model.id);
+                          const selected = key === summaryModelKey;
+                          return (
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              className={`settings-summary-model-dropdown-item${selected ? " selected" : ""}`}
+                              key={key}
+                              onClick={() => {
+                                void setSummaryModel(model.provider, model.id);
+                                closeSummaryDropdownAndRestoreFocus();
+                              }}
+                            >
+                              <div className="settings-summary-model-item-content">
+                                <ModelBrandIcon model={model.id} provider={model.provider} size={13} />
+                                <strong>{model.name}</strong>
+                              </div>
+                              {selected && <Check size={13} strokeWidth={1.7} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                  {filteredSummaryModels.length === 0 && (
+                    <div className="settings-summary-model-dropdown-empty">
+                      {t("settings.searchNoResults")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1169,16 +1495,6 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
               <span>{skill.description}</span>
               <small>{skill.source}</small>
             </div>
-            {skill.filePath && (
-              <button type="button" className="settings-text-btn" onClick={() => void api.openPath(skill.baseDir)}>
-                {t("common.open")}
-              </button>
-            )}
-            {skill.enabled && (
-              <button type="button" className="settings-text-btn" onClick={() => seedComposer(`/skill:${skill.name} `)}>
-                {t("common.insert")}
-              </button>
-            )}
             <Toggle on={skill.enabled} onChange={(next) => void setSkillEnabled(skill.name, next)} />
           </div>
         ))}
@@ -1318,31 +1634,35 @@ export function SettingsWorkspace(): React.JSX.Element {
           </div>
         )}
         <nav aria-label={t("settings.navigation")}>
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                type="button"
-                className={section === item.id ? "active" : ""}
-                aria-current={section === item.id ? "page" : undefined}
-                key={item.id}
-                onClick={() => openSettings(item.id)}
-              >
-                <Icon size={15} strokeWidth={1.55} />
-                <span>
-                  <strong>{t(item.labelKey)}</strong>
-                  <small>{t(item.descriptionKey)}</small>
-                </span>
-              </button>
-            );
-          })}
+          {NAV_CATEGORIES.map((category) => (
+            <div key={category.titleKey} className="settings-nav-category">
+              <div className="settings-nav-category-title">{t(category.titleKey)}</div>
+              <div className="settings-nav-category-items">
+                {category.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      type="button"
+                      className={section === item.id ? "active" : ""}
+                      aria-current={section === item.id ? "page" : undefined}
+                      key={item.id}
+                      onClick={() => openSettings(item.id)}
+                    >
+                      <Icon size={15} strokeWidth={1.55} />
+                      <span>{t(item.labelKey)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </aside>
       <main className="settings-main">
         {section === "general" && <GeneralSettings />}
         {section === "appearance" && <AppearanceSettings />}
         {section === "profile" && <ProfileSettings />}
-        {section === "models" && <ModelsSettings search={search} />}
+        {section === "models" && <ModelsSettings />}
         {section === "skills" && <SkillsSettings search={search} />}
       </main>
     </div>

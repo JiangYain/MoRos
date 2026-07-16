@@ -120,7 +120,7 @@ try {
   await page.locator(".settings-profile-metrics").waitFor();
   await page.locator("#profile-name-input").fill("Compass Smoke Tester");
   await page.locator("#profile-handle-input").fill("compass_smoke");
-  await page.locator(".settings-profile-head h1").click();
+  await page.getByRole("heading", { name: "Profile" }).click();
   const storedIdentity = await page.evaluate(() => {
     const raw = window.localStorage.getItem("compass.profile.identity.v1");
     return raw ? JSON.parse(raw) : null;
@@ -164,53 +164,19 @@ try {
   await page.locator(".user-profile").click();
   await page.locator(".profile-menu button").filter({ hasText: "Settings" }).click();
   await page.getByRole("heading", { name: "General" }).waitFor();
-  const workspacePathToggle = page.locator(".settings-workspace-path-toggle");
-  const workspacePayloadBeforeEdits = await page.evaluate(() => window.compass.init());
-  if (!(await workspacePathToggle.isDisabled())) {
-    await workspacePathToggle.click();
-    if ((await workspacePathToggle.getAttribute("aria-expanded")) !== "true"
-      || (await workspacePathToggle.locator("code").textContent()) !== workspacePayloadBeforeEdits.settings.workspaceDir) {
-      throw new Error("Workspace path did not expand to its complete value");
-    }
-  }
-  const copyWorkspacePath = page.getByRole("button", { name: "Copy path", exact: true });
-  await copyWorkspacePath.click();
-  await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
 
-  const englishRadio = page.locator('[role="radio"][lang="en"]');
-  await englishRadio.focus();
-  await englishRadio.press("ArrowRight");
+  const languageTrigger = page.getByRole("button", { name: "Language", exact: true });
+  await languageTrigger.focus();
+  await languageTrigger.press("ArrowDown");
+  const languageSearch = page.locator("#settings-language-listbox input");
+  await languageSearch.waitFor();
+  await languageSearch.press("ArrowDown");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "option");
+  await page.keyboard.press("Escape");
   await page.waitForFunction(() => {
-    const active = document.activeElement;
-    return active?.getAttribute("role") === "radio"
-      && active.getAttribute("lang") === "de"
-      && active.getAttribute("aria-checked") === "true";
+    const trigger = document.querySelector('.settings-language-dropdown-btn');
+    return document.activeElement === trigger && trigger?.getAttribute("aria-expanded") === "false";
   });
-  await page.keyboard.press("ArrowLeft");
-  await page.waitForFunction(() => {
-    const active = document.activeElement;
-    return active?.getAttribute("role") === "radio"
-      && active.getAttribute("lang") === "en"
-      && active.getAttribute("aria-checked") === "true";
-  });
-
-  const permissionRadios = page.locator('#settings-permission [role="radio"]');
-  const originalPermissionIndex = await permissionRadios.evaluateAll((radios) =>
-    radios.findIndex((radio) => radio.getAttribute("aria-checked") === "true"),
-  );
-  if (originalPermissionIndex < 0) throw new Error("Permission radiogroup has no selected option");
-  const nextPermissionIndex = (originalPermissionIndex + 1) % (await permissionRadios.count());
-  await permissionRadios.nth(originalPermissionIndex).focus();
-  await permissionRadios.nth(originalPermissionIndex).press("ArrowRight");
-  await page.waitForFunction((index) => {
-    const radios = Array.from(document.querySelectorAll('#settings-permission [role="radio"]'));
-    return document.activeElement === radios[index] && radios[index]?.getAttribute("aria-checked") === "true";
-  }, nextPermissionIndex);
-  await page.keyboard.press("ArrowLeft");
-  await page.waitForFunction((index) => {
-    const radios = Array.from(document.querySelectorAll('#settings-permission [role="radio"]'));
-    return document.activeElement === radios[index] && radios[index]?.getAttribute("aria-checked") === "true";
-  }, originalPermissionIndex);
 
   const settingsSearch = page.locator(".settings-search input");
   await settingsSearch.fill("color theme");
@@ -447,21 +413,24 @@ try {
   await page.getByRole("button", { name: "Add Model" }).click();
   await page.getByRole("heading", { name: "Provider & Model" }).waitFor();
   const settingsSectionOrder = await page
-    .locator(".settings-models-page > section")
-    .evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
+    .locator(".settings-models-card-row-copy > strong")
+    .allTextContents();
   if (
     JSON.stringify(settingsSectionOrder) !==
-    JSON.stringify(["Providers & API Keys", "Conversation title model", "Provider & Model"])
+    JSON.stringify(["Providers & API Keys", "Enabled models", "Active model", "Conversation title model"])
   ) {
     throw new Error(`Provider & Model sections are out of order: ${settingsSectionOrder.join(", ")}`);
   }
-  const summaryModelSelect = page.getByRole("combobox", { name: "Summary model" });
-  const expectedSummaryModel = `${initPayload.settings.summaryModel.provider}::${initPayload.settings.summaryModel.id}`;
-  if ((await summaryModelSelect.inputValue()) !== expectedSummaryModel) {
+  const summaryModelButton = page.getByRole("button", { name: "Conversation title model" });
+  const expectedSummaryModel = initPayload.models.find(
+    (model) => model.provider === initPayload.settings.summaryModel.provider
+      && model.id === initPayload.settings.summaryModel.id,
+  )?.name ?? initPayload.settings.summaryModel.id;
+  if ((await summaryModelButton.textContent())?.trim() !== expectedSummaryModel) {
     throw new Error("Conversation title summary model does not match persisted settings");
   }
-  const providerSection = page.locator(".settings-provider-section");
-  const providerToggle = page.locator(".settings-provider-toggle");
+  const providerSection = page.locator("#settings-providers");
+  const providerToggle = page.locator(".settings-models-card-row-accordion-toggle");
   if (!(await providerSection.evaluate((section) => section.classList.contains("open")))) {
     await providerToggle.click();
   }
@@ -517,73 +486,33 @@ try {
   }
   await shot("07a-provider-icons");
   await providerToggle.click();
-  const refreshButton = page.getByRole("button", { name: "Refresh providers and models" });
-  await refreshButton.click();
-  await page.locator(".settings-refresh-button.refreshing").waitFor();
-  await page.locator(".settings-refresh-button.refreshing").waitFor({ state: "detached" });
-  const activeModelSwitch = page.locator(".settings-model-row.active [role=switch]");
-  const activeModel = initPayload.stats.model;
-  const activeModelIsAvailable = Boolean(
-    activeModel && initPayload.models.some((model) => model.provider === activeModel.provider && model.id === activeModel.id),
-  );
-  if (activeModelIsAvailable) {
-    if ((await activeModelSwitch.count()) !== 1 || (await activeModelSwitch.getAttribute("aria-checked")) !== "true") {
-      throw new Error("Models settings did not expose the active enabled model");
+  const enabledModelsButton = page.getByRole("button", { name: "Enabled models" });
+  if (initPayload.models.length > 0) {
+    await enabledModelsButton.focus();
+    await enabledModelsButton.press("ArrowDown");
+    const enabledModelsSearch = page.getByRole("textbox", { name: "Search Enabled models" });
+    await enabledModelsSearch.waitFor();
+    const enabledModelOptions = page.getByRole("listbox", { name: "Enabled models" }).getByRole("option");
+    if ((await enabledModelOptions.count()) !== initPayload.models.length) {
+      throw new Error("Enabled models dropdown did not render the complete model registry");
     }
-  } else {
-    if ((await activeModelSwitch.count()) !== 0) {
-      throw new Error("Models settings marked an unavailable model as active");
-    }
-    if (initPayload.models.length === 0) {
-      await page.getByText("No available models", { exact: true }).waitFor();
-    }
-  }
-  const enabledSwitchCount = await page.locator('.settings-model-row [role=switch][aria-checked="true"]').count();
-  if (activeModelIsAvailable && enabledSwitchCount === 1 && !(await activeModelSwitch.isDisabled())) {
-    throw new Error("The only active model can be disabled without a replacement");
-  }
-
-  const togglableModelSwitch = page.locator('.settings-model-row:not(.active) [role=switch]:not(:disabled)').first();
-  if (await togglableModelSwitch.count()) {
-    const modelOrderBefore = await page.locator(".settings-model-row").evaluateAll((rows) =>
-      rows.map((row) => row.getAttribute("data-model-key")),
-    );
-    const modelKey = await togglableModelSwitch.evaluate((button) =>
-      button.closest(".settings-model-row")?.getAttribute("data-model-key"),
-    );
-    const checkedBefore = await togglableModelSwitch.getAttribute("aria-checked");
-    await togglableModelSwitch.click();
-    await page.waitForFunction(
-      ({ key, checked }) => {
-        const row = Array.from(document.querySelectorAll(".settings-model-row"))
-          .find((element) => element.getAttribute("data-model-key") === key);
-        return row?.querySelector('[role="switch"]')?.getAttribute("aria-checked") !== checked;
-      },
-      { key: modelKey, checked: checkedBefore },
-    );
-    const modelOrderAfter = await page.locator(".settings-model-row").evaluateAll((rows) =>
-      rows.map((row) => row.getAttribute("data-model-key")),
-    );
-    if (JSON.stringify(modelOrderAfter) !== JSON.stringify(modelOrderBefore)) {
-      throw new Error("Toggling a model reordered the visible model list");
-    }
-    await page.locator(".settings-model-row").evaluateAll((rows, key) => {
-      const row = rows.find((element) => element.getAttribute("data-model-key") === key);
-      (row?.querySelector('[role="switch"]'))?.click();
-    }, modelKey);
+    await enabledModelsSearch.press("ArrowDown");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "option");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => {
+      const trigger = document.querySelector('[aria-controls="settings-enabled-models-listbox"]');
+      return document.activeElement === trigger && trigger?.getAttribute("aria-expanded") === "false";
+    });
   }
   await shot("07-models-settings");
   await page.setViewportSize({ width: 600, height: 880 });
   const responsiveLabels = [
     page.locator(".settings-back span"),
     page.locator(".settings-search input"),
-    page.locator(".settings-nav nav strong").first(),
+    page.locator(".settings-nav nav button span").first(),
   ];
   for (const label of responsiveLabels) {
     if (!(await label.isVisible())) throw new Error("Responsive settings hid a required text label");
-  }
-  if (activeModelIsAvailable && !(await page.locator(".settings-active-model").isVisible())) {
-    throw new Error("Responsive settings hid the active-model indicator");
   }
   await shot("07b-responsive-settings");
   await page.setViewportSize({ width: 1320, height: 880 });

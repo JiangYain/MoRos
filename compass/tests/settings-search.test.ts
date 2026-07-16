@@ -7,7 +7,7 @@ const TARGETS: readonly SettingsSearchTarget[] = [
     sectionId: "general",
     targetId: "settings-page-general",
     title: "General",
-    description: "Language, quick prompts, workspace, and permissions.",
+    description: "Language, quick prompts, and runtime.",
     keywords: "preferences settings",
   },
   {
@@ -46,13 +46,6 @@ const TARGETS: readonly SettingsSearchTarget[] = [
     keywords: "sprache 语言 語言",
   },
   {
-    sectionId: "general",
-    targetId: "settings-permission",
-    title: "Permission mode",
-    description: "Choose when Compass asks before performing an action.",
-    keywords: "ask approve full 权限",
-  },
-  {
     sectionId: "appearance",
     targetId: "settings-theme",
     title: "Color theme",
@@ -72,6 +65,13 @@ const TARGETS: readonly SettingsSearchTarget[] = [
     title: "Providers & API Keys",
     description: "Connect providers and manage API keys.",
     keywords: "key provider key",
+  },
+  {
+    sectionId: "models",
+    targetId: "settings-models-list",
+    title: "Models",
+    description: "Choose enabled, active, and conversation title models.",
+    keywords: "model ai llm",
   },
   {
     sectionId: "skills",
@@ -109,10 +109,6 @@ test("matches page names across general, appearance, profile, models, and skills
 });
 
 test("matches keywords and descriptions, not just titles", () => {
-  const keywordMatches = filterSettingsTargets(TARGETS, "权限");
-  assert.equal(keywordMatches.length, 1);
-  assert.equal(keywordMatches[0].targetId, "settings-permission");
-
   const descMatches = filterSettingsTargets(TARGETS, "follow your system");
   assert.equal(descMatches.length, 1);
   assert.equal(descMatches[0].targetId, "settings-theme");
@@ -133,6 +129,12 @@ test("results keep the declared order so navigation is stable", () => {
   const matches = filterSettingsTargets(TARGETS, "compass");
   assert.deepEqual(
     matches.map((match) => match.targetId),
-    ["settings-page-appearance", "settings-page-skills", "settings-language", "settings-permission"],
+    ["settings-page-appearance", "settings-page-skills", "settings-language"],
   );
+});
+
+test("fixed workspace and composer permissions are not exposed as settings targets", () => {
+  assert.deepEqual(filterSettingsTargets(TARGETS, "workspace"), []);
+  assert.deepEqual(filterSettingsTargets(TARGETS, "permission"), []);
+  assert.deepEqual(filterSettingsTargets(TARGETS, "权限"), []);
 });
