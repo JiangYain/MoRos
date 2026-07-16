@@ -111,10 +111,10 @@ function OpenAIComposeIcon({ size = 16 }: { size?: number }): React.JSX.Element 
   );
 }
 
-const PROFILE_NAME = "ChordJiang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "compass.sidebar.width.v1";
 const SESSION_ORDER_STORAGE_KEY = "compass.sidebar.session-order.v1";
 const SIDEBAR_TREE_ICON_SIZE = 16;
+const CLIENT_SESSION_PREVIEW_LIMIT = 5;
 const UNASSIGNED_CLIENT = {
   id: "client:unassigned",
   name: "未关联客户",
@@ -282,6 +282,8 @@ export function Sidebar(): React.JSX.Element {
   const stats = useCompass((state) => state.stats);
   const settings = useCompass((state) => state.settings);
   const skills = useCompass((state) => state.skills);
+  const profileName = useCompass((state) => state.profileName);
+  const profileHandle = useCompass((state) => state.profileHandle);
   const newSession = useCompass((state) => state.newSession);
   const openSession = useCompass((state) => state.openSession);
   const renameSession = useCompass((state) => state.renameSession);
@@ -321,6 +323,7 @@ export function Sidebar(): React.JSX.Element {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [sessionOrderByClient, setSessionOrderByClient] = useState<SessionOrderByClient>(readSessionOrder);
+  const [revealedClientSessions, setRevealedClientSessions] = useState<Record<string, boolean>>({});
   const [draggedSession, setDraggedSession] = useState<DraggedSessionState | null>(null);
   const [dragOverClientId, setDragOverClientId] = useState<string | null>(null);
   const legacyAssignmentMigrations = useRef(new Set<string>());
@@ -349,6 +352,21 @@ export function Sidebar(): React.JSX.Element {
   );
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const contextPercent = stats?.contextPercent == null ? null : Math.round(stats.contextPercent);
+  const displayProfileName = profileName || t("settings.profile");
+  const displayProfileDetail = profileHandle ? `@${profileHandle}` : t("settings.localIdentity");
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const activeGroup = clientGroups.find((group) => (
+      group.sessions.some((session) => session.id === activeSessionId)
+    ));
+    if (!activeGroup) return;
+    const activeIndex = activeGroup.sessions.findIndex((session) => session.id === activeSessionId);
+    if (activeIndex < CLIENT_SESSION_PREVIEW_LIMIT) return;
+    setRevealedClientSessions((current) => (
+      current[activeGroup.id] ? current : { ...current, [activeGroup.id]: true }
+    ));
+  }, [activeSessionId, clientGroups]);
 
   useEffect(() => {
     const knownClients = new Map(
@@ -776,6 +794,11 @@ export function Sidebar(): React.JSX.Element {
                     (session) => session.id === activeSessionId,
                   );
                   const expanded = !collapsedClients[group.id];
+                  const sessionsRevealed = Boolean(revealedClientSessions[group.id]);
+                  const visibleSessions = sessionsRevealed
+                    ? group.sessions
+                    : group.sessions.slice(0, CLIENT_SESSION_PREVIEW_LIMIT);
+                  const hiddenSessionCount = group.sessions.length - visibleSessions.length;
                   const FolderIcon = expanded ? FolderOpen : Folder;
                   return (
                     <motion.div
@@ -866,7 +889,7 @@ export function Sidebar(): React.JSX.Element {
                           {group.sessions.length === 0 && (
                             <div className="client-empty-label">{t("sidebar.noConversations")}</div>
                           )}
-                          {group.sessions.map((session) => {
+                          {visibleSessions.map((session) => {
                             const active = activeSessionId === session.id;
                             const renaming = renamingPath === session.path;
                             const confirmation = sessionConfirmation?.path === session.path
@@ -986,6 +1009,22 @@ export function Sidebar(): React.JSX.Element {
                               </div>
                             );
                           })}
+                          {hiddenSessionCount > 0 && (
+                            <button
+                              type="button"
+                              className="show-more-sessions"
+                              aria-label={`${t("sidebar.showMore")} (${hiddenSessionCount})`}
+                              onClick={() => setRevealedClientSessions((current) => ({
+                                ...current,
+                                [group.id]: true,
+                              }))}
+                            >
+                              <span>{t("sidebar.showMore")}</span>
+                              <span className="show-more-sessions-count" aria-hidden="true">
+                                {hiddenSessionCount}
+                              </span>
+                            </button>
+                          )}
                         </motion.div>
                         )}
                       </AnimatePresence>
@@ -1021,8 +1060,8 @@ export function Sidebar(): React.JSX.Element {
               >
                 <ProfileAvatar className="large" />
                 <span>
-                  <b>{PROFILE_NAME}</b>
-                  <small>{t("settings.localIdentity")}</small>
+                  <b>{displayProfileName}</b>
+                  <small>{displayProfileDetail}</small>
                 </span>
               </button>
               <div className="profile-menu-rule" />
@@ -1072,11 +1111,12 @@ export function Sidebar(): React.JSX.Element {
         <button
           type="button"
           className="user-profile"
+          aria-label={displayProfileName}
           aria-expanded={profileOpen}
           onClick={() => setProfileOpen((current) => !current)}
         >
           <ProfileAvatar />
-          <span className="user-name">{PROFILE_NAME}</span>
+          <span className="user-name">{displayProfileName}</span>
           <ChevronDown
             className={profileOpen ? "open" : ""}
             size={14}

@@ -23,6 +23,7 @@ import {
   type ClientProfileDraft,
   type ClientRegistry,
 } from "@shared/client-registry";
+import { normalizeProfileHandle, normalizeProfileName } from "@shared/profile";
 import { create } from "zustand";
 import { api } from "./ipc";
 import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
@@ -50,6 +51,10 @@ interface CompassState {
   approvals: UiApprovalRequest[];
   clientRegistry: ClientRegistry;
   profileAvatar: string | null;
+  /** Editable local profile display name (empty until the user sets one). */
+  profileName: string;
+  /** Editable local profile handle/username (empty until the user sets one). */
+  profileHandle: string;
   streaming: boolean;
   queue: { steering: string[]; followUp: string[] };
   settingsSection: SettingsSection | null;
@@ -70,6 +75,7 @@ interface CompassState {
   clearComposerSeed(): void;
   setError(message: string | null): void;
   setProfileAvatar(dataUrl: string | null): void;
+  setProfileIdentity(name: string, handle: string): void;
 
   boot(): Promise<void>;
   send(text: string, images?: UiImageAttachment[]): Promise<void>;
@@ -101,29 +107,33 @@ interface CompassState {
   setWorkspaceDir(): Promise<void>;
 }
 
-type StoreMessageKey = "avatarStorage" | "workspaceChange" | "noModel" | "approvalInactive";
+type StoreMessageKey = "avatarStorage" | "identityStorage" | "workspaceChange" | "noModel" | "approvalInactive";
 
 const STORE_MESSAGES: Record<AppLanguage, Record<StoreMessageKey, string>> = {
   "zh-CN": {
     avatarStorage: "头像无法保存到本地存储。",
+    identityStorage: "个人资料无法保存到本地存储。",
     workspaceChange: "当前任务仍在运行。更换工作区会中止本次任务，是否继续？",
     noModel: "请先在设置中配置 API Key，或切换到已配置的模型。",
     approvalInactive: "该批准请求已失效。",
   },
   "zh-TW": {
     avatarStorage: "無法將頭像儲存到本機。",
+    identityStorage: "無法將個人資料儲存到本機。",
     workspaceChange: "目前工作仍在執行。變更工作區會中止這項工作，是否繼續？",
     noModel: "請先在設定中配置 API Key，或切換到已配置的模型。",
     approvalInactive: "此核准請求已失效。",
   },
   en: {
     avatarStorage: "The avatar could not be saved locally.",
+    identityStorage: "The profile could not be saved locally.",
     workspaceChange: "A task is still running. Changing the workspace will stop it. Continue?",
     noModel: "Configure an API key in Settings or switch to a configured model first.",
     approvalInactive: "This approval request is no longer active.",
   },
   de: {
     avatarStorage: "Der Avatar konnte nicht lokal gespeichert werden.",
+    identityStorage: "Das Profil konnte nicht lokal gespeichert werden.",
     workspaceChange: "Eine Aufgabe wird noch ausgeführt. Beim Wechsel des Arbeitsbereichs wird sie beendet. Fortfahren?",
     noModel: "Konfigurieren Sie zuerst einen API-Schlüssel oder wechseln Sie zu einem konfigurierten Modell.",
     approvalInactive: "Diese Freigabeanfrage ist nicht mehr aktiv.",
@@ -161,6 +171,12 @@ function clientMessageId(): string {
 }
 
 const PROFILE_AVATAR_STORAGE_KEY = "compass.profile.avatar.v1";
+const PROFILE_IDENTITY_STORAGE_KEY = "compass.profile.identity.v1";
+
+interface StoredProfileIdentity {
+  name?: unknown;
+  handle?: unknown;
+}
 
 function loadProfileAvatar(): string | null {
   if (typeof window === "undefined") return null;
@@ -172,6 +188,22 @@ function loadProfileAvatar(): string | null {
   }
 }
 
+function loadProfileIdentity(): { name: string; handle: string } {
+  if (typeof window === "undefined") return { name: "", handle: "" };
+  try {
+    const raw = window.localStorage.getItem(PROFILE_IDENTITY_STORAGE_KEY);
+    if (!raw) return { name: "", handle: "" };
+    const parsed = JSON.parse(raw) as StoredProfileIdentity;
+    // Reuse the shared normalizers so old/malformed data is always safe.
+    return {
+      name: normalizeProfileName(parsed.name),
+      handle: normalizeProfileHandle(parsed.handle),
+    };
+  } catch {
+    return { name: "", handle: "" };
+  }
+}
+
 export const useCompass = create<CompassState>((set, get) => {
   const runIpc = async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -180,6 +212,8 @@ export const useCompass = create<CompassState>((set, get) => {
       set({ lastError: sanitizeUnknownError(error) });
     }
   };
+
+  const initialIdentity = loadProfileIdentity();
 
   return {
   ready: false,
@@ -193,6 +227,8 @@ export const useCompass = create<CompassState>((set, get) => {
   approvals: [],
   clientRegistry: emptyClientRegistry(),
   profileAvatar: loadProfileAvatar(),
+  profileName: initialIdentity.name,
+  profileHandle: initialIdentity.handle,
   streaming: false,
   queue: { steering: [], followUp: [] },
   settingsSection: null,
@@ -424,6 +460,21 @@ export const useCompass = create<CompassState>((set, get) => {
       return;
     }
     set({ profileAvatar });
+  },
+
+  setProfileIdentity: (name, handle) => {
+    const normalizedName = normalizeProfileName(name);
+    const normalizedHandle = normalizeProfileHandle(handle);
+    try {
+      window.localStorage.setItem(
+        PROFILE_IDENTITY_STORAGE_KEY,
+        JSON.stringify({ name: normalizedName, handle: normalizedHandle }),
+      );
+    } catch {
+      set({ lastError: storeMessage("identityStorage") });
+      return;
+    }
+    set({ profileName: normalizedName, profileHandle: normalizedHandle });
   },
 
   boot: () => runIpc(async () => {
