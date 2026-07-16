@@ -2,6 +2,7 @@ import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCompass } from "../store";
 import { useI18n } from "../i18n";
+import { decideQuickPromptWheel } from "./quick-prompts-wheel";
 
 // 滚动速度（px/ms）：duration = overflow / speed，距离越长耗时越久。
 const SCROLL_SPEED_PX_PER_MS = 0.06;
@@ -87,8 +88,20 @@ export function QuickPrompts(): React.JSX.Element {
     setIndex((current) => Math.min(current, prompts.length - 1));
   }, [prompts.length]);
 
+  const currentIndex = Math.min(index, Math.max(0, prompts.length - 1));
+  const currentPrompt = prompts[currentIndex] ?? "";
+
   const onWheel = useCallback((event: React.WheelEvent<HTMLDivElement>): void => {
-    event.preventDefault();
+    const decision = decideQuickPromptWheel(
+      prompts.length,
+      accumulatedRef.current + event.deltaY,
+      WHEEL_THRESHOLD,
+      gestureLockedRef.current,
+    );
+
+    if (decision.preventDefault) {
+      event.preventDefault();
+    }
 
     if (resetTimeoutRef.current !== null) {
       window.clearTimeout(resetTimeoutRef.current);
@@ -99,24 +112,43 @@ export function QuickPrompts(): React.JSX.Element {
       resetTimeoutRef.current = null;
     }, WHEEL_RESET_MS);
 
-    if (gestureLockedRef.current) return;
+    if (decision.resetAccumulator) {
+      accumulatedRef.current = 0;
+    } else {
+      accumulatedRef.current += event.deltaY;
+    }
 
-    accumulatedRef.current += event.deltaY;
-    if (Math.abs(accumulatedRef.current) < WHEEL_THRESHOLD) return;
+    if (decision.lockGesture) {
+      gestureLockedRef.current = true;
+    }
 
-    const direction = accumulatedRef.current > 0 ? 1 : -1;
-    switchBy(direction);
-    accumulatedRef.current = 0;
-    gestureLockedRef.current = true;
-  }, [switchBy]);
+    if (decision.switchDirection !== 0) {
+      switchBy(decision.switchDirection);
+    }
+  }, [switchBy, prompts.length]);
 
   useEffect(() => () => {
     if (resetTimeoutRef.current !== null) window.clearTimeout(resetTimeoutRef.current);
   }, []);
 
   return (
-    <div className="quick-prompts" onWheel={onWheel}>
-      <QuickPromptButton index={index} text={prompts[index]} />
+    <div
+      className="quick-prompts"
+      onWheel={onWheel}
+      role={prompts.length > 1 ? "group" : undefined}
+      aria-label={prompts.length > 1 ? t("settings.quickPromptsScrollHint") : undefined}
+    >
+      <QuickPromptButton index={currentIndex} text={currentPrompt} />
+      {prompts.length > 1 && (
+        <>
+          <span className="quick-prompts-hint" aria-hidden="true">
+            {t("settings.quickPromptsScrollHint")}
+          </span>
+          <span className="quick-prompts-status" aria-live="polite">
+            {t("settings.quickPromptsPosition", { current: currentIndex + 1, total: prompts.length })}
+          </span>
+        </>
+      )}
     </div>
   );
 }

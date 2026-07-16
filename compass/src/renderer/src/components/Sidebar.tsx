@@ -111,7 +111,6 @@ function OpenAIComposeIcon({ size = 16 }: { size?: number }): React.JSX.Element 
   );
 }
 
-const PROFILE_NAME = "ChordJiang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "compass.sidebar.width.v1";
 const SESSION_ORDER_STORAGE_KEY = "compass.sidebar.session-order.v1";
 const SIDEBAR_TREE_ICON_SIZE = 16;
@@ -283,6 +282,8 @@ export function Sidebar(): React.JSX.Element {
   const stats = useCompass((state) => state.stats);
   const settings = useCompass((state) => state.settings);
   const skills = useCompass((state) => state.skills);
+  const profileName = useCompass((state) => state.profileName);
+  const profileHandle = useCompass((state) => state.profileHandle);
   const newSession = useCompass((state) => state.newSession);
   const openSession = useCompass((state) => state.openSession);
   const renameSession = useCompass((state) => state.renameSession);
@@ -351,6 +352,8 @@ export function Sidebar(): React.JSX.Element {
   );
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const contextPercent = stats?.contextPercent == null ? null : Math.round(stats.contextPercent);
+  const displayProfileName = profileName || t("settings.profile");
+  const displayProfileDetail = profileHandle ? `@${profileHandle}` : t("settings.localIdentity");
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -1057,8 +1060,8 @@ export function Sidebar(): React.JSX.Element {
               >
                 <ProfileAvatar className="large" />
                 <span>
-                  <b>{PROFILE_NAME}</b>
-                  <small>{t("settings.localIdentity")}</small>
+                  <b>{displayProfileName}</b>
+                  <small>{displayProfileDetail}</small>
                 </span>
               </button>
               <div className="profile-menu-rule" />
@@ -1108,11 +1111,12 @@ export function Sidebar(): React.JSX.Element {
         <button
           type="button"
           className="user-profile"
+          aria-label={displayProfileName}
           aria-expanded={profileOpen}
           onClick={() => setProfileOpen((current) => !current)}
         >
           <ProfileAvatar />
-          <span className="user-name">{PROFILE_NAME}</span>
+          <span className="user-name">{displayProfileName}</span>
           <ChevronDown
             className={profileOpen ? "open" : ""}
             size={14}
