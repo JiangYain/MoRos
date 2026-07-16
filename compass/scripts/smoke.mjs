@@ -118,6 +118,16 @@ try {
   await page.locator(".profile-menu-head-button").click();
   await page.getByRole("heading", { name: "Profile" }).waitFor();
   await page.locator(".settings-profile-metrics").waitFor();
+  await page.locator("#profile-name-input").fill("Compass Smoke Tester");
+  await page.locator("#profile-handle-input").fill("compass_smoke");
+  await page.locator(".settings-profile-head h1").click();
+  const storedIdentity = await page.evaluate(() => {
+    const raw = window.localStorage.getItem("compass.profile.identity.v1");
+    return raw ? JSON.parse(raw) : null;
+  });
+  if (storedIdentity?.name !== "Compass Smoke Tester" || storedIdentity?.handle !== "compass_smoke") {
+    throw new Error(`Profile identity did not persist: ${JSON.stringify(storedIdentity)}`);
+  }
   const previousProfileAvatar = await page.evaluate(() =>
     window.localStorage.getItem("compass.profile.avatar.v1"),
   );
@@ -140,6 +150,12 @@ try {
   await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   await page.locator(".user-profile").click();
+  if ((await page.locator(".user-profile .user-name").textContent())?.trim() !== "Compass Smoke Tester") {
+    throw new Error("The sidebar did not adopt the persisted profile name");
+  }
+  if ((await page.locator(".profile-menu-head small").textContent())?.trim() !== "@compass_smoke") {
+    throw new Error("The profile menu did not adopt the persisted profile username");
+  }
   await page.locator(".profile-menu button").filter({ hasText: "Skill library" }).click();
   await page.getByRole("heading", { name: "Skills" }).waitFor();
   await shot("03-skills-settings");
@@ -148,6 +164,68 @@ try {
   await page.locator(".user-profile").click();
   await page.locator(".profile-menu button").filter({ hasText: "Settings" }).click();
   await page.getByRole("heading", { name: "General" }).waitFor();
+  const workspacePathToggle = page.locator(".settings-workspace-path-toggle");
+  const workspacePayloadBeforeEdits = await page.evaluate(() => window.compass.init());
+  if (!(await workspacePathToggle.isDisabled())) {
+    await workspacePathToggle.click();
+    if ((await workspacePathToggle.getAttribute("aria-expanded")) !== "true"
+      || (await workspacePathToggle.locator("code").textContent()) !== workspacePayloadBeforeEdits.settings.workspaceDir) {
+      throw new Error("Workspace path did not expand to its complete value");
+    }
+  }
+  const copyWorkspacePath = page.getByRole("button", { name: "Copy path", exact: true });
+  await copyWorkspacePath.click();
+  await page.getByRole("button", { name: "Copied", exact: true }).waitFor();
+
+  const englishRadio = page.locator('[role="radio"][lang="en"]');
+  await englishRadio.focus();
+  await englishRadio.press("ArrowRight");
+  await page.waitForFunction(() => {
+    const active = document.activeElement;
+    return active?.getAttribute("role") === "radio"
+      && active.getAttribute("lang") === "de"
+      && active.getAttribute("aria-checked") === "true";
+  });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForFunction(() => {
+    const active = document.activeElement;
+    return active?.getAttribute("role") === "radio"
+      && active.getAttribute("lang") === "en"
+      && active.getAttribute("aria-checked") === "true";
+  });
+
+  const permissionRadios = page.locator('#settings-permission [role="radio"]');
+  const originalPermissionIndex = await permissionRadios.evaluateAll((radios) =>
+    radios.findIndex((radio) => radio.getAttribute("aria-checked") === "true"),
+  );
+  if (originalPermissionIndex < 0) throw new Error("Permission radiogroup has no selected option");
+  const nextPermissionIndex = (originalPermissionIndex + 1) % (await permissionRadios.count());
+  await permissionRadios.nth(originalPermissionIndex).focus();
+  await permissionRadios.nth(originalPermissionIndex).press("ArrowRight");
+  await page.waitForFunction((index) => {
+    const radios = Array.from(document.querySelectorAll('#settings-permission [role="radio"]'));
+    return document.activeElement === radios[index] && radios[index]?.getAttribute("aria-checked") === "true";
+  }, nextPermissionIndex);
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForFunction((index) => {
+    const radios = Array.from(document.querySelectorAll('#settings-permission [role="radio"]'));
+    return document.activeElement === radios[index] && radios[index]?.getAttribute("aria-checked") === "true";
+  }, originalPermissionIndex);
+
+  const settingsSearch = page.locator(".settings-search input");
+  await settingsSearch.fill("color theme");
+  await page.locator(".settings-search-result").filter({ hasText: "Color theme" }).click();
+  const highlightedTheme = page.locator("#settings-theme.settings-search-target-highlight");
+  await highlightedTheme.waitFor();
+  if (!(await highlightedTheme.evaluate((target) => target.contains(document.activeElement)))) {
+    throw new Error("Settings search did not focus the selected target");
+  }
+  await page
+    .getByRole("navigation", { name: "Settings navigation" })
+    .getByRole("button", { name: /General/ })
+    .click();
+  await page.getByRole("heading", { name: "General" }).waitFor();
+
   const smokeQuickPrompts = [
     "Smoke quick prompt one with enough text to exercise the fixed-width shortcut surface",
     "Smoke quick prompt two",
@@ -410,7 +488,8 @@ try {
   const apiKeyProvider = initPayload.providers.find((provider) => provider.supportsApiKey);
   if (apiKeyProvider) {
     const providerRow = page.locator(`[data-provider-id="${apiKeyProvider.id}"]`);
-    await providerRow.getByRole("button", { name: apiKeyProvider.configured ? "Replace key" : "Set key" }).click();
+    const apiKeyTrigger = providerRow.getByRole("button", { name: apiKeyProvider.configured ? "Replace key" : "Set key" });
+    await apiKeyTrigger.click();
     const apiKeyInput = providerRow.getByRole("textbox", {
       name: `${apiKeyProvider.name} API key`,
       exact: true,
@@ -432,6 +511,9 @@ try {
     if (await copyKey.isDisabled()) throw new Error("Masked provider API key cannot be copied");
     await apiKeyInput.press("Escape");
     await providerRow.locator(".settings-provider-editor").waitFor({ state: "detached" });
+    const apiKeyTriggerHandle = await apiKeyTrigger.elementHandle();
+    if (!apiKeyTriggerHandle) throw new Error("Provider API key trigger disappeared after closing the editor");
+    await page.waitForFunction((button) => document.activeElement === button, apiKeyTriggerHandle);
   }
   await shot("07a-provider-icons");
   await providerToggle.click();

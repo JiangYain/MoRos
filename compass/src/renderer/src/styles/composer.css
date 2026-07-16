@@ -1295,8 +1295,12 @@
   opacity: 0.7;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .quick-prompts-hint {
-    display: none;
-  }
+.quick-prompts-status {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }

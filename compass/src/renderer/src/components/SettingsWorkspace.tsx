@@ -41,7 +41,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Copy,
   Eye,
   EyeOff,
   FolderOpen,
@@ -58,7 +57,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../ipc";
 import { localeFor, translate, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
@@ -71,8 +70,7 @@ import { prepareProfileImage } from "./profile-image";
 import { Toggle } from "./ui/Toggle";
 import { filterSettingsTargets, type SettingsSearchMatch, type SettingsSearchTarget } from "./settings-search";
 import { isRadioNavigationKey, nextRadioIndex } from "./radio-keyboard";
-import { elideWorkspacePath } from "./workspace-path";
-import { pickFocusRestoreTarget, type EditorCloseReason } from "./provider-focus";
+import { elideWorkspacePath, isWorkspacePathLong } from "./workspace-path";
 import { MAX_PROFILE_NAME_LENGTH, MAX_PROFILE_HANDLE_LENGTH, normalizeProfileName, normalizeProfileHandle } from "@shared/profile";
 
 const NAV_ITEMS: Array<{
@@ -92,6 +90,12 @@ const THEME_OPTIONS: ThemePreference[] = ["system", "light", "dark"];
 
 function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): SettingsSearchTarget[] {
   return [
+    // Pages
+    { sectionId: "general", targetId: "settings-page-general", title: t("settings.nav.general"), description: t("settings.nav.generalDescription"), keywords: "preferences settings" },
+    { sectionId: "appearance", targetId: "settings-page-appearance", title: t("settings.appearance"), description: t("settings.appearanceDescription"), keywords: "appearance settings" },
+    { sectionId: "profile", targetId: "settings-page-profile", title: t("settings.nav.profile"), description: t("settings.nav.profileDescription"), keywords: "profile settings" },
+    { sectionId: "models", targetId: "settings-page-models", title: t("settings.nav.models"), description: t("settings.nav.modelsDescription"), keywords: "provider model settings" },
+    { sectionId: "skills", targetId: "settings-page-skills", title: t("settings.nav.skills"), description: t("settings.nav.skillsDescription"), keywords: "skill settings" },
     // General
     { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
     { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
@@ -240,6 +244,7 @@ function QuickPromptSettings(): React.JSX.Element {
   const savedKey = JSON.stringify(savedPrompts);
   const [draftPrompts, setDraftPrompts] = useState<string[]>(() => [...savedPrompts]);
   const [saving, setSaving] = useState(false);
+  const textareaRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
   const normalizedPrompts = useMemo(
     () => draftPrompts.map((prompt) => prompt.trim()),
     [draftPrompts],
@@ -252,6 +257,14 @@ function QuickPromptSettings(): React.JSX.Element {
   useEffect(() => {
     setDraftPrompts([...savedPrompts]);
   }, [savedKey]);
+
+  useLayoutEffect(() => {
+    for (const textarea of textareaRefs.current) {
+      if (!textarea) continue;
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+    }
+  }, [draftPrompts]);
 
   const updatePrompt = (index: number, value: string): void => {
     setDraftPrompts((current) => current.map((prompt, promptIndex) =>
@@ -312,16 +325,12 @@ function QuickPromptSettings(): React.JSX.Element {
                 {String(index + 1).padStart(2, "0")}
               </span>
               <textarea
+                ref={(element) => { textareaRefs.current[index] = element; }}
                 value={prompt}
                 rows={2}
                 aria-label={t("settings.quickPromptLabel", { index: index + 1 })}
                 placeholder={t("settings.quickPromptPlaceholder")}
-                onChange={(event) => {
-                  updatePrompt(index, event.target.value);
-                  const el = event.currentTarget;
-                  el.style.height = "auto";
-                  el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
-                }}
+                onChange={(event) => updatePrompt(index, event.target.value)}
               />
               <button
                 type="button"
@@ -381,10 +390,13 @@ function GeneralSettings(): React.JSX.Element {
   const setLanguage = useCompass((state) => state.setLanguage);
   const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
   const [pathExpanded, setPathExpanded] = useState(false);
-  const [pathCopied, setPathCopied] = useState(false);
+  const workspacePath = settings?.workspaceDir ?? "";
+  const pathCanExpand = isWorkspacePathLong(workspacePath, 48);
+
+  useEffect(() => setPathExpanded(false), [workspacePath]);
 
   return (
-    <div className="settings-page">
+    <div className="settings-page" id="settings-page-general">
       <header className="settings-page-head">
         <span className="settings-eyebrow">{t("settings.preferences")}</span>
         <h1>{t("settings.general")}</h1>
@@ -405,7 +417,10 @@ function GeneralSettings(): React.JSX.Element {
             const currentIndex = APP_LANGUAGES.findIndex((option) => option === language);
             const nextIndex = nextRadioIndex(currentIndex, APP_LANGUAGES.length, event.key);
             const target = APP_LANGUAGES[nextIndex];
-            if (target) void setLanguage(target);
+            if (target) {
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]?.focus();
+              void setLanguage(target);
+            }
           }}
         >
           {APP_LANGUAGES.map((option) => {
@@ -442,31 +457,26 @@ function GeneralSettings(): React.JSX.Element {
           <div className="settings-row-copy">
             <strong>{t("settings.workingDirectory")}</strong>
             <div className="settings-workspace-path">
-              <code
-                className={pathExpanded ? "full" : ""}
-                title={settings?.workspaceDir ?? ""}
-                onClick={() => setPathExpanded((expanded) => !expanded)}
-              >
-                {pathExpanded
-                  ? (settings?.workspaceDir ?? "")
-                  : elideWorkspacePath(settings?.workspaceDir ?? "", 48)}
-              </code>
               <button
                 type="button"
-                className={`settings-workspace-copy${pathCopied ? " copied" : ""}`}
-                aria-label={t("settings.copyWorkspacePath")}
-                onClick={async () => {
-                  const path = settings?.workspaceDir ?? "";
-                  if (!path) return;
-                  try {
-                    await navigator.clipboard.writeText(path);
-                    setPathCopied(true);
-                    window.setTimeout(() => setPathCopied(false), 1600);
-                  } catch { /* ignore */ }
-                }}
+                className="settings-workspace-path-toggle"
+                aria-expanded={pathExpanded}
+                aria-label={t(pathExpanded ? "settings.collapseWorkspacePath" : "settings.expandWorkspacePath")}
+                title={workspacePath}
+                disabled={!pathCanExpand}
+                onClick={() => setPathExpanded((expanded) => !expanded)}
               >
-                {pathCopied ? <Check size={13} strokeWidth={1.7} /> : <Copy size={13} strokeWidth={1.55} />}
+                <code className={pathExpanded ? "full" : ""}>
+                  {pathExpanded
+                    ? workspacePath
+                    : elideWorkspacePath(workspacePath, 48)}
+                </code>
               </button>
+              <CopyButton
+                className="settings-workspace-copy"
+                label={t("settings.copyWorkspacePath")}
+                text={workspacePath}
+              />
             </div>
           </div>
           <button type="button" className="settings-small-btn" onClick={() => void setWorkspaceDir()}>
@@ -489,7 +499,10 @@ function GeneralSettings(): React.JSX.Element {
             const currentIndex = PERMISSION_OPTIONS.findIndex((choice) => choice.id === settings?.permissionMode);
             const nextIndex = nextRadioIndex(currentIndex, PERMISSION_OPTIONS.length, event.key);
             const target = PERMISSION_OPTIONS[nextIndex];
-            if (target) void setPermissionMode(target.id);
+            if (target) {
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]?.focus();
+              void setPermissionMode(target.id);
+            }
           }}
         >
           {PERMISSION_OPTIONS.map((choice) => {
@@ -568,7 +581,7 @@ function AppearanceSettings(): React.JSX.Element {
   const [theme, setTheme] = useThemePreference();
 
   return (
-    <div className="settings-page settings-appearance-page">
+    <div className="settings-page settings-appearance-page" id="settings-page-appearance">
       <header className="settings-page-head">
         <span className="settings-eyebrow">{t("settings.preferences")}</span>
         <h1>{t("settings.appearance")}</h1>
@@ -579,7 +592,22 @@ function AppearanceSettings(): React.JSX.Element {
         <div className="settings-section-title">
           <div><h2>{t("settings.colorTheme")}</h2></div>
         </div>
-        <div className="appearance-theme-grid" role="radiogroup" aria-label={t("settings.colorTheme")}>
+        <div
+          className="appearance-theme-grid"
+          role="radiogroup"
+          aria-label={t("settings.colorTheme")}
+          onKeyDown={(event) => {
+            if (!isRadioNavigationKey(event.key)) return;
+            event.preventDefault();
+            const currentIndex = THEME_OPTIONS.findIndex((option) => option === theme);
+            const nextIndex = nextRadioIndex(currentIndex, THEME_OPTIONS.length, event.key);
+            const target = THEME_OPTIONS[nextIndex];
+            if (target) {
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]?.focus();
+              setTheme(target);
+            }
+          }}
+        >
           {THEME_OPTIONS.map((option) => {
             const selected = theme === option;
             return (
@@ -587,6 +615,7 @@ function AppearanceSettings(): React.JSX.Element {
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                tabIndex={selected ? 0 : -1}
                 className={`appearance-theme-card${selected ? " selected" : ""}`}
                 key={option}
                 onClick={() => setTheme(option)}
@@ -642,6 +671,16 @@ function ProfileSettings(): React.JSX.Element {
     setHandleDraft(profileHandle);
   }, [profileName, profileHandle]);
 
+  const commitIdentity = (): void => {
+    const normalizedName = normalizeProfileName(nameDraft);
+    const normalizedHandle = normalizeProfileHandle(handleDraft);
+    setNameDraft(normalizedName);
+    setHandleDraft(normalizedHandle);
+    if (normalizedName !== profileName || normalizedHandle !== profileHandle) {
+      setProfileIdentity(normalizedName, normalizedHandle);
+    }
+  };
+
   const metrics = [
     { label: t("settings.localSessions"), value: formatCompactMetric(sessions.length, language) },
     { label: t("settings.sessionTokens"), value: formatCompactMetric(sessionTokens, language) },
@@ -670,7 +709,7 @@ function ProfileSettings(): React.JSX.Element {
   };
 
   return (
-    <div className="settings-page settings-profile-page">
+    <div className="settings-page settings-profile-page" id="settings-page-profile">
       <header className="settings-profile-head">
         <h1>{t("settings.profile")}</h1>
         <span>{t("settings.localIdentity")}</span>
@@ -706,11 +745,7 @@ function ProfileSettings(): React.JSX.Element {
               maxLength={MAX_PROFILE_NAME_LENGTH}
               placeholder={t("settings.profileNamePlaceholder")}
               onChange={(event) => setNameDraft(event.target.value)}
-              onBlur={() => {
-                const normalized = normalizeProfileName(nameDraft);
-                setNameDraft(normalized);
-                if (normalized !== profileName) setProfileIdentity(normalized, profileHandle);
-              }}
+              onBlur={commitIdentity}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();
               }}
@@ -725,11 +760,7 @@ function ProfileSettings(): React.JSX.Element {
               maxLength={MAX_PROFILE_HANDLE_LENGTH}
               placeholder={t("settings.profileHandlePlaceholder")}
               onChange={(event) => setHandleDraft(event.target.value)}
-              onBlur={() => {
-                const normalized = normalizeProfileHandle(handleDraft);
-                setHandleDraft(normalized);
-                if (normalized !== profileHandle) setProfileIdentity(profileName, normalized);
-              }}
+              onBlur={commitIdentity}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();
               }}
@@ -793,17 +824,12 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
   const [busy, setBusy] = useState(false);
   const loginAttempt = useRef(0);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
-  const editorInputRef = useRef<HTMLInputElement>(null);
 
-  const closeEditor = useCallback((reason: EditorCloseReason): void => {
+  const closeEditor = useCallback((): void => {
     setKey("");
     setKeyVisible(false);
     setEditing(false);
-    const target = pickFocusRestoreTarget(reason, {
-      triggerButton: triggerButtonRef.current,
-      editorInput: editorInputRef.current,
-    });
-    target?.focus();
+    window.requestAnimationFrame(() => triggerButtonRef.current?.focus());
   }, []);
 
   const save = async (): Promise<void> => {
@@ -811,7 +837,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
     setBusy(true);
     try {
       await setApiKey(provider.id, key.trim());
-      closeEditor("save");
+      closeEditor();
     } finally {
       setBusy(false);
     }
@@ -860,12 +886,10 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
           type="button"
           className="settings-text-btn"
           ref={triggerButtonRef}
-          onClick={() => setEditing((open) => {
-            if (open) setKeyVisible(false);
-            return !open;
-          })}
+          aria-expanded={editing}
+          onClick={() => editing ? closeEditor() : setEditing(true)}
         >
-          {provider.configured ? t("settings.replaceKey") : t("settings.setKey")}
+          {editing ? t("common.cancel") : provider.configured ? t("settings.replaceKey") : t("settings.setKey")}
         </button>
       )}
       {provider.configured && provider.source === "stored" && (
@@ -877,7 +901,6 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
         <div className="settings-provider-editor">
           <KeyRound size={14} strokeWidth={1.55} />
           <input
-            ref={editorInputRef}
             type={keyVisible ? "text" : "password"}
             value={key}
             autoFocus
@@ -894,7 +917,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
               if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
-                closeEditor("escape");
+                closeEditor();
               }
             }}
           />
@@ -1007,7 +1030,7 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
   };
 
   return (
-    <div className="settings-page settings-models-page">
+    <div className="settings-page settings-models-page" id="settings-page-models">
       <header className="settings-page-head">
         <span className="settings-eyebrow">{t("settings.aiConfiguration")}</span>
         <h1>{t("settings.models")}</h1>
@@ -1070,7 +1093,7 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
         </select>
       </section>
 
-      <section className="settings-model-surface" aria-label={t("settings.models")}>
+      <section className="settings-model-surface" id="settings-models-list" aria-label={t("settings.models")}>
         <div className="settings-model-search">
           <Search size={14} strokeWidth={1.55} />
           <input
@@ -1125,7 +1148,7 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
   const visible = skills.filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
 
   return (
-    <div className="settings-page">
+    <div className="settings-page" id="settings-page-skills">
       <header className="settings-page-head settings-page-head-with-action">
         <div>
           <span className="settings-eyebrow">{t("settings.skillsEyebrow")}</span>
@@ -1188,20 +1211,69 @@ export function SettingsWorkspace(): React.JSX.Element {
   const openSettings = useCompass((state) => state.openSettings);
   const closeSettings = useCompass((state) => state.closeSettings);
   const [search, setSearch] = useState("");
+  const [pendingTarget, setPendingTarget] = useState<SettingsSearchMatch | null>(null);
+  const highlightTimeoutRef = useRef<number | null>(null);
+  const highlightedElementRef = useRef<HTMLElement | null>(null);
   const searchTargets = useMemo(() => buildSettingsSearchTargets(t), [t]);
-  const searchResults = useMemo(() => filterSettingsTargets(searchTargets, search), [searchTargets, search]);
+  const searchResults = useMemo(
+    () => filterSettingsTargets(searchTargets, search).slice(0, 20),
+    [searchTargets, search],
+  );
+
+  const clearSearchHighlight = useCallback((): void => {
+    if (highlightTimeoutRef.current !== null) {
+      window.clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
+    const highlighted = highlightedElementRef.current;
+    if (!highlighted) return;
+    highlighted.classList.remove("settings-search-target-highlight");
+    if (highlighted.dataset.settingsSearchTemporaryTabindex === "true") {
+      highlighted.removeAttribute("tabindex");
+      delete highlighted.dataset.settingsSearchTemporaryTabindex;
+    }
+    highlightedElementRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!pendingTarget || pendingTarget.sectionId !== section) return;
+    const element = document.getElementById(pendingTarget.targetId);
+    if (!element) {
+      setPendingTarget(null);
+      return;
+    }
+
+    clearSearchHighlight();
+    element.classList.add("settings-search-target-highlight");
+    highlightedElementRef.current = element;
+    element.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "center",
+    });
+
+    const focusable = element.matches("button, input, textarea, select, [tabindex]")
+      ? element as HTMLElement
+      : element.querySelector<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+    if (focusable) {
+      focusable.focus({ preventScroll: true });
+    } else {
+      element.setAttribute("tabindex", "-1");
+      element.dataset.settingsSearchTemporaryTabindex = "true";
+      element.focus({ preventScroll: true });
+    }
+
+    highlightTimeoutRef.current = window.setTimeout(clearSearchHighlight, 1600);
+    setPendingTarget(null);
+  }, [clearSearchHighlight, pendingTarget, section]);
+
+  useEffect(() => clearSearchHighlight, [clearSearchHighlight]);
 
   const navigateToTarget = (match: SettingsSearchMatch): void => {
+    setPendingTarget(match);
     openSettings(match.sectionId);
     setSearch("");
-    // Scroll to the target element after the section renders
-    requestAnimationFrame(() => {
-      const el = document.getElementById(match.targetId);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.focus({ preventScroll: true });
-      }
-    });
   };
 
   return (
@@ -1221,7 +1293,13 @@ export function SettingsWorkspace(): React.JSX.Element {
           />
         </label>
         {search.trim() && (
-          <div className="settings-search-results" role="listbox" aria-label={t("settings.search")}>
+          <div
+            className="settings-search-results"
+            id="settings-search-results"
+            role="region"
+            aria-label={t("settings.search")}
+            aria-live="polite"
+          >
             {searchResults.length === 0 ? (
               <div className="settings-search-empty">{t("settings.searchNoResults")}</div>
             ) : (
@@ -1230,8 +1308,6 @@ export function SettingsWorkspace(): React.JSX.Element {
                   type="button"
                   key={`${match.sectionId}-${match.targetId}`}
                   className="settings-search-result"
-                  role="option"
-                  aria-selected="false"
                   onClick={() => navigateToTarget(match)}
                 >
                   <strong>{match.title}</strong>

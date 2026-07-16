@@ -88,6 +88,9 @@ export function QuickPrompts(): React.JSX.Element {
     setIndex((current) => Math.min(current, prompts.length - 1));
   }, [prompts.length]);
 
+  const currentIndex = Math.min(index, Math.max(0, prompts.length - 1));
+  const currentPrompt = prompts[currentIndex] ?? "";
+
   const onWheel = useCallback((event: React.WheelEvent<HTMLDivElement>): void => {
     const decision = decideQuickPromptWheel(
       prompts.length,
@@ -135,11 +138,16 @@ export function QuickPrompts(): React.JSX.Element {
       role={prompts.length > 1 ? "group" : undefined}
       aria-label={prompts.length > 1 ? t("settings.quickPromptsScrollHint") : undefined}
     >
-      <QuickPromptButton index={index} text={prompts[index]} />
+      <QuickPromptButton index={currentIndex} text={currentPrompt} />
       {prompts.length > 1 && (
-        <span className="quick-prompts-hint" aria-hidden="true">
-          {t("settings.quickPromptsScrollHint")}
-        </span>
+        <>
+          <span className="quick-prompts-hint" aria-hidden="true">
+            {t("settings.quickPromptsScrollHint")}
+          </span>
+          <span className="quick-prompts-status" aria-live="polite">
+            {t("settings.quickPromptsPosition", { current: currentIndex + 1, total: prompts.length })}
+          </span>
+        </>
       )}
     </div>
   );

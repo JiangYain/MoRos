@@ -5,6 +5,41 @@ import { filterSettingsTargets, type SettingsSearchTarget } from "../src/rendere
 const TARGETS: readonly SettingsSearchTarget[] = [
   {
     sectionId: "general",
+    targetId: "settings-page-general",
+    title: "General",
+    description: "Language, quick prompts, workspace, and permissions.",
+    keywords: "preferences settings",
+  },
+  {
+    sectionId: "appearance",
+    targetId: "settings-page-appearance",
+    title: "Appearance",
+    description: "Control how Compass looks and feels.",
+    keywords: "appearance settings",
+  },
+  {
+    sectionId: "profile",
+    targetId: "settings-page-profile",
+    title: "Profile",
+    description: "Manage your local profile information.",
+    keywords: "profile settings",
+  },
+  {
+    sectionId: "models",
+    targetId: "settings-page-models",
+    title: "Models",
+    description: "Configure model providers and defaults.",
+    keywords: "provider model settings",
+  },
+  {
+    sectionId: "skills",
+    targetId: "settings-page-skills",
+    title: "Skills",
+    description: "Manage the skills available to Compass.",
+    keywords: "skill settings",
+  },
+  {
+    sectionId: "general",
     targetId: "settings-language",
     title: "Language",
     description: "Choose the language used by the Compass interface.",
@@ -26,7 +61,7 @@ const TARGETS: readonly SettingsSearchTarget[] = [
   },
   {
     sectionId: "profile",
-    targetId: "settings-profile-name",
+    targetId: "settings-profile-identity",
     title: "Profile name",
     description: "Edit the local display name and username.",
     keywords: "handle identity 资料",
@@ -40,12 +75,17 @@ const TARGETS: readonly SettingsSearchTarget[] = [
   },
   {
     sectionId: "skills",
-    targetId: "settings-skill-list",
+    targetId: "settings-skills-list",
     title: "Skills",
     description: "Manage local skills and additional skill folders.",
     keywords: "agent 技能",
   },
 ];
+
+function assertIncludesTarget(query: string, targetId: string): void {
+  const match = filterSettingsTargets(TARGETS, query).find((target) => target.targetId === targetId);
+  assert.ok(match, `Expected ${JSON.stringify(query)} to include ${targetId}`);
+}
 
 test("empty query matches nothing so search stays out of the way", () => {
   assert.deepEqual(filterSettingsTargets(TARGETS, ""), []);
@@ -53,26 +93,19 @@ test("empty query matches nothing so search stays out of the way", () => {
 });
 
 test("matches page names across general, appearance, profile, models, and skills", () => {
-  const languageMatches = filterSettingsTargets(TARGETS, "language");
-  assert.equal(languageMatches.length, 1);
-  assert.equal(languageMatches[0].sectionId, "general");
-  assert.equal(languageMatches[0].targetId, "settings-language");
+  assertIncludesTarget("general", "settings-page-general");
+  assertIncludesTarget("appearance", "settings-page-appearance");
+  assertIncludesTarget("profile", "settings-page-profile");
+  assertIncludesTarget("models", "settings-page-models");
+  assertIncludesTarget("skills", "settings-page-skills");
 
-  const themeMatches = filterSettingsTargets(TARGETS, "color theme");
-  assert.equal(themeMatches.length, 1);
-  assert.equal(themeMatches[0].sectionId, "appearance");
-
-  const profileMatches = filterSettingsTargets(TARGETS, "profile name");
-  assert.equal(profileMatches.length, 1);
-  assert.equal(profileMatches[0].sectionId, "profile");
-
-  const providerMatches = filterSettingsTargets(TARGETS, "provider");
-  assert.equal(providerMatches.length, 1);
-  assert.equal(providerMatches[0].sectionId, "models");
-
-  const skillMatches = filterSettingsTargets(TARGETS, "skills");
-  assert.equal(skillMatches.length, 1);
-  assert.equal(skillMatches[0].sectionId, "skills");
+  // A page-level match and a specific setting may both be valid. Confirm that
+  // the specific destination remains discoverable without assuming uniqueness.
+  assertIncludesTarget("language", "settings-language");
+  assertIncludesTarget("color theme", "settings-theme");
+  assertIncludesTarget("profile name", "settings-profile-identity");
+  assertIncludesTarget("provider", "settings-providers");
+  assertIncludesTarget("skills", "settings-skills-list");
 });
 
 test("matches keywords and descriptions, not just titles", () => {
@@ -95,10 +128,11 @@ test("multi-token queries require every token to match", () => {
 });
 
 test("results keep the declared order so navigation is stable", () => {
-  // "compass" appears in the language and permission descriptions; both should
-  // match and stay in the order they were declared in TARGETS.
+  // "compass" appears in both page-level and setting-level descriptions. Every
+  // result should stay in the order declared in TARGETS.
   const matches = filterSettingsTargets(TARGETS, "compass");
-  assert.equal(matches.length, 2);
-  assert.equal(matches[0].targetId, "settings-language");
-  assert.equal(matches[1].targetId, "settings-permission");
+  assert.deepEqual(
+    matches.map((match) => match.targetId),
+    ["settings-page-appearance", "settings-page-skills", "settings-language", "settings-permission"],
+  );
 });

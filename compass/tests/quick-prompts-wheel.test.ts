@@ -21,7 +21,7 @@ test("an empty prompt list also does not hijack scroll", () => {
 
 test("multiple prompts accumulate without switching below the threshold", () => {
   const decision = decideQuickPromptWheel(3, 10, THRESHOLD, false);
-  assert.equal(decision.preventDefault, true);
+  assert.equal(decision.preventDefault, false);
   assert.equal(decision.switchDirection, 0);
   assert.equal(decision.resetAccumulator, false);
   assert.equal(decision.lockGesture, false);
@@ -41,12 +41,12 @@ test("negative delta switches backward", () => {
   assert.equal(decision.lockGesture, true);
 });
 
-test("gesture lock absorbs further wheel ticks without switching again", () => {
+test("gesture lock ignores trailing wheel ticks without hijacking page scroll", () => {
   const locked = decideQuickPromptWheel(3, 200, THRESHOLD, true);
-  assert.equal(locked.preventDefault, true);
+  assert.equal(locked.preventDefault, false);
   assert.equal(locked.switchDirection, 0);
   assert.equal(locked.lockGesture, true);
-  assert.equal(locked.resetAccumulator, false);
+  assert.equal(locked.resetAccumulator, true);
 });
 
 test("just below the threshold does not switch yet", () => {

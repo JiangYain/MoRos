@@ -350,12 +350,13 @@ const zhCN = {
   "settings.profileNamePlaceholder": "输入显示名称",
   "settings.profileHandle": "用户名",
   "settings.profileHandlePlaceholder": "@用户名",
-  "settings.profileAvatarFallback": "头像",
   "settings.profileAvatarAlt": "个人资料头像",
   "settings.searchNoResults": "未找到匹配的设置项",
   "settings.copyWorkspacePath": "复制路径",
-  "settings.workspacePathCopied": "已复制",
+  "settings.expandWorkspacePath": "展开完整路径",
+  "settings.collapseWorkspacePath": "收起完整路径",
   "settings.quickPromptsScrollHint": "滚轮切换",
+  "settings.quickPromptsPosition": "快捷项 {current}/{total}",
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
@@ -459,9 +460,10 @@ Object.assign(zhTW, {
   "error.imageDimensions": "圖片尺寸無效。", "error.imageProcessing": "目前環境無法處理頭像圖片。",
   "settings.profileName": "姓名", "settings.profileNamePlaceholder": "輸入顯示名稱",
   "settings.profileHandle": "使用者名稱", "settings.profileHandlePlaceholder": "@使用者名稱",
-  "settings.profileAvatarFallback": "頭像", "settings.profileAvatarAlt": "個人資料頭像",
+  "settings.profileAvatarAlt": "個人資料頭像",
   "settings.searchNoResults": "未找到匹配的設定項", "settings.copyWorkspacePath": "複製路徑",
-  "settings.workspacePathCopied": "已複製", "settings.quickPromptsScrollHint": "滾輪切換",
+  "settings.expandWorkspacePath": "展開完整路徑", "settings.collapseWorkspacePath": "收起完整路徑",
+  "settings.quickPromptsScrollHint": "滾輪切換", "settings.quickPromptsPosition": "快捷項 {current}/{total}",
 });
 
 const en: Dictionary = Object.fromEntries(Object.keys(zhCN).map((key) => [key, key])) as Dictionary;
@@ -595,12 +597,13 @@ Object.assign(en, {
   "settings.profileNamePlaceholder": "Enter display name",
   "settings.profileHandle": "Username",
   "settings.profileHandlePlaceholder": "@username",
-  "settings.profileAvatarFallback": "Avatar",
   "settings.profileAvatarAlt": "Profile avatar",
   "settings.searchNoResults": "No matching settings",
   "settings.copyWorkspacePath": "Copy path",
-  "settings.workspacePathCopied": "Copied",
+  "settings.expandWorkspacePath": "Show full path",
+  "settings.collapseWorkspacePath": "Collapse path",
   "settings.quickPromptsScrollHint": "Scroll to switch",
+  "settings.quickPromptsPosition": "Quick prompt {current} of {total}",
 });
 
 const de: Dictionary = { ...en };
@@ -740,9 +743,10 @@ Object.assign(de, {
   "hearingHealth.description": "Dieser Arbeitsbereich wird vorbereitet. Funktionen zur Hörgesundheit folgen später.",
   "settings.profileName": "Name", "settings.profileNamePlaceholder": "Anzeigename eingeben",
   "settings.profileHandle": "Benutzername", "settings.profileHandlePlaceholder": "@benutzername",
-  "settings.profileAvatarFallback": "Avatar", "settings.profileAvatarAlt": "Profil-Avatar",
+  "settings.profileAvatarAlt": "Profil-Avatar",
   "settings.searchNoResults": "Keine passenden Einstellungen", "settings.copyWorkspacePath": "Pfad kopieren",
-  "settings.workspacePathCopied": "Kopiert", "settings.quickPromptsScrollHint": "Scrollen zum Wechseln",
+  "settings.expandWorkspacePath": "Vollständigen Pfad anzeigen", "settings.collapseWorkspacePath": "Pfad einklappen",
+  "settings.quickPromptsScrollHint": "Scrollen zum Wechseln", "settings.quickPromptsPosition": "Schnellaktion {current} von {total}",
 });
 
 const dictionaries: Record<AppLanguage, Dictionary> = { "zh-CN": zhCN, "zh-TW": zhTW, en, de };

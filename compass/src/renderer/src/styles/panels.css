@@ -195,7 +195,7 @@
 }
 
 .settings-page {
-  width: min(720px, calc(100% - 64px));
+  width: min(960px, calc(100% - 64px));
   margin: 0 auto;
   padding: 64px 0 56px;
   max-width: 100%;
@@ -237,6 +237,10 @@
   font-size: 10.75px;
   font-weight: 400;
   line-height: 1.5;
+}
+
+.settings-page-head p {
+  max-width: 720px;
 }
 
 .settings-section-block {
@@ -1109,6 +1113,7 @@
 }
 
 .settings-provider-row {
+  flex: 0 0 auto;
   min-height: 43px;
   padding: 6px 8px;
   display: flex;
@@ -1503,16 +1508,35 @@
   min-width: 0;
 }
 
-.settings-workspace-path code {
+.settings-workspace-path-toggle {
   flex: 1 1 auto;
   min-width: 0;
+  padding: 2px 3px;
+  border-radius: var(--border-radius-xs);
+  color: inherit;
+  text-align: left;
+}
+
+.settings-workspace-path-toggle:hover,
+.settings-workspace-path-toggle:focus-visible {
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+.settings-workspace-path-toggle:disabled {
+  background: transparent;
+  cursor: text;
+}
+
+.settings-workspace-path-toggle code {
+  display: block;
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
 }
 
-.settings-workspace-path code.full {
+.settings-workspace-path-toggle code.full {
   white-space: normal;
   word-break: break-all;
 }
@@ -1622,6 +1646,12 @@
   font-size: 10px;
 }
 
+.settings-search-target-highlight {
+  border-radius: var(--border-radius-md);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+  transition: box-shadow 0.2s var(--ease-out-power3);
+}
+
 @media (max-width: 760px) {
   .app-body.settings-open {
     padding-right: 0;
@@ -1650,6 +1680,12 @@
     height: 30px;
     margin: 0;
     padding: 0 8px;
+  }
+
+  .settings-search-results {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-height: 180px;
   }
 
   .settings-nav nav {

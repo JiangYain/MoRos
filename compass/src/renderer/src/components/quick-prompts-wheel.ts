@@ -3,8 +3,8 @@
  *
  * Requirements:
  *  - A single quick prompt must never hijack the page scroll.
- *  - With multiple prompts, only prevent the default scroll when a switch will
- *    actually happen or the gesture is still being accumulated towards one.
+ *  - With multiple prompts, only prevent the default scroll on the wheel tick
+ *    that actually crosses the threshold and switches the visible prompt.
  *  - Once a switch fires, lock further switches until the wheel gesture rests
  *    for the reset window, so one trackpad swipe does not skip multiple items.
  */
@@ -44,22 +44,22 @@ export function decideQuickPromptWheel(
     };
   }
 
-  // Multiple prompts but the lock is held: keep absorbing the gesture so the
-  // page does not scroll, but do not switch again until the lock releases.
+  // The gesture already switched once. Ignore its trailing wheel ticks without
+  // continuing to hijack the surrounding page scroll.
   if (gestureLocked) {
     return {
-      preventDefault: true,
+      preventDefault: false,
       switchDirection: 0,
-      resetAccumulator: false,
+      resetAccumulator: true,
       lockGesture: true,
     };
   }
 
-  // Not enough accumulated delta to switch yet. Keep accumulating and prevent
-  // default so the surface does not jitter between scrolling and switching.
+  // Not enough accumulated delta to switch yet. Keep accumulating, but leave
+  // the surrounding page scroll alone until this gesture becomes a switch.
   if (Math.abs(accumulatedDelta) < threshold) {
     return {
-      preventDefault: true,
+      preventDefault: false,
       switchDirection: 0,
       resetAccumulator: false,
       lockGesture: false,
