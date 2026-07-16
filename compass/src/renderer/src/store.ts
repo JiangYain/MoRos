@@ -23,6 +23,7 @@ import {
   type ClientProfileDraft,
   type ClientRegistry,
 } from "@shared/client-registry";
+import { normalizeProfileHandle, normalizeProfileName } from "@shared/profile";
 import { create } from "zustand";
 import { api } from "./ipc";
 import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
@@ -50,6 +51,10 @@ interface CompassState {
   approvals: UiApprovalRequest[];
   clientRegistry: ClientRegistry;
   profileAvatar: string | null;
+  /** Editable local profile display name (empty until the user sets one). */
+  profileName: string;
+  /** Editable local profile handle/username (empty until the user sets one). */
+  profileHandle: string;
   streaming: boolean;
   queue: { steering: string[]; followUp: string[] };
   settingsSection: SettingsSection | null;
@@ -70,6 +75,7 @@ interface CompassState {
   clearComposerSeed(): void;
   setError(message: string | null): void;
   setProfileAvatar(dataUrl: string | null): void;
+  setProfileIdentity(name: string, handle: string): void;
 
   boot(): Promise<void>;
   send(text: string, images?: UiImageAttachment[]): Promise<void>;
@@ -161,6 +167,12 @@ function clientMessageId(): string {
 }
 
 const PROFILE_AVATAR_STORAGE_KEY = "compass.profile.avatar.v1";
+const PROFILE_IDENTITY_STORAGE_KEY = "compass.profile.identity.v1";
+
+interface StoredProfileIdentity {
+  name?: unknown;
+  handle?: unknown;
+}
 
 function loadProfileAvatar(): string | null {
   if (typeof window === "undefined") return null;
@@ -172,6 +184,22 @@ function loadProfileAvatar(): string | null {
   }
 }
 
+function loadProfileIdentity(): { name: string; handle: string } {
+  if (typeof window === "undefined") return { name: "", handle: "" };
+  try {
+    const raw = window.localStorage.getItem(PROFILE_IDENTITY_STORAGE_KEY);
+    if (!raw) return { name: "", handle: "" };
+    const parsed = JSON.parse(raw) as StoredProfileIdentity;
+    // Reuse the shared normalizers so old/malformed data is always safe.
+    return {
+      name: normalizeProfileName(parsed.name),
+      handle: normalizeProfileHandle(parsed.handle),
+    };
+  } catch {
+    return { name: "", handle: "" };
+  }
+}
+
 export const useCompass = create<CompassState>((set, get) => {
   const runIpc = async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -180,6 +208,8 @@ export const useCompass = create<CompassState>((set, get) => {
       set({ lastError: sanitizeUnknownError(error) });
     }
   };
+
+  const initialIdentity = loadProfileIdentity();
 
   return {
   ready: false,
@@ -193,6 +223,8 @@ export const useCompass = create<CompassState>((set, get) => {
   approvals: [],
   clientRegistry: emptyClientRegistry(),
   profileAvatar: loadProfileAvatar(),
+  profileName: initialIdentity.name,
+  profileHandle: initialIdentity.handle,
   streaming: false,
   queue: { steering: [], followUp: [] },
   settingsSection: null,
@@ -424,6 +456,21 @@ export const useCompass = create<CompassState>((set, get) => {
       return;
     }
     set({ profileAvatar });
+  },
+
+  setProfileIdentity: (name, handle) => {
+    const normalizedName = normalizeProfileName(name);
+    const normalizedHandle = normalizeProfileHandle(handle);
+    try {
+      window.localStorage.setItem(
+        PROFILE_IDENTITY_STORAGE_KEY,
+        JSON.stringify({ name: normalizedName, handle: normalizedHandle }),
+      );
+    } catch {
+      set({ lastError: storeMessage("avatarStorage") });
+      return;
+    }
+    set({ profileName: normalizedName, profileHandle: normalizedHandle });
   },
 
   boot: () => runIpc(async () => {

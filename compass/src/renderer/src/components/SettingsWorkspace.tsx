@@ -41,6 +41,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   Eye,
   EyeOff,
   FolderOpen,
@@ -57,7 +58,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../ipc";
 import { localeFor, translate, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
@@ -68,6 +69,11 @@ import { ProfileAvatar } from "./ProfileAvatar";
 import { filterAndSortModels } from "./model-list";
 import { prepareProfileImage } from "./profile-image";
 import { Toggle } from "./ui/Toggle";
+import { filterSettingsTargets, type SettingsSearchMatch, type SettingsSearchTarget } from "./settings-search";
+import { isRadioNavigationKey, nextRadioIndex } from "./radio-keyboard";
+import { elideWorkspacePath } from "./workspace-path";
+import { pickFocusRestoreTarget, type EditorCloseReason } from "./provider-focus";
+import { MAX_PROFILE_NAME_LENGTH, MAX_PROFILE_HANDLE_LENGTH, normalizeProfileName, normalizeProfileHandle } from "@shared/profile";
 
 const NAV_ITEMS: Array<{
   id: SettingsSection;
@@ -83,6 +89,26 @@ const NAV_ITEMS: Array<{
 ];
 
 const THEME_OPTIONS: ThemePreference[] = ["system", "light", "dark"];
+
+function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): SettingsSearchTarget[] {
+  return [
+    // General
+    { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
+    { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
+    { sectionId: "general", targetId: "settings-workspace", title: t("settings.workspace"), description: t("settings.workspaceDescription"), keywords: "directory folder cwd" },
+    { sectionId: "general", targetId: "settings-permission", title: t("settings.permissionMode"), description: t("settings.permissionDescription"), keywords: "permission approve ask full" },
+    { sectionId: "general", targetId: "settings-runtime", title: t("settings.runtime"), description: t("settings.runtimeDescription"), keywords: "git bash shell" },
+    // Appearance
+    { sectionId: "appearance", targetId: "settings-theme", title: t("settings.colorTheme"), description: t("settings.appearanceDescription"), keywords: "theme light dark system" },
+    // Profile
+    { sectionId: "profile", targetId: "settings-profile-identity", title: t("settings.profile"), description: t("settings.nav.profileDescription"), keywords: "name username avatar identity" },
+    // Models
+    { sectionId: "models", targetId: "settings-providers", title: t("settings.providersKeys"), description: t("settings.nav.modelsDescription"), keywords: "api key provider oauth" },
+    { sectionId: "models", targetId: "settings-models-list", title: t("settings.models"), description: t("settings.modelsDescription"), keywords: "model ai llm" },
+    // Skills
+    { sectionId: "skills", targetId: "settings-skills-list", title: t("settings.nav.skills"), description: t("settings.skillsDescription"), keywords: "skill agent tool" },
+  ];
+}
 
 function ModelBrandIcon({ model, provider, size = 19 }: { model: string; provider: string; size?: number }): React.JSX.Element {
   const identity = `${model} ${provider}`.toLowerCase();
@@ -290,7 +316,12 @@ function QuickPromptSettings(): React.JSX.Element {
                 rows={2}
                 aria-label={t("settings.quickPromptLabel", { index: index + 1 })}
                 placeholder={t("settings.quickPromptPlaceholder")}
-                onChange={(event) => updatePrompt(index, event.target.value)}
+                onChange={(event) => {
+                  updatePrompt(index, event.target.value);
+                  const el = event.currentTarget;
+                  el.style.height = "auto";
+                  el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+                }}
               />
               <button
                 type="button"
@@ -349,6 +380,8 @@ function GeneralSettings(): React.JSX.Element {
   const setPermissionMode = useCompass((state) => state.setPermissionMode);
   const setLanguage = useCompass((state) => state.setLanguage);
   const setWorkspaceDir = useCompass((state) => state.setWorkspaceDir);
+  const [pathExpanded, setPathExpanded] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
 
   return (
     <div className="settings-page">
@@ -358,31 +391,49 @@ function GeneralSettings(): React.JSX.Element {
         <p>{t("settings.generalDescription")}</p>
       </header>
 
-      <section className="settings-section-block settings-language-block">
+      <section className="settings-section-block settings-language-block" id="settings-language">
         <div className="settings-section-title">
           <div><h2>{t("language.label")}</h2><p>{t("language.description")}</p></div>
         </div>
-        <div className="settings-language-options" role="radiogroup" aria-label={t("language.label")}>
-          {APP_LANGUAGES.map((option) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={language === option}
-              className={language === option ? "selected" : ""}
-              key={option}
-              lang={option}
-              onClick={() => void setLanguage(option)}
-            >
-              <span>{t(`language.${option}` as TranslationKey)}</span>
-              {language === option && <Check size={14} strokeWidth={1.7} />}
-            </button>
-          ))}
+        <div
+          className="settings-language-options"
+          role="radiogroup"
+          aria-label={t("language.label")}
+          onKeyDown={(event) => {
+            if (!isRadioNavigationKey(event.key)) return;
+            event.preventDefault();
+            const currentIndex = APP_LANGUAGES.findIndex((option) => option === language);
+            const nextIndex = nextRadioIndex(currentIndex, APP_LANGUAGES.length, event.key);
+            const target = APP_LANGUAGES[nextIndex];
+            if (target) void setLanguage(target);
+          }}
+        >
+          {APP_LANGUAGES.map((option) => {
+            const selected = language === option;
+            return (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                tabIndex={selected ? 0 : -1}
+                className={selected ? "selected" : ""}
+                key={option}
+                lang={option}
+                onClick={() => void setLanguage(option)}
+              >
+                <span>{t(`language.${option}` as TranslationKey)}</span>
+                {selected && <Check size={14} strokeWidth={1.7} />}
+              </button>
+            );
+          })}
         </div>
       </section>
 
-      <QuickPromptSettings />
+      <div id="settings-quick-prompts">
+        <QuickPromptSettings />
+      </div>
 
-      <section className="settings-section-block">
+      <section className="settings-section-block" id="settings-workspace">
         <div className="settings-section-title">
           <div><h2>{t("settings.workspace")}</h2><p>{t("settings.workspaceDescription")}</p></div>
         </div>
@@ -390,7 +441,33 @@ function GeneralSettings(): React.JSX.Element {
           <div className="settings-row-icon"><FolderOpen size={16} strokeWidth={1.55} /></div>
           <div className="settings-row-copy">
             <strong>{t("settings.workingDirectory")}</strong>
-            <code>{settings?.workspaceDir ?? ""}</code>
+            <div className="settings-workspace-path">
+              <code
+                className={pathExpanded ? "full" : ""}
+                title={settings?.workspaceDir ?? ""}
+                onClick={() => setPathExpanded((expanded) => !expanded)}
+              >
+                {pathExpanded
+                  ? (settings?.workspaceDir ?? "")
+                  : elideWorkspacePath(settings?.workspaceDir ?? "", 48)}
+              </code>
+              <button
+                type="button"
+                className={`settings-workspace-copy${pathCopied ? " copied" : ""}`}
+                aria-label={t("settings.copyWorkspacePath")}
+                onClick={async () => {
+                  const path = settings?.workspaceDir ?? "";
+                  if (!path) return;
+                  try {
+                    await navigator.clipboard.writeText(path);
+                    setPathCopied(true);
+                    window.setTimeout(() => setPathCopied(false), 1600);
+                  } catch { /* ignore */ }
+                }}
+              >
+                {pathCopied ? <Check size={13} strokeWidth={1.7} /> : <Copy size={13} strokeWidth={1.55} />}
+              </button>
+            </div>
           </div>
           <button type="button" className="settings-small-btn" onClick={() => void setWorkspaceDir()}>
             {t("common.change")}
@@ -398,19 +475,40 @@ function GeneralSettings(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-section-block">
+      <section className="settings-section-block" id="settings-permission">
         <div className="settings-section-title">
           <div><h2>{t("settings.permissionMode")}</h2><p>{t("settings.permissionDescription")}</p></div>
         </div>
-        <div className="settings-card settings-permission-list">
+        <div
+          className="settings-card settings-permission-list"
+          role="radiogroup"
+          aria-label={t("settings.permissionMode")}
+          onKeyDown={(event) => {
+            if (!isRadioNavigationKey(event.key)) return;
+            event.preventDefault();
+            const currentIndex = PERMISSION_OPTIONS.findIndex((choice) => choice.id === settings?.permissionMode);
+            const nextIndex = nextRadioIndex(currentIndex, PERMISSION_OPTIONS.length, event.key);
+            const target = PERMISSION_OPTIONS[nextIndex];
+            if (target) void setPermissionMode(target.id);
+          }}
+        >
           {PERMISSION_OPTIONS.map((choice) => {
             const selected = settings?.permissionMode === choice.id;
             return (
               <button
                 type="button"
+                role="radio"
+                aria-checked={selected}
+                tabIndex={selected ? 0 : -1}
                 className={`settings-choice-row${selected ? " selected" : ""}`}
                 key={choice.id}
                 onClick={() => void setPermissionMode(choice.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void setPermissionMode(choice.id);
+                  }
+                }}
               >
                 <ShieldCheck size={16} strokeWidth={1.5} />
                 <span>
@@ -424,7 +522,7 @@ function GeneralSettings(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="settings-section-block">
+      <section className="settings-section-block" id="settings-runtime">
         <div className="settings-section-title">
           <div><h2>{t("settings.runtime")}</h2><p>{t("settings.runtimeDescription")}</p></div>
         </div>
@@ -477,7 +575,7 @@ function AppearanceSettings(): React.JSX.Element {
         <p>{t("settings.appearanceDescription")}</p>
       </header>
 
-      <section className="settings-section-block appearance-theme-section">
+      <section className="settings-section-block appearance-theme-section" id="settings-theme">
         <div className="settings-section-title">
           <div><h2>{t("settings.colorTheme")}</h2></div>
         </div>
@@ -528,11 +626,21 @@ function ProfileSettings(): React.JSX.Element {
   const profileAvatar = useCompass((state) => state.profileAvatar);
   const setProfileAvatar = useCompass((state) => state.setProfileAvatar);
   const setError = useCompass((state) => state.setError);
+  const profileName = useCompass((state) => state.profileName);
+  const profileHandle = useCompass((state) => state.profileHandle);
+  const setProfileIdentity = useCompass((state) => state.setProfileIdentity);
   const avatarInput = useRef<HTMLInputElement>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [nameDraft, setNameDraft] = useState(profileName);
+  const [handleDraft, setHandleDraft] = useState(profileHandle);
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const sessionTokens = (stats?.tokensIn ?? 0) + (stats?.tokensOut ?? 0);
   const permission = settings?.permissionMode;
+
+  useEffect(() => {
+    setNameDraft(profileName);
+    setHandleDraft(profileHandle);
+  }, [profileName, profileHandle]);
 
   const metrics = [
     { label: t("settings.localSessions"), value: formatCompactMetric(sessions.length, language) },
@@ -568,7 +676,7 @@ function ProfileSettings(): React.JSX.Element {
         <span>{t("settings.localIdentity")}</span>
       </header>
 
-      <section className="settings-profile-identity" aria-label={t("settings.profileIdentity")}>
+      <section className="settings-profile-identity" id="settings-profile-identity" aria-label={t("settings.profileIdentity")}>
         <button
           type="button"
           className="settings-profile-avatar-button"
@@ -588,8 +696,46 @@ function ProfileSettings(): React.JSX.Element {
           accept="image/png,image/jpeg,image/webp,image/gif"
           onChange={(event) => void uploadAvatar(event.currentTarget.files?.[0])}
         />
-        <h2>ChordJiang</h2>
-        <p>@chord_jiang</p>
+        <div className="settings-profile-inputs">
+          <div className="settings-profile-input">
+            <label htmlFor="profile-name-input">{t("settings.profileName")}</label>
+            <input
+              id="profile-name-input"
+              type="text"
+              value={nameDraft}
+              maxLength={MAX_PROFILE_NAME_LENGTH}
+              placeholder={t("settings.profileNamePlaceholder")}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onBlur={() => {
+                const normalized = normalizeProfileName(nameDraft);
+                setNameDraft(normalized);
+                if (normalized !== profileName) setProfileIdentity(normalized, profileHandle);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+          </div>
+          <div className="settings-profile-input">
+            <label htmlFor="profile-handle-input">{t("settings.profileHandle")}</label>
+            <input
+              id="profile-handle-input"
+              type="text"
+              value={handleDraft}
+              maxLength={MAX_PROFILE_HANDLE_LENGTH}
+              placeholder={t("settings.profileHandlePlaceholder")}
+              onChange={(event) => setHandleDraft(event.target.value)}
+              onBlur={() => {
+                const normalized = normalizeProfileHandle(handleDraft);
+                setHandleDraft(normalized);
+                if (normalized !== profileHandle) setProfileIdentity(profileName, normalized);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+          </div>
+        </div>
         <div className="settings-profile-photo-actions">
           <button type="button" onClick={() => avatarInput.current?.click()}>
             {avatarBusy ? t("settings.processing") : profileAvatar ? t("settings.changePhoto") : t("settings.addPhoto")}
@@ -646,15 +792,26 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
   const [keyVisible, setKeyVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const loginAttempt = useRef(0);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const editorInputRef = useRef<HTMLInputElement>(null);
+
+  const closeEditor = useCallback((reason: EditorCloseReason): void => {
+    setKey("");
+    setKeyVisible(false);
+    setEditing(false);
+    const target = pickFocusRestoreTarget(reason, {
+      triggerButton: triggerButtonRef.current,
+      editorInput: editorInputRef.current,
+    });
+    target?.focus();
+  }, []);
 
   const save = async (): Promise<void> => {
     if (!key.trim()) return;
     setBusy(true);
     try {
       await setApiKey(provider.id, key.trim());
-      setKey("");
-      setKeyVisible(false);
-      setEditing(false);
+      closeEditor("save");
     } finally {
       setBusy(false);
     }
@@ -702,6 +859,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
         <button
           type="button"
           className="settings-text-btn"
+          ref={triggerButtonRef}
           onClick={() => setEditing((open) => {
             if (open) setKeyVisible(false);
             return !open;
@@ -719,6 +877,7 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
         <div className="settings-provider-editor">
           <KeyRound size={14} strokeWidth={1.55} />
           <input
+            ref={editorInputRef}
             type={keyVisible ? "text" : "password"}
             value={key}
             autoFocus
@@ -728,13 +887,14 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
             aria-label={`${provider.name} API key`}
             onChange={(event) => setKey(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") void save();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void save();
+              }
               if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
-                setKey("");
-                setKeyVisible(false);
-                setEditing(false);
+                closeEditor("escape");
               }
             }}
           />
@@ -854,7 +1014,7 @@ function ModelsSettings({ search }: { search: string }): React.JSX.Element {
         <p>{t("settings.modelsDescription")}</p>
       </header>
 
-      <section className={`settings-provider-section${providersOpen ? " open" : ""}`} aria-label={t("settings.providersKeys")}>
+      <section className={`settings-provider-section${providersOpen ? " open" : ""}`} id="settings-providers" aria-label={t("settings.providersKeys")}>
         <button type="button" className="settings-provider-toggle" onClick={() => setProvidersOpen((open) => !open)}>
           <span><KeyRound size={15} strokeWidth={1.55} /><strong>{t("settings.providersKeys")}</strong></span>
           <span>{t("settings.connectedCount", { count: providers.filter((provider) => provider.configured).length })}</span>
@@ -977,7 +1137,7 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
         </button>
       </header>
 
-      <section className="settings-skill-list">
+      <section className="settings-skill-list" id="settings-skills-list">
         {visible.map((skill) => (
           <div className={`settings-skill-row${skill.enabled ? "" : " disabled"}`} key={skill.name}>
             <div className="settings-skill-icon"><Puzzle size={16} strokeWidth={1.55} /></div>
@@ -1028,6 +1188,21 @@ export function SettingsWorkspace(): React.JSX.Element {
   const openSettings = useCompass((state) => state.openSettings);
   const closeSettings = useCompass((state) => state.closeSettings);
   const [search, setSearch] = useState("");
+  const searchTargets = useMemo(() => buildSettingsSearchTargets(t), [t]);
+  const searchResults = useMemo(() => filterSettingsTargets(searchTargets, search), [searchTargets, search]);
+
+  const navigateToTarget = (match: SettingsSearchMatch): void => {
+    openSettings(match.sectionId);
+    setSearch("");
+    // Scroll to the target element after the section renders
+    requestAnimationFrame(() => {
+      const el = document.getElementById(match.targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.focus({ preventScroll: true });
+      }
+    });
+  };
 
   return (
     <div className="settings-workspace">
@@ -1045,6 +1220,27 @@ export function SettingsWorkspace(): React.JSX.Element {
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
+        {search.trim() && (
+          <div className="settings-search-results" role="listbox" aria-label={t("settings.search")}>
+            {searchResults.length === 0 ? (
+              <div className="settings-search-empty">{t("settings.searchNoResults")}</div>
+            ) : (
+              searchResults.map((match) => (
+                <button
+                  type="button"
+                  key={`${match.sectionId}-${match.targetId}`}
+                  className="settings-search-result"
+                  role="option"
+                  aria-selected="false"
+                  onClick={() => navigateToTarget(match)}
+                >
+                  <strong>{match.title}</strong>
+                  <small>{match.description}</small>
+                </button>
+              ))
+            )}
+          </div>
+        )}
         <nav aria-label={t("settings.navigation")}>
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
@@ -1052,6 +1248,7 @@ export function SettingsWorkspace(): React.JSX.Element {
               <button
                 type="button"
                 className={section === item.id ? "active" : ""}
+                aria-current={section === item.id ? "page" : undefined}
                 key={item.id}
                 onClick={() => openSettings(item.id)}
               >

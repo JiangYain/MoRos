@@ -346,6 +346,16 @@ const zhCN = {
   "hearingHealth.title": "听觉健康管理",
   "hearingHealth.description": "该工作区尚在准备中，后续将在此提供听觉健康管理相关能力。",
   "thread.activity.exploring": "Exploring",
+  "settings.profileName": "姓名",
+  "settings.profileNamePlaceholder": "输入显示名称",
+  "settings.profileHandle": "用户名",
+  "settings.profileHandlePlaceholder": "@用户名",
+  "settings.profileAvatarFallback": "头像",
+  "settings.profileAvatarAlt": "个人资料头像",
+  "settings.searchNoResults": "未找到匹配的设置项",
+  "settings.copyWorkspacePath": "复制路径",
+  "settings.workspacePathCopied": "已复制",
+  "settings.quickPromptsScrollHint": "滚轮切换",
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
@@ -447,6 +457,11 @@ Object.assign(zhTW, {
   "error.avatarStorage": "無法將頭像儲存到本機。", "error.imageRead": "無法讀取這張圖片。",
   "error.imageType": "請選擇圖片檔案。", "error.imageSize": "頭像圖片不可超過 12 MB。",
   "error.imageDimensions": "圖片尺寸無效。", "error.imageProcessing": "目前環境無法處理頭像圖片。",
+  "settings.profileName": "姓名", "settings.profileNamePlaceholder": "輸入顯示名稱",
+  "settings.profileHandle": "使用者名稱", "settings.profileHandlePlaceholder": "@使用者名稱",
+  "settings.profileAvatarFallback": "頭像", "settings.profileAvatarAlt": "個人資料頭像",
+  "settings.searchNoResults": "未找到匹配的設定項", "settings.copyWorkspacePath": "複製路徑",
+  "settings.workspacePathCopied": "已複製", "settings.quickPromptsScrollHint": "滾輪切換",
 });
 
 const en: Dictionary = Object.fromEntries(Object.keys(zhCN).map((key) => [key, key])) as Dictionary;
@@ -576,6 +591,16 @@ Object.assign(en, {
   "hero.prompt3": "The client says their own voice sounds hollow and ambient sound is too loud; suggest explainable adjustments",
   "hearingHealth.title": "Hearing health",
   "hearingHealth.description": "This workspace is being prepared. Hearing health capabilities will arrive here later.",
+  "settings.profileName": "Name",
+  "settings.profileNamePlaceholder": "Enter display name",
+  "settings.profileHandle": "Username",
+  "settings.profileHandlePlaceholder": "@username",
+  "settings.profileAvatarFallback": "Avatar",
+  "settings.profileAvatarAlt": "Profile avatar",
+  "settings.searchNoResults": "No matching settings",
+  "settings.copyWorkspacePath": "Copy path",
+  "settings.workspacePathCopied": "Copied",
+  "settings.quickPromptsScrollHint": "Scroll to switch",
 });
 
 const de: Dictionary = { ...en };
@@ -713,6 +738,11 @@ Object.assign(de, {
   "hero.prompt3": "Der Kunde beschreibt hohle Eigenstimme und zu laute Umgebung; nachvollziehbare Anpassungen vorschlagen",
   "hearingHealth.title": "Hörgesundheit",
   "hearingHealth.description": "Dieser Arbeitsbereich wird vorbereitet. Funktionen zur Hörgesundheit folgen später.",
+  "settings.profileName": "Name", "settings.profileNamePlaceholder": "Anzeigename eingeben",
+  "settings.profileHandle": "Benutzername", "settings.profileHandlePlaceholder": "@benutzername",
+  "settings.profileAvatarFallback": "Avatar", "settings.profileAvatarAlt": "Profil-Avatar",
+  "settings.searchNoResults": "Keine passenden Einstellungen", "settings.copyWorkspacePath": "Pfad kopieren",
+  "settings.workspacePathCopied": "Kopiert", "settings.quickPromptsScrollHint": "Scrollen zum Wechseln",
 });
 
 const dictionaries: Record<AppLanguage, Dictionary> = { "zh-CN": zhCN, "zh-TW": zhTW, en, de };
