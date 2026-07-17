@@ -171,7 +171,7 @@ try {
   await page.locator(".settings-skills-filters button").filter({ hasText: "Disabled skills" }).click();
   await page.locator(".settings-skills-empty").waitFor();
   await page.locator(".settings-skills-filters button").filter({ hasText: "All" }).click();
-  await page.locator(".settings-skill-row").waitFor();
+  await page.locator(".settings-skill-row").first().waitFor();
   await page.setViewportSize({ width: 600, height: 880 });
   await page.locator(".settings-skills-search input").waitFor();
   await page.locator(".settings-skills-filters").waitFor();
@@ -205,6 +205,10 @@ try {
   if ((await page.locator(".settings-dependency-card").count()) !== 6) {
     throw new Error("Dependencies settings did not render the six allow-listed resources");
   }
+  await page.waitForFunction(() => {
+    const images = Array.from(document.querySelectorAll(".settings-dependency-artwork img"));
+    return images.length === 6 && images.every((image) => image.complete && image.naturalWidth > 0);
+  });
   const dependencyArtworkLoaded = await page.locator(".settings-dependency-artwork img").evaluateAll(
     (images) => images.length === 6 && images.every((image) => image.complete && image.naturalWidth > 0),
   );
@@ -656,6 +660,7 @@ try {
   await sessionSearch.fill("");
   const searchResultCount = await page.locator('.session-search-result[role="option"]').count();
   let openedSearchResult = false;
+  let openedSearchResultTitle = "";
   if (searchResultCount > 0) {
     const selectedBefore = await sessionSearch.getAttribute("aria-activedescendant");
     await sessionSearch.press("ArrowDown");
@@ -663,6 +668,7 @@ try {
     if (searchResultCount > 1 && selectedAfter === selectedBefore) {
       throw new Error("ArrowDown did not move the session search selection");
     }
+    openedSearchResultTitle = (await page.locator(".session-search-result.selected strong").textContent())?.trim() ?? "";
     await sessionSearch.press("Enter");
     openedSearchResult = true;
   } else {
@@ -670,6 +676,11 @@ try {
   }
   await page.locator(".session-search-dialog").waitFor({ state: "detached" });
   if (openedSearchResult) {
+    if (openedSearchResultTitle) {
+      await page.waitForFunction((title) => Array.from(
+        document.querySelectorAll(".thread-file-item.active .file-name"),
+      ).some((node) => node.textContent?.trim() === title), openedSearchResultTitle);
+    }
     await page.getByRole("button", { name: "Hearing health", exact: true }).click();
     const hearingHealthWorkspace = page.getByRole("region", { name: "Hearing health", exact: true });
     await hearingHealthWorkspace.waitFor();
@@ -700,8 +711,9 @@ try {
   });
   await page.locator(".approval-request").waitFor();
   await page.waitForTimeout(650);
-  if ((await page.locator(".approval-request-actions button").count()) !== 2) {
-    throw new Error("Inline approval must expose Allow and Deny actions");
+  const approvalActionCount = await page.locator(".approval-request-actions button").count();
+  if (approvalActionCount !== 2) {
+    throw new Error(`Inline approval must expose Allow and Deny actions; found ${approvalActionCount}`);
   }
   await shot("12b-inline-approval");
   await app.evaluate(({ BrowserWindow }) => {
