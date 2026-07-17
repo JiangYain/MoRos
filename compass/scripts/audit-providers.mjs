@@ -17,8 +17,11 @@ import {
   getModels,
   getProviders,
 } from "@earendil-works/pi-ai/compat";
-import { getOAuthProviders } from "@earendil-works/pi-ai/oauth";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import {
+  ModelRegistry,
+  ModelRuntime,
+  readStoredCredential,
+} from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -36,12 +39,17 @@ const providerFilter = argList
   .map((arg) => arg.split("=")[1])
   .filter(Boolean);
 
-const authStorage = AuthStorage.create();
-const registry = ModelRegistry.create(authStorage);
+const modelRuntime = await ModelRuntime.create({ allowModelNetwork: false });
+const registry = new ModelRegistry(modelRuntime);
 const registeredApis = new Set(getApiProviders().map((provider) => provider.api));
 const allRegistryModels = registry.getAll();
 const availableModels = registry.getAvailable();
-const oauthProviderIds = new Set(getOAuthProviders().map((provider) => provider.id));
+const oauthProviderIds = new Set(
+  modelRuntime
+    .getProviders()
+    .filter((provider) => provider.auth.oauth !== undefined)
+    .map((provider) => provider.id),
+);
 const providerAuthRegistry = JSON.parse(
   readFileSync(new URL("../src/shared/provider-auth-registry.json", import.meta.url), "utf8"),
 );
@@ -205,7 +213,7 @@ async function probeEndpoint(url) {
 }
 
 function hasCredentialScopedCatalog(provider) {
-  const credentials = authStorage.get(provider);
+  const credentials = readStoredCredential(provider);
   return provider === "github-copilot" && credentials?.type === "oauth" && Array.isArray(credentials.availableModelIds);
 }
 
