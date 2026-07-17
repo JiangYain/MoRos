@@ -837,6 +837,218 @@
   }
 }
 
+/* ---------------- dependency recommendation / install */
+.thread-dependency-card {
+  position: relative;
+  min-width: 0;
+  padding: 14px 15px 13px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  overflow: hidden;
+  border: 0.5px solid color-mix(in srgb, var(--color-accent) 20%, var(--color-border-strong));
+  border-radius: 14px;
+  corner-shape: var(--corner-shape-continuous);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent-soft) 35%, transparent), transparent 48%),
+    var(--color-surface);
+  box-shadow: var(--shadow-precise);
+}
+
+.thread-dependency-card-accent {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--color-accent);
+}
+
+.thread-dependency-card-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0.5px solid var(--color-border-subtle);
+  border-radius: 10px;
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-precise);
+}
+
+.thread-dependency-card-icon img {
+  width: 28px;
+  height: 28px;
+  display: block;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.thread-dependency-card-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.thread-dependency-card-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.thread-dependency-card-heading > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thread-dependency-card-heading span {
+  color: var(--color-accent);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.085em;
+}
+
+.thread-dependency-card-heading strong {
+  color: var(--color-text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.thread-dependency-card-heading > svg {
+  flex: 0 0 auto;
+  color: var(--color-success);
+}
+
+.thread-dependency-card-content > p {
+  margin: 7px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.thread-dependency-progress {
+  margin-top: 9px;
+  padding: 8px 9px;
+  border: 0.5px solid var(--color-border-subtle);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+}
+
+.thread-dependency-progress > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--color-text-secondary);
+  font-size: 9.5px;
+}
+
+.thread-dependency-progress > div:first-child strong {
+  color: var(--color-text-primary);
+  font-size: 9px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-dependency-progress-track {
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-border-subtle);
+}
+
+.thread-dependency-progress-track > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 0.16s linear;
+}
+
+.thread-dependency-progress-track.indeterminate > span {
+  width: 34%;
+  animation: thread-dependency-indeterminate 1.2s ease-in-out infinite;
+}
+
+.thread-dependency-progress > small {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-text-tertiary);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-dependency-progress > small.error {
+  color: var(--color-danger);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.thread-dependency-card-actions {
+  min-height: 28px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.thread-dependency-card-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  corner-shape: var(--corner-shape-continuous);
+  font-size: 9.75px;
+  transition: background 0.12s var(--ease-out-power3), border-color 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.thread-dependency-card-actions button.secondary {
+  border: 0.5px solid var(--color-border-strong);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.thread-dependency-card-actions button.secondary:hover,
+.thread-dependency-card-actions button.secondary:focus-visible {
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.thread-dependency-card-actions button.primary {
+  border: 0.5px solid var(--color-text-primary);
+  background: var(--color-text-primary);
+  color: var(--color-on-accent);
+}
+
+.thread-dependency-card-actions button.primary:hover,
+.thread-dependency-card-actions button.primary:focus-visible {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  outline: none;
+}
+
+@keyframes thread-dependency-indeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-dependency-progress-track.indeterminate > span {
+    animation: none;
+  }
+}
+
 /* ---------------- inline approval */
 .approval-request {
   padding: 11px 12px 10px;

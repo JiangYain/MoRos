@@ -1,9 +1,29 @@
-import type { UiApprovalRequest, UiThreadItem } from "@shared/types";
-import { ArrowDown, Box, ChevronRight, File, FilePenLine, FilePlus2, Search, SquareTerminal, Terminal } from "lucide-react";
+import type { DependencyInstallProgress, UiApprovalRequest, UiThreadItem } from "@shared/types";
+import {
+  ArrowDown,
+  Box,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  File,
+  FilePenLine,
+  FilePlus2,
+  RotateCw,
+  Search,
+  SquareTerminal,
+  Terminal,
+} from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../store";
-import { useI18n } from "../i18n";
+import { type TranslationKey, useI18n } from "../i18n";
+import phonakTargetAppIcon from "../assets/phonak-target-app.png";
+import {
+  dependencyPromptKey,
+  sessionDependencyInstall,
+  sessionNeedsPhonakTarget,
+} from "../dependency-recommendation";
 import { CopyButton } from "./CopyButton";
 import { Markdown } from "./Markdown";
 import {
@@ -43,6 +63,12 @@ const entrance = {
   initial: { opacity: 0, y: 14, filter: "blur(5px)" },
   animate: { opacity: 1, y: 0, filter: "blur(0px)" },
   transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] as const },
+};
+
+const dependencyEntrance = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const },
 };
 
 interface ParsedSkillBlock {
@@ -631,6 +657,144 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
   );
 }
 
+const ACTIVE_DEPENDENCY_PHASES = new Set<DependencyInstallProgress["phase"]>([
+  "queued",
+  "downloading",
+  "extracting",
+  "installing",
+  "launching",
+]);
+
+function threadDependencyPhaseKey(phase: DependencyInstallProgress["phase"]): TranslationKey {
+  const keys: Record<DependencyInstallProgress["phase"], TranslationKey> = {
+    queued: "settings.dependency.phase.queued",
+    downloading: "settings.dependency.phase.downloading",
+    extracting: "settings.dependency.phase.extracting",
+    installing: "settings.dependency.phase.installing",
+    launching: "settings.dependency.phase.launching",
+    "awaiting-user": "settings.dependency.phase.awaitingUser",
+    completed: "settings.dependency.phase.completed",
+    failed: "settings.dependency.phase.failed",
+    cancelled: "settings.dependency.phase.cancelled",
+  };
+  return keys[phase];
+}
+
+function threadDependencyBytes(bytes: number): string {
+  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
+  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
+}
+
+function SessionDependencyCard({
+  sessionId,
+  progress,
+}: {
+  sessionId: string;
+  progress?: DependencyInstallProgress;
+}): React.JSX.Element {
+  const { t } = useI18n();
+  const installDependency = useCompass((state) => state.installDependency);
+  const cancelDependencyInstall = useCompass((state) => state.cancelDependencyInstall);
+  const refreshDependencies = useCompass((state) => state.refreshDependencies);
+  const dismissDependencyPrompt = useCompass((state) => state.dismissDependencyPrompt);
+  const openSettings = useCompass((state) => state.openSettings);
+  const active = progress ? ACTIVE_DEPENDENCY_PHASES.has(progress.phase) : false;
+  const percent = typeof progress?.progress === "number" ? Math.round(progress.progress * 100) : undefined;
+  const terminalFailure = progress?.phase === "failed" || progress?.phase === "cancelled";
+  const showProgress = Boolean(progress);
+
+  return (
+    <motion.section className={`thread-dependency-card${showProgress ? " has-progress" : ""}`} {...dependencyEntrance}>
+      <div className="thread-dependency-card-accent" aria-hidden="true" />
+      <div className="thread-dependency-card-icon">
+        <img src={phonakTargetAppIcon} alt="" />
+      </div>
+      <div className="thread-dependency-card-content">
+        <div className="thread-dependency-card-heading">
+          <div>
+            <span>PHONAK · TARGET</span>
+            <strong>{t(showProgress ? "thread.dependency.progressTitle" : "thread.dependency.phonakTitle")}</strong>
+          </div>
+          {progress?.phase === "completed" && <CheckCircle2 size={17} strokeWidth={1.7} aria-hidden="true" />}
+        </div>
+        {!showProgress && <p>{t("thread.dependency.phonakDescription")}</p>}
+        {progress && (
+          <div className={`thread-dependency-progress phase-${progress.phase}`} aria-live="polite">
+            <div>
+              <span>{t(threadDependencyPhaseKey(progress.phase))}</span>
+              {progress.phase === "downloading" && percent !== undefined && <strong>{percent}%</strong>}
+            </div>
+            {active && (
+              <div
+                className={`thread-dependency-progress-track${percent === undefined ? " indeterminate" : ""}`}
+                role="progressbar"
+                aria-label={t(threadDependencyPhaseKey(progress.phase))}
+                aria-valuemin={percent === undefined ? undefined : 0}
+                aria-valuemax={percent === undefined ? undefined : 100}
+                aria-valuenow={percent}
+              >
+                <span style={percent === undefined ? undefined : { width: `${percent}%` }} />
+              </div>
+            )}
+            {progress.downloadedBytes !== undefined && progress.phase === "downloading" && (
+              <small>
+                {t("thread.dependency.downloaded", {
+                  downloaded: threadDependencyBytes(progress.downloadedBytes),
+                  total: progress.totalBytes ? ` / ${threadDependencyBytes(progress.totalBytes)}` : "",
+                })}
+              </small>
+            )}
+            {progress.error && <small className="error">{progress.error}</small>}
+          </div>
+        )}
+        <div className="thread-dependency-card-actions">
+          {!progress || terminalFailure ? (
+            <>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => dismissDependencyPrompt(sessionId, "phonak-target")}
+              >
+                {t("thread.dependency.later")}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void installDependency("phonak-target", sessionId)}
+              >
+                <Download size={13} strokeWidth={1.7} aria-hidden="true" />
+                {t(terminalFailure ? "settings.dependency.retry" : "thread.dependency.install")}
+              </button>
+            </>
+          ) : active ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void cancelDependencyInstall("phonak-target")}
+            >
+              {t("settings.dependency.cancelDownload")}
+            </button>
+          ) : (
+            <>
+              {progress.phase === "awaiting-user" && (
+                <button type="button" className="secondary" onClick={() => void refreshDependencies()}>
+                  <RotateCw size={12} strokeWidth={1.7} aria-hidden="true" />
+                  {t("settings.dependenciesRefresh")}
+                </button>
+              )}
+              <button type="button" className="secondary" onClick={() => openSettings("dependencies")}>
+                <ExternalLink size={12} strokeWidth={1.7} aria-hidden="true" />
+                {t("thread.dependency.openDependencies")}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </motion.section>
+  );
+}
+
 /* ------------------------------------------------------------- thread */
 
 export function Thread(): React.JSX.Element {
@@ -638,6 +802,25 @@ export function Thread(): React.JSX.Element {
   const thread = useCompass((s) => s.thread) ?? [];
   const approvals = useCompass((s) => s.approvals) ?? [];
   const sessionId = useCompass((s) => s.stats?.sessionId);
+  const clientRegistry = useCompass((s) => s.clientRegistry);
+  const dependencies = useCompass((s) => s.dependencies);
+  const dismissedDependencyPrompts = useCompass((s) => s.dismissedDependencyPrompts);
+  const targetResource = dependencies.items.find((item) => item.id === "phonak-target");
+  const targetInstall = sessionDependencyInstall(sessionId, dependencies, "phonak-target");
+  const targetPromptDismissed = sessionId
+    ? Boolean(dismissedDependencyPrompts[dependencyPromptKey(sessionId, "phonak-target")])
+    : false;
+  const needsTarget = sessionNeedsPhonakTarget(
+    sessionId,
+    clientRegistry,
+    dependencies,
+    dismissedDependencyPrompts,
+  );
+  const visibleTargetInstall = targetInstall
+    && !(targetInstall.phase === "completed" && targetResource?.availability === "installed")
+    && !(targetPromptDismissed && ["failed", "cancelled"].includes(targetInstall.phase))
+    ? targetInstall
+    : undefined;
   const renderItems = useMemo(() => placeAssistantIdentities(groupToolActivities(thread)), [thread]);
   const promptEntries = useMemo(() => buildPromptRailEntries(thread), [thread]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -655,7 +838,7 @@ export function Thread(): React.JSX.Element {
     if (node && stickRef.current) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [approvals, thread]);
+  }, [approvals, needsTarget, thread, visibleTargetInstall]);
 
   const onScroll = (): void => {
     const node = scrollRef.current;
@@ -700,6 +883,9 @@ export function Thread(): React.JSX.Element {
                 return null;
             }
           })}
+          {sessionId && (needsTarget || visibleTargetInstall) && (
+            <SessionDependencyCard sessionId={sessionId} progress={visibleTargetInstall} />
+          )}
           {approvals.map((request) => <ApprovalRequest key={request.id} request={request} />)}
         </div>
       </div>

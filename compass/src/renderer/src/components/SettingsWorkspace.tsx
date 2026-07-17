@@ -31,7 +31,15 @@ import WorkersAIIcon from "@lobehub/icons/es/WorkersAI/components/Color";
 import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
-import type { AppLanguage, RuntimePrerequisites, UiProviderStatus } from "@shared/types";
+import type {
+  AppLanguage,
+  DependencyCategory,
+  DependencyId,
+  DependencyInstallProgress,
+  DependencyResource,
+  RuntimePrerequisites,
+  UiProviderStatus,
+} from "@shared/types";
 import { APP_LANGUAGES, DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
 import { MAX_QUICK_PROMPTS } from "@shared/quick-prompts";
 import {
@@ -39,13 +47,18 @@ import {
   Box,
   Camera,
   Check,
+  CircleAlert,
+  CircleCheck,
   ChevronDown,
   ChevronRight,
+  Download,
+  ExternalLink,
   Eye,
   EyeOff,
   FolderOpen,
   KeyRound,
   Palette,
+  PackageCheck,
   Plus,
   Puzzle,
   RotateCw,
@@ -55,9 +68,16 @@ import {
   Terminal,
   Trash2,
   UserRound,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../ipc";
+import bashLogo from "../assets/dependency-bash.png";
+import gitLogo from "../assets/dependency-git.svg";
+import himsaLogo from "../assets/dependency-himsa.png";
+import signiaLogo from "../assets/hearing-aid-signia.svg";
+import widexLogo from "../assets/hearing-aid-widex.svg";
+import phonakTargetAppIcon from "../assets/phonak-target-app.png";
 import { localeFor, translate, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
 import { type ThemePreference, useThemePreference } from "../theme";
@@ -87,6 +107,12 @@ const NAV_CATEGORIES: Array<{
     ],
   },
   {
+    titleKey: "settings.category.system",
+    items: [
+      { id: "dependencies", icon: PackageCheck, labelKey: "settings.nav.dependencies" },
+    ],
+  },
+  {
     titleKey: "settings.category.ai",
     items: [
       { id: "models", icon: Box, labelKey: "settings.nav.models" },
@@ -105,6 +131,7 @@ function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): Setting
     { sectionId: "profile", targetId: "settings-page-profile", title: t("settings.nav.profile"), description: t("settings.nav.profileDescription"), keywords: "profile settings" },
     { sectionId: "models", targetId: "settings-page-models", title: t("settings.nav.models"), description: t("settings.nav.modelsDescription"), keywords: "provider model settings" },
     { sectionId: "skills", targetId: "settings-page-skills", title: t("settings.nav.skills"), description: t("settings.nav.skillsDescription"), keywords: "skill settings" },
+    { sectionId: "dependencies", targetId: "settings-page-dependencies", title: t("settings.nav.dependencies"), description: t("settings.nav.dependenciesDescription"), keywords: "dependency runtime fitting software driver git bash target connexx compass gps noahlink 驱动 验配软件 依赖" },
     // General
     { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
     { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
@@ -118,6 +145,10 @@ function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): Setting
     { sectionId: "models", targetId: "settings-models-list", title: t("settings.models"), description: t("settings.modelsDescription"), keywords: "model ai llm" },
     // Skills
     { sectionId: "skills", targetId: "settings-skills-list", title: t("settings.nav.skills"), description: t("settings.skillsDescription"), keywords: "skill agent tool" },
+    // Dependencies
+    { sectionId: "dependencies", targetId: "settings-dependencies-runtime", title: t("settings.dependenciesCategory.runtime"), description: t("settings.dependenciesCategory.runtimeDescription"), keywords: "git bash runtime shell" },
+    { sectionId: "dependencies", targetId: "settings-dependencies-fitting", title: t("settings.dependenciesCategory.fitting"), description: t("settings.dependenciesCategory.fittingDescription"), keywords: "phonak target signia connexx widex compass gps fitting" },
+    { sectionId: "dependencies", targetId: "settings-dependencies-driver", title: t("settings.dependenciesCategory.driver"), description: t("settings.dependenciesCategory.driverDescription"), keywords: "himsa noahlink wireless driver" },
   ];
 }
 
@@ -1462,7 +1493,367 @@ function ModelsSettings(): React.JSX.Element {
   );
 }
 
-function SkillsSettings({ search }: { search: string }): React.JSX.Element {
+const DEPENDENCY_PRESENTATION: Record<DependencyId, {
+  nameKey: TranslationKey;
+  descriptionKey: TranslationKey;
+}> = {
+  git: {
+    nameKey: "settings.dependency.git.name",
+    descriptionKey: "settings.dependency.git.description",
+  },
+  bash: {
+    nameKey: "settings.dependency.bash.name",
+    descriptionKey: "settings.dependency.bash.description",
+  },
+  "phonak-target": {
+    nameKey: "settings.dependency.phonakTarget.name",
+    descriptionKey: "settings.dependency.phonakTarget.description",
+  },
+  "signia-connexx": {
+    nameKey: "settings.dependency.signiaConnexx.name",
+    descriptionKey: "settings.dependency.signiaConnexx.description",
+  },
+  "widex-compass-gps": {
+    nameKey: "settings.dependency.widexCompass.name",
+    descriptionKey: "settings.dependency.widexCompass.description",
+  },
+  "noahlink-wireless-driver": {
+    nameKey: "settings.dependency.noahlink.name",
+    descriptionKey: "settings.dependency.noahlink.description",
+  },
+};
+
+const DEPENDENCY_SECTIONS: Array<{
+  category: DependencyCategory;
+  id: string;
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
+}> = [
+  {
+    category: "runtime",
+    id: "settings-dependencies-runtime",
+    titleKey: "settings.dependenciesCategory.runtime",
+    descriptionKey: "settings.dependenciesCategory.runtimeDescription",
+  },
+  {
+    category: "fitting-software",
+    id: "settings-dependencies-fitting",
+    titleKey: "settings.dependenciesCategory.fitting",
+    descriptionKey: "settings.dependenciesCategory.fittingDescription",
+  },
+  {
+    category: "driver",
+    id: "settings-dependencies-driver",
+    titleKey: "settings.dependenciesCategory.driver",
+    descriptionKey: "settings.dependenciesCategory.driverDescription",
+  },
+];
+
+const ACTIVE_INSTALL_PHASES = new Set<DependencyInstallProgress["phase"]>([
+  "queued",
+  "downloading",
+  "extracting",
+  "installing",
+  "launching",
+]);
+
+function dependencyPhaseKey(phase: DependencyInstallProgress["phase"]): TranslationKey {
+  const keys: Record<DependencyInstallProgress["phase"], TranslationKey> = {
+    queued: "settings.dependency.phase.queued",
+    downloading: "settings.dependency.phase.downloading",
+    extracting: "settings.dependency.phase.extracting",
+    installing: "settings.dependency.phase.installing",
+    launching: "settings.dependency.phase.launching",
+    "awaiting-user": "settings.dependency.phase.awaitingUser",
+    completed: "settings.dependency.phase.completed",
+    failed: "settings.dependency.phase.failed",
+    cancelled: "settings.dependency.phase.cancelled",
+  };
+  return keys[phase];
+}
+
+function formatDependencyBytes(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
+  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
+}
+
+function DependencyArtwork({ dependencyId }: { dependencyId: DependencyId }): React.JSX.Element {
+  const sources: Record<DependencyId, { src: string; className?: string }> = {
+    git: { src: gitLogo },
+    bash: { src: bashLogo, className: "bash" },
+    "phonak-target": { src: phonakTargetAppIcon },
+    "signia-connexx": { src: signiaLogo, className: "signia" },
+    "widex-compass-gps": { src: widexLogo, className: "wide" },
+    "noahlink-wireless-driver": { src: himsaLogo, className: "himsa wide" },
+  };
+  const source = sources[dependencyId];
+  return <img className={source.className ?? ""} src={source.src} alt="" />;
+}
+
+function DependencyProgress({
+  progress,
+}: {
+  progress: DependencyInstallProgress;
+}): React.JSX.Element {
+  const { t } = useI18n();
+  const percent = typeof progress.progress === "number"
+    ? Math.round(progress.progress * 100)
+    : undefined;
+  return (
+    <div className={`settings-dependency-progress phase-${progress.phase}`} aria-live="polite">
+      <div className="settings-dependency-progress-copy">
+        <span>{t(dependencyPhaseKey(progress.phase))}</span>
+        {percent !== undefined && progress.phase === "downloading" && <strong>{percent}%</strong>}
+      </div>
+      {ACTIVE_INSTALL_PHASES.has(progress.phase) && (
+        <div
+          className={`settings-dependency-progress-track${percent === undefined ? " indeterminate" : ""}`}
+          role="progressbar"
+          aria-label={t(dependencyPhaseKey(progress.phase))}
+          aria-valuemin={percent === undefined ? undefined : 0}
+          aria-valuemax={percent === undefined ? undefined : 100}
+          aria-valuenow={percent}
+        >
+          <span style={percent === undefined ? undefined : { width: `${percent}%` }} />
+        </div>
+      )}
+      {progress.downloadedBytes !== undefined && progress.phase === "downloading" && (
+        <small>
+          {formatDependencyBytes(progress.downloadedBytes)}
+          {progress.totalBytes ? ` / ${formatDependencyBytes(progress.totalBytes)}` : ""}
+        </small>
+      )}
+      {progress.error && <small className="error">{progress.error}</small>}
+    </div>
+  );
+}
+
+function DependencyCard({
+  item,
+  progress,
+  confirming,
+  onConfirm,
+  onCancelConfirm,
+  onInstall,
+  onCancelInstall,
+  onRefresh,
+}: {
+  item: DependencyResource;
+  progress?: DependencyInstallProgress;
+  confirming: boolean;
+  onConfirm: () => void;
+  onCancelConfirm: () => void;
+  onInstall: () => void;
+  onCancelInstall: () => void;
+  onRefresh: () => void;
+}): React.JSX.Element {
+  const { t } = useI18n();
+  const presentation = DEPENDENCY_PRESENTATION[item.id];
+  const installed = item.availability === "installed" || progress?.phase === "completed";
+  const active = progress ? ACTIVE_INSTALL_PHASES.has(progress.phase) : false;
+  const unavailable = item.availability === "unsupported";
+  const statusKey: TranslationKey = unavailable
+    ? "settings.dependency.unsupported"
+    : installed
+      ? "settings.dependency.installed"
+      : "settings.dependency.missing";
+
+  return (
+    <article className={`settings-dependency-card${installed ? " installed" : ""}${active ? " active" : ""}`}>
+      <div className={`settings-dependency-artwork dependency-${item.id}`}>
+        <DependencyArtwork dependencyId={item.id} />
+      </div>
+      <div className="settings-dependency-card-main">
+        <div className="settings-dependency-card-title">
+          <div>
+            <strong>{t(presentation.nameKey)}</strong>
+            <span>{item.vendor}</span>
+          </div>
+          <span className={`settings-dependency-status status-${item.availability}`}>
+            {installed
+              ? <CircleCheck size={12} strokeWidth={1.8} aria-hidden="true" />
+              : <CircleAlert size={12} strokeWidth={1.7} aria-hidden="true" />}
+            {t(statusKey)}
+          </span>
+        </div>
+        <p>{t(presentation.descriptionKey)}</p>
+        <div className="settings-dependency-meta">
+          <span>{t(item.required ? "settings.dependency.required" : "settings.dependency.optional")}</span>
+          {item.installedVersion
+            ? <span>{t("settings.dependency.version", { version: item.installedVersion })}</span>
+            : item.recommendedVersion
+              ? <span>{t("settings.dependency.recommended", { version: item.recommendedVersion })}</span>
+              : null}
+        </div>
+        {progress && <DependencyProgress progress={progress} />}
+        {confirming ? (
+          <div className="settings-dependency-confirm">
+            <span>{t("settings.dependency.confirmInstall")}</span>
+            <div>
+              <button type="button" onClick={onCancelConfirm}>{t("common.cancel")}</button>
+              <button type="button" className="primary" onClick={onInstall}>{t("settings.dependency.confirm")}</button>
+            </div>
+          </div>
+        ) : (
+          <div className="settings-dependency-actions">
+            <button
+              type="button"
+              className="settings-dependency-source"
+              title={t("settings.dependency.officialSource")}
+              aria-label={`${t("settings.dependency.officialSource")} — ${t(presentation.nameKey)}`}
+              onClick={() => void useCompass.getState().openDependencySource(item.id)}
+            >
+              <ExternalLink size={13} strokeWidth={1.6} aria-hidden="true" />
+              <span>{t("settings.dependency.officialSource")}</span>
+            </button>
+            {active ? (
+              <button type="button" className="settings-dependency-install muted" onClick={onCancelInstall}>
+                {t("settings.dependency.cancelDownload")}
+              </button>
+            ) : progress?.phase === "awaiting-user" ? (
+              <button type="button" className="settings-dependency-install" onClick={onRefresh}>
+                {t("settings.dependenciesRefresh")}
+              </button>
+            ) : installed && item.installedPath ? (
+              <button type="button" className="settings-dependency-install" onClick={() => void api.openPath(item.installedPath!)}>
+                {t("settings.dependency.openLocation")}
+              </button>
+            ) : !unavailable ? (
+              <button type="button" className="settings-dependency-install" onClick={onConfirm}>
+                <Download size={12} strokeWidth={1.7} aria-hidden="true" />
+                {t(progress?.phase === "failed" || progress?.phase === "cancelled"
+                  ? "settings.dependency.retry"
+                  : installed
+                    ? "settings.dependency.reinstall"
+                    : "settings.dependency.install")}
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function DependenciesSettings(): React.JSX.Element {
+  const { language, t } = useI18n();
+  const dependencies = useCompass((state) => state.dependencies);
+  const refreshDependencies = useCompass((state) => state.refreshDependencies);
+  const installDependency = useCompass((state) => state.installDependency);
+  const cancelDependencyInstall = useCompass((state) => state.cancelDependencyInstall);
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<DependencyId | null>(null);
+  const items = dependencies.items;
+  const readyCount = items.filter((item) => item.availability === "installed").length;
+  const requiredItems = items.filter((item) => item.required);
+  const requiredReady = requiredItems.length > 0
+    && requiredItems.every((item) => item.availability === "installed");
+  const installs = new Map(dependencies.installs.map((progress) => [progress.dependencyId, progress]));
+
+  const refresh = useCallback(async (): Promise<void> => {
+    setRefreshing(true);
+    await refreshDependencies();
+    setRefreshing(false);
+  }, [refreshDependencies]);
+
+  useEffect(() => {
+    if (dependencies.checkedAt === 0) void refresh();
+  }, [dependencies.checkedAt, refresh]);
+
+  return (
+    <div className="settings-page settings-dependencies-page" id="settings-page-dependencies">
+      <header className="settings-page-head settings-page-head-with-action">
+        <div>
+          <span className="settings-eyebrow">{t("settings.dependenciesEyebrow")}</span>
+          <h1>{t("settings.nav.dependencies")}</h1>
+          <p>{t("settings.dependenciesDescription")}</p>
+        </div>
+        <button
+          type="button"
+          className="settings-small-btn settings-dependencies-refresh"
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          <RotateCw size={13} strokeWidth={1.7} aria-hidden="true" />
+          <span>{t(refreshing ? "settings.dependenciesRefreshing" : "settings.dependenciesRefresh")}</span>
+        </button>
+      </header>
+
+      <section className={`settings-dependencies-summary${requiredReady ? " ready" : " missing"}`}>
+        <div className="settings-dependencies-summary-icon">
+          {requiredReady
+            ? <CircleCheck size={18} strokeWidth={1.7} aria-hidden="true" />
+            : <CircleAlert size={18} strokeWidth={1.7} aria-hidden="true" />}
+        </div>
+        <div>
+          <strong>{t(requiredReady ? "settings.dependenciesRequiredReady" : "settings.dependenciesRequiredMissing")}</strong>
+          <span>{t("settings.dependenciesReady", { ready: readyCount, total: items.length })}</span>
+        </div>
+        <small>
+          {dependencies.checkedAt > 0
+            ? t("settings.dependenciesChecked", {
+                time: new Intl.DateTimeFormat(localeFor(language), { hour: "2-digit", minute: "2-digit" })
+                  .format(dependencies.checkedAt),
+              })
+            : t("common.loading")}
+        </small>
+      </section>
+
+      {items.length === 0 ? (
+        <div className="settings-dependencies-empty">
+          <PackageCheck size={20} strokeWidth={1.5} />
+          <span>{t("settings.dependency.noItems")}</span>
+        </div>
+      ) : DEPENDENCY_SECTIONS.map((section) => {
+        const categoryItems = items.filter((item) => item.category === section.category);
+        if (categoryItems.length === 0) return null;
+        return (
+          <section className="settings-dependency-section" id={section.id} key={section.category}>
+            <div className="settings-dependency-section-head">
+              <div>
+                <h2>{t(section.titleKey)}</h2>
+                <p>{t(section.descriptionKey)}</p>
+              </div>
+              <span>{categoryItems.filter((item) => item.availability === "installed").length}/{categoryItems.length}</span>
+            </div>
+            <div className="settings-dependency-grid">
+              {categoryItems.map((item) => (
+                <DependencyCard
+                  item={item}
+                  progress={installs.get(item.id)}
+                  confirming={confirmingId === item.id}
+                  key={item.id}
+                  onConfirm={() => setConfirmingId(item.id)}
+                  onCancelConfirm={() => setConfirmingId(null)}
+                  onInstall={() => {
+                    setConfirmingId(null);
+                    void installDependency(item.id);
+                  }}
+                  onCancelInstall={() => void cancelDependencyInstall(item.id)}
+                  onRefresh={() => void refresh()}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+type SkillFilter = "all" | "enabled" | "disabled";
+
+function SkillArtwork({ name }: { name: string }): React.JSX.Element {
+  return name === "phonak-target-control" ? (
+    <img className="settings-skill-artwork-image" src={phonakTargetAppIcon} alt="" />
+  ) : (
+    <Puzzle size={18} strokeWidth={1.55} aria-hidden="true" />
+  );
+}
+
+function SkillsSettings(): React.JSX.Element {
   const { t } = useI18n();
   const skills = useCompass((state) => state.skills);
   const settings = useCompass((state) => state.settings);
@@ -1470,42 +1861,135 @@ function SkillsSettings({ search }: { search: string }): React.JSX.Element {
   const addSkillDir = useCompass((state) => state.addSkillDir);
   const removeSkillDir = useCompass((state) => state.removeSkillDir);
   const seedComposer = useCompass((state) => state.seedComposer);
-  const query = search.trim().toLowerCase();
-  const visible = skills.filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<SkillFilter>("all");
+  const normalizedQuery = query.trim().toLowerCase();
+  const enabledCount = skills.filter((skill) => skill.enabled).length;
+  const visible = skills.filter((skill) => {
+    const matchesQuery = !normalizedQuery
+      || `${skill.name} ${skill.description} ${skill.source}`.toLowerCase().includes(normalizedQuery);
+    const matchesFilter = filter === "all"
+      || (filter === "enabled" ? skill.enabled : !skill.enabled);
+    return matchesQuery && matchesFilter;
+  });
+  const filters: Array<{ id: SkillFilter; label: string; count: number }> = [
+    { id: "all", label: t("settings.allSkills"), count: skills.length },
+    { id: "enabled", label: t("settings.enabledSkills"), count: enabledCount },
+    { id: "disabled", label: t("settings.disabledSkills"), count: skills.length - enabledCount },
+  ];
 
   return (
-    <div className="settings-page" id="settings-page-skills">
+    <div className="settings-page settings-skills-page" id="settings-page-skills">
       <header className="settings-page-head settings-page-head-with-action">
         <div>
           <span className="settings-eyebrow">{t("settings.skillsEyebrow")}</span>
           <h1>{t("settings.nav.skills")}</h1>
           <p>{t("settings.skillsDescription")}</p>
         </div>
-        <button type="button" className="settings-small-btn primary" onClick={() => void addSkillDir()}>
-          {t("settings.addDirectory")}
+        <button type="button" className="settings-small-btn settings-skills-add-button" onClick={() => void addSkillDir()}>
+          <Plus size={13} strokeWidth={1.7} aria-hidden="true" />
+          <span>{t("settings.addDirectory")}</span>
         </button>
       </header>
 
-      <section className="settings-skill-list" id="settings-skills-list">
+      <div className="settings-skills-search">
+        <Search size={15} strokeWidth={1.55} aria-hidden="true" />
+        <input
+          value={query}
+          placeholder={t("settings.skillsSearch")}
+          aria-label={t("settings.skillsSearch")}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {query && (
+          <button
+            type="button"
+            aria-label={t("settings.clearSkillsSearch")}
+            title={t("settings.clearSkillsSearch")}
+            onClick={() => setQuery("")}
+          >
+            <X size={13} strokeWidth={1.7} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      <section className="settings-skills-installed" aria-labelledby="settings-skills-installed-title">
+        <div className="settings-skills-section-heading">
+          <h2 id="settings-skills-installed-title">{t("settings.installedSkills")}</h2>
+          <span>{t("settings.enabledCount", { count: enabledCount })}</span>
+        </div>
+        <div className="settings-skills-icon-tray">
+          {skills.map((skill) => (
+            <span
+              className={`settings-skills-icon-chip${skill.enabled ? "" : " disabled"}`}
+              key={skill.name}
+              role="img"
+              aria-label={skill.name}
+              title={skill.name}
+            >
+              <SkillArtwork name={skill.name} />
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <div className="settings-skills-toolbar">
+        <div className="settings-skills-filters" role="group" aria-label={t("settings.skillsFilter")}>
+          {filters.map((item) => (
+            <button
+              type="button"
+              className={filter === item.id ? "active" : ""}
+              aria-pressed={filter === item.id}
+              key={item.id}
+              onClick={() => setFilter(item.id)}
+            >
+              <span>{item.label}</span>
+              <small>{item.count}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <section className="settings-skills-catalog" aria-labelledby="settings-skills-catalog-title">
+        <div className="settings-skills-section-heading catalog-heading">
+          <h2 id="settings-skills-catalog-title">{t("settings.availableSkills")}</h2>
+          <span aria-live="polite">{visible.length}</span>
+        </div>
+        <div className="settings-skill-list" id="settings-skills-list">
         {visible.map((skill) => (
-          <div className={`settings-skill-row${skill.enabled ? "" : " disabled"}`} key={skill.name}>
-            <div className="settings-skill-icon"><Puzzle size={16} strokeWidth={1.55} /></div>
+          <article className={`settings-skill-row${skill.enabled ? "" : " disabled"}`} key={skill.name}>
+            <div className="settings-skill-icon">
+              <SkillArtwork name={skill.name} />
+            </div>
             <div className="settings-skill-copy">
               <strong>{skill.name}</strong>
               <span>{skill.description}</span>
               <small>{skill.source}</small>
             </div>
-            <Toggle on={skill.enabled} onChange={(next) => void setSkillEnabled(skill.name, next)} />
-          </div>
+            <div className="settings-skill-state">
+              <span>{t(skill.enabled ? "settings.skillEnabled" : "settings.skillDisabled")}</span>
+              <Toggle
+                ariaLabel={t("settings.skillToggle", { name: skill.name })}
+                on={skill.enabled}
+                onChange={(next) => void setSkillEnabled(skill.name, next)}
+              />
+            </div>
+          </article>
         ))}
         {visible.length === 0 && (
-          <div className="settings-empty-state"><Puzzle size={19} /><strong>{t("settings.noSkills")}</strong></div>
+          <div className="settings-empty-state settings-skills-empty">
+            <Puzzle size={19} />
+            <strong>{t("settings.noSkills")}</strong>
+          </div>
         )}
+        </div>
       </section>
 
       {settings && settings.skillDirs.length > 0 && (
-        <section className="settings-section-block">
-          <div className="settings-section-title"><div><h2>{t("settings.additionalDirectories")}</h2></div></div>
+        <section className="settings-section-block settings-skills-directories">
+          <div className="settings-skills-section-heading">
+            <h2>{t("settings.additionalDirectories")}</h2>
+            <span>{settings.skillDirs.length}</span>
+          </div>
           <div className="settings-directory-list">
             {settings.skillDirs.map((dir) => (
               <div className="settings-directory-row" key={dir}>
@@ -1663,7 +2147,8 @@ export function SettingsWorkspace(): React.JSX.Element {
         {section === "appearance" && <AppearanceSettings />}
         {section === "profile" && <ProfileSettings />}
         {section === "models" && <ModelsSettings />}
-        {section === "skills" && <SkillsSettings search={search} />}
+        {section === "skills" && <SkillsSettings />}
+        {section === "dependencies" && <DependenciesSettings />}
       </main>
     </div>
   );

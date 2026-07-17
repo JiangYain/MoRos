@@ -10,6 +10,11 @@ import { api, isDesktop } from "./ipc";
 import { useI18n } from "./i18n";
 import { type SettingsSection, useCompass } from "./store";
 import { useThemePreference } from "./theme";
+import {
+  dependencyPromptKey,
+  sessionDependencyInstall,
+  sessionNeedsPhonakTarget,
+} from "./dependency-recommendation";
 
 type NavigationTarget =
   | { key: "workspace"; kind: "workspace" }
@@ -30,6 +35,9 @@ export default function App(): React.JSX.Element {
   const approvals = useCompass((s) => s.approvals);
   const sessions = useCompass((s) => s.sessions);
   const stats = useCompass((s) => s.stats);
+  const clientRegistry = useCompass((s) => s.clientRegistry);
+  const dependencies = useCompass((s) => s.dependencies);
+  const dismissedDependencyPrompts = useCompass((s) => s.dismissedDependencyPrompts);
   const boot = useCompass((s) => s.boot);
   const applyEvent = useCompass((s) => s.applyEvent);
   const newSession = useCompass((s) => s.newSession);
@@ -53,6 +61,26 @@ export default function App(): React.JSX.Element {
     () => sessions.find((session) => session.id === stats?.sessionId)?.path,
     [sessions, stats?.sessionId],
   );
+  const targetResource = dependencies.items.find((item) => item.id === "phonak-target");
+  const targetInstall = sessionDependencyInstall(stats?.sessionId, dependencies, "phonak-target");
+  const targetPromptDismissed = stats?.sessionId
+    ? Boolean(dismissedDependencyPrompts[dependencyPromptKey(stats.sessionId, "phonak-target")])
+    : false;
+  const needsTarget = sessionNeedsPhonakTarget(
+    stats?.sessionId,
+    clientRegistry,
+    dependencies,
+    dismissedDependencyPrompts,
+  );
+  const hasVisibleTargetInstall = Boolean(
+    targetInstall
+    && !(targetInstall.phase === "completed" && targetResource?.availability === "installed")
+    && !(targetPromptDismissed && ["failed", "cancelled"].includes(targetInstall.phase)),
+  );
+  const showConversationThread = thread.length > 0
+    || approvals.length > 0
+    || needsTarget
+    || hasVisibleTargetInstall;
   const currentNavigationTarget = useMemo<NavigationTarget>(() => {
     if (settingsSection) {
       return {
@@ -238,8 +266,8 @@ export default function App(): React.JSX.Element {
                 <HearingHealthWorkspace />
               ) : (
                 <>
-                  {ready && thread.length === 0 && approvals.length === 0 ? <Hero /> : <Thread />}
-                  <Composer showQuickPrompts={ready && thread.length === 0 && approvals.length === 0} />
+                  {ready && !showConversationThread ? <Hero /> : <Thread />}
+                  <Composer showQuickPrompts={ready && !showConversationThread} />
                 </>
               )}
             </main>

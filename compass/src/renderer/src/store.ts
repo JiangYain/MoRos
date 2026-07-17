@@ -3,6 +3,8 @@ import type {
   AgentUiEvent,
   AppLanguage,
   AppSettingsView,
+  DependencyId,
+  DependencySnapshot,
   InitPayload,
   PermissionMode,
   RuntimePrerequisites,
@@ -28,7 +30,7 @@ import { create } from "zustand";
 import { api } from "./ipc";
 import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
 
-export type SettingsSection = "general" | "appearance" | "profile" | "models" | "skills";
+export type SettingsSection = "general" | "appearance" | "profile" | "models" | "skills" | "dependencies";
 
 export type MainView = "assistant" | "hearing-health";
 
@@ -45,6 +47,7 @@ interface CompassState {
   models: UiModel[];
   providers: UiProviderStatus[];
   prerequisites?: RuntimePrerequisites;
+  dependencies: DependencySnapshot;
   sessions: UiSessionInfo[];
   stats?: AgentStats;
   thread: UiThreadItem[];
@@ -64,6 +67,7 @@ interface CompassState {
   composerSeed: string | null;
   lastError: string | null;
   streamingBlocks: Map<string, StreamingAssistant>;
+  dismissedDependencyPrompts: Record<string, true>;
 
   applyInit(payload: InitPayload): void;
   applyEvent(event: AgentUiEvent): void;
@@ -101,6 +105,11 @@ interface CompassState {
   loginProvider(provider: string): Promise<void>;
   removeApiKey(provider: string): Promise<void>;
   runPrerequisiteAction(actionId: string): Promise<void>;
+  refreshDependencies(): Promise<void>;
+  installDependency(dependencyId: DependencyId, sessionId?: string): Promise<void>;
+  cancelDependencyInstall(dependencyId: DependencyId): Promise<void>;
+  openDependencySource(dependencyId: DependencyId): Promise<void>;
+  dismissDependencyPrompt(sessionId: string, dependencyId: DependencyId): void;
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
   addSkillDir(): Promise<void>;
   removeSkillDir(dir: string): Promise<void>;
@@ -222,6 +231,7 @@ export const useCompass = create<CompassState>((set, get) => {
   models: [],
   providers: [],
   prerequisites: undefined,
+  dependencies: { items: [], installs: [], checkedAt: 0 },
   sessions: [],
   thread: [],
   approvals: [],
@@ -237,6 +247,7 @@ export const useCompass = create<CompassState>((set, get) => {
   composerSeed: null,
   lastError: null,
   streamingBlocks: new Map(),
+  dismissedDependencyPrompts: {},
 
   applyInit: (payload) => {
     set({
@@ -244,6 +255,7 @@ export const useCompass = create<CompassState>((set, get) => {
       version: payload.version,
       settings: payload.settings,
       prerequisites: payload.prerequisites,
+      dependencies: payload.dependencies ?? get().dependencies,
       skills: payload.skills,
       models: payload.models,
       providers: payload.providers,
@@ -437,6 +449,22 @@ export const useCompass = create<CompassState>((set, get) => {
         break;
       case "client-registry-changed":
         set({ clientRegistry: event.registry });
+        break;
+      case "dependencies-changed":
+        set({ dependencies: event.dependencies });
+        break;
+      case "dependency-install-progress":
+        set({
+          dependencies: {
+            ...state.dependencies,
+            installs: [
+              ...state.dependencies.installs.filter(
+                (progress) => progress.dependencyId !== event.progress.dependencyId,
+              ),
+              event.progress,
+            ],
+          },
+        });
         break;
       case "state-refresh":
         get().applyInit(event.payload);
@@ -696,6 +724,34 @@ export const useCompass = create<CompassState>((set, get) => {
       prerequisites: payload.prerequisites,
     });
   }),
+
+  refreshDependencies: () => runIpc(async () => {
+    const dependencies = await api.refreshDependencies();
+    set({ dependencies });
+  }),
+
+  installDependency: (dependencyId, sessionId) => runIpc(async () => {
+    const result = await api.installDependency(dependencyId, sessionId);
+    if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
+  }),
+
+  cancelDependencyInstall: (dependencyId) => runIpc(async () => {
+    const result = await api.cancelDependencyInstall(dependencyId);
+    if (!result.ok && result.error) set({ lastError: sanitizeErrorMessage(result.error) });
+  }),
+
+  openDependencySource: (dependencyId) => runIpc(async () => {
+    await api.openDependencySource(dependencyId);
+  }),
+
+  dismissDependencyPrompt: (sessionId, dependencyId) => {
+    set((state) => ({
+      dismissedDependencyPrompts: {
+        ...state.dismissedDependencyPrompts,
+        [`${sessionId}:${dependencyId}`]: true,
+      },
+    }));
+  },
 
   setSkillEnabled: (name, enabled) => runIpc(async () => {
     const payload = await api.setSkillEnabled(name, enabled);

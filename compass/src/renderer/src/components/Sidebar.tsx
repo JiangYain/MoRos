@@ -1009,20 +1009,24 @@ export function Sidebar(): React.JSX.Element {
                               </div>
                             );
                           })}
-                          {hiddenSessionCount > 0 && (
+                          {group.sessions.length > CLIENT_SESSION_PREVIEW_LIMIT && (
                             <button
                               type="button"
                               className="show-more-sessions"
-                              aria-label={`${t("sidebar.showMore")} (${hiddenSessionCount})`}
+                              aria-label={sessionsRevealed
+                                ? t("sidebar.showLess")
+                                : `${t("sidebar.showMore")} (${hiddenSessionCount})`}
                               onClick={() => setRevealedClientSessions((current) => ({
                                 ...current,
-                                [group.id]: true,
+                                [group.id]: !sessionsRevealed,
                               }))}
                             >
-                              <span>{t("sidebar.showMore")}</span>
-                              <span className="show-more-sessions-count" aria-hidden="true">
-                                {hiddenSessionCount}
-                              </span>
+                              <span>{t(sessionsRevealed ? "sidebar.showLess" : "sidebar.showMore")}</span>
+                              {!sessionsRevealed && (
+                                <span className="show-more-sessions-count" aria-hidden="true">
+                                  {hiddenSessionCount}
+                                </span>
+                              )}
                             </button>
                           )}
                         </motion.div>

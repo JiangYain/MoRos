@@ -1,6 +1,7 @@
 import type {
   AgentUiEvent,
   CompassBackendApi,
+  DependencyId,
   PermissionMode,
   ThinkingLevel,
   UiImageAttachment,
@@ -13,6 +14,7 @@ import { AgentService } from "./agent";
 import { AuthLoginController } from "./auth-login-controller";
 import { ClientDatabase } from "./client-database";
 import { createCompassBackendApi } from "./compass-api";
+import { DependencyManager } from "./dependency-manager";
 import { startCompassWebServer, type CompassWebServer } from "./web-server";
 
 const DEFAULT_WEB_PORT = 5173;
@@ -33,6 +35,7 @@ let mainWindow: BrowserWindow | undefined;
 let agent: AgentService | undefined;
 let authLoginController: AuthLoginController | undefined;
 let clientDatabase: ClientDatabase | undefined;
+let dependencyManager: DependencyManager | undefined;
 let webServer: CompassWebServer | undefined;
 let shutdownPromise: Promise<void> | undefined;
 const agentEventListeners = new Set<(event: AgentUiEvent) => void>();
@@ -141,6 +144,18 @@ function registerIpc(api: CompassBackendApi): void {
   ipcMain.handle("runtime:prerequisite-action", (_event, actionId: string) =>
     api.runPrerequisiteAction(actionId),
   );
+  ipcMain.handle("dependencies:refresh", () => api.refreshDependencies());
+  ipcMain.handle(
+    "dependencies:install",
+    (_event, dependencyId: DependencyId, sessionId?: string) =>
+      api.installDependency(dependencyId, sessionId),
+  );
+  ipcMain.handle("dependencies:cancel", (_event, dependencyId: DependencyId) =>
+    api.cancelDependencyInstall(dependencyId),
+  );
+  ipcMain.handle("dependencies:open-source", (_event, dependencyId: DependencyId) =>
+    api.openDependencySource(dependencyId),
+  );
   ipcMain.handle(
     "agent:prompt",
     (_event, text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
@@ -224,10 +239,17 @@ async function startApplication(): Promise<void> {
   clientDatabase = database;
   agent = new AgentService(emitAgentEvent, () => database.getRegistry());
   authLoginController = new AuthLoginController(agent, emitAgentEvent);
+  dependencyManager = new DependencyManager({
+    rootDir: join(app.getPath("userData"), "dependencies"),
+    openPath: (path) => shell.openPath(path),
+    openExternal: (url) => shell.openExternal(url),
+    onProgress: (progress) => emitAgentEvent({ kind: "dependency-install-progress", progress }),
+  });
   const backendApi = createCompassBackendApi({
     service: agent,
     authController: authLoginController,
     clientDatabase: database,
+    dependencyManager,
     getWindow: () => mainWindow,
     emitEvent: emitAgentEvent,
   });
@@ -267,6 +289,7 @@ async function startApplication(): Promise<void> {
 function shutdown(): Promise<void> {
   if (!shutdownPromise) {
     authLoginController?.abortAll();
+    dependencyManager?.shutdown();
     shutdownPromise = Promise.allSettled([
       agent?.shutdown() ?? Promise.resolve(),
       webServer?.close() ?? Promise.resolve(),

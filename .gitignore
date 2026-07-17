@@ -18,6 +18,7 @@ coverage/
 start-logs/
 smoke-out/
 smoke-out-*/
+**/output/playwright/
 
 # Local environment and editor state
 .env

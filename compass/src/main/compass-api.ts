@@ -10,6 +10,7 @@ import { spawn } from "node:child_process";
 import type { AgentService } from "./agent";
 import type { AuthLoginController } from "./auth-login-controller";
 import type { ClientDatabase } from "./client-database";
+import type { DependencyManager } from "./dependency-manager";
 import { focusWindowForDictation } from "./dictation-window";
 import { runPrerequisiteAction } from "./prerequisite-actions";
 
@@ -17,6 +18,7 @@ interface CompassBackendOptions {
   service: AgentService;
   authController: AuthLoginController;
   clientDatabase: ClientDatabase;
+  dependencyManager: DependencyManager;
   getWindow: () => BrowserWindow | undefined;
   emitEvent: (event: AgentUiEvent) => void;
 }
@@ -139,21 +141,26 @@ async function chooseDirectory(
 }
 
 export function createCompassBackendApi(options: CompassBackendOptions): CompassBackendApi {
-  const { service, authController, clientDatabase, getWindow, emitEvent } = options;
+  const { service, authController, clientDatabase, dependencyManager, getWindow, emitEvent } = options;
 
   const publish = (payload: InitPayload): InitPayload => {
     emitEvent({ kind: "state-refresh", payload });
     return payload;
   };
 
-  const buildAndPublish = async (): Promise<InitPayload> => publish(await service.buildInitPayload());
+  const withDependencies = async (payload: InitPayload): Promise<InitPayload> => ({
+    ...payload,
+    dependencies: await dependencyManager.snapshot(payload.prerequisites),
+  });
+  const buildAndPublish = async (): Promise<InitPayload> =>
+    publish(await withDependencies(await service.buildInitPayload()));
   const publishClientRegistry = <Registry extends InitPayload["clientRegistry"]>(registry: Registry): Registry => {
     emitEvent({ kind: "client-registry-changed", registry });
     return registry;
   };
 
   return {
-    init: () => service.buildInitPayload(),
+    init: async () => withDependencies(await service.buildInitPayload()),
     getDeveloperContext: () => Promise.resolve(service.getDeveloperContext()),
     prompt: (text, images, clientMessageId) => service.prompt(text, images, clientMessageId),
     abort: () => service.abort(),
@@ -204,7 +211,8 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       await service.setApiKey(provider, key);
       return buildAndPublish();
     },
-    loginProvider: async (provider) => publish(await authController.loginProvider(provider)),
+    loginProvider: async (provider) =>
+      publish(await withDependencies(await authController.loginProvider(provider))),
     removeApiKey: async (provider) => {
       await service.removeApiKey(provider);
       return buildAndPublish();
@@ -213,6 +221,16 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       await runPrerequisiteAction(actionId, getWindow(), service.getSettingsView().language);
       return buildAndPublish();
     },
+    refreshDependencies: async () => {
+      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), true);
+      emitEvent({ kind: "dependencies-changed", dependencies });
+      return dependencies;
+    },
+    installDependency: async (dependencyId, sessionId) =>
+      dependencyManager.startInstall(dependencyId, sessionId),
+    cancelDependencyInstall: async (dependencyId) =>
+      dependencyManager.cancelInstall(dependencyId),
+    openDependencySource: async (dependencyId) => dependencyManager.openSource(dependencyId),
     setSkillEnabled: async (name, enabled) => {
       await service.setSkillEnabled(name, enabled);
       return buildAndPublish();
