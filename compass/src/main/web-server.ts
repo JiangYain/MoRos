@@ -1,5 +1,6 @@
 import {
   isAppLanguage,
+  isDependencyId,
   isPermissionMode,
   isThinkingLevel,
   type AgentUiEvent,
@@ -73,6 +74,12 @@ function optionalStringArg(args: unknown[], index: number, label: string): strin
   const value = args[index];
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw new Error(`${label} must be a string.`);
+  return value;
+}
+
+function dependencyIdArg(args: unknown[], index: number): Parameters<CompassBackendApi["installDependency"]>[0] {
+  const value = args[index];
+  if (!isDependencyId(value)) throw new Error("Invalid dependency id.");
   return value;
 }
 
@@ -168,6 +175,16 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
     removeApiKey: (args) => api.removeApiKey(stringArg(args, 0, "provider")),
     runPrerequisiteAction: (args) =>
       api.runPrerequisiteAction(stringArg(args, 0, "actionId")),
+    refreshDependencies: () => api.refreshDependencies(),
+    installDependency: (args) =>
+      api.installDependency(
+        dependencyIdArg(args, 0),
+        optionalStringArg(args, 1, "sessionId"),
+      ),
+    cancelDependencyInstall: (args) =>
+      api.cancelDependencyInstall(dependencyIdArg(args, 0)),
+    openDependencySource: (args) =>
+      api.openDependencySource(dependencyIdArg(args, 0)),
     setSkillEnabled: (args) =>
       api.setSkillEnabled(stringArg(args, 0, "name"), booleanArg(args, 1, "enabled")),
     addSkillDir: () => api.addSkillDir(),

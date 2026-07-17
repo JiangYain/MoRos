@@ -228,6 +228,8 @@ export type AgentUiEvent =
   | { kind: "stats"; stats: AgentStats }
   | { kind: "sessions-changed" }
   | { kind: "client-registry-changed"; registry: ClientRegistry }
+  | { kind: "dependencies-changed"; dependencies: DependencySnapshot }
+  | { kind: "dependency-install-progress"; progress: DependencyInstallProgress }
   | { kind: "state-refresh"; payload: InitPayload };
 
 export interface AppSettingsView {
@@ -266,9 +268,74 @@ export interface RuntimePrerequisites {
   shell: RuntimePrerequisiteCheck;
 }
 
+export const DEPENDENCY_IDS = [
+  "git",
+  "bash",
+  "phonak-target",
+  "signia-connexx",
+  "widex-compass-gps",
+  "noahlink-wireless-driver",
+] as const;
+
+export type DependencyId = (typeof DEPENDENCY_IDS)[number];
+
+export function isDependencyId(value: unknown): value is DependencyId {
+  return typeof value === "string" && (DEPENDENCY_IDS as readonly string[]).includes(value);
+}
+
+export type DependencyCategory = "runtime" | "fitting-software" | "driver";
+export type DependencyAvailability = "installed" | "missing" | "unsupported";
+export type DependencyInstallKind = "winget" | "archive" | "executable";
+
+export interface DependencyResource {
+  id: DependencyId;
+  category: DependencyCategory;
+  name: string;
+  vendor: string;
+  availability: DependencyAvailability;
+  installKind: DependencyInstallKind;
+  required: boolean;
+  recommendedVersion?: string;
+  installedVersion?: string;
+  installedPath?: string;
+  sourceUrl: string;
+  documentationUrl: string;
+}
+
+export type DependencyInstallPhase =
+  | "queued"
+  | "downloading"
+  | "extracting"
+  | "installing"
+  | "launching"
+  | "awaiting-user"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface DependencyInstallProgress {
+  dependencyId: DependencyId;
+  phase: DependencyInstallPhase;
+  progress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+  sessionId?: string;
+  artifactPath?: string;
+  error?: string;
+  updatedAt: number;
+}
+
+export interface DependencySnapshot {
+  items: DependencyResource[];
+  installs: DependencyInstallProgress[];
+  checkedAt: number;
+}
+
 export interface InitPayload {
   settings: AppSettingsView;
   prerequisites: RuntimePrerequisites;
+  /** Populated by the app backend. Optional for older persisted/test payloads. */
+  dependencies?: DependencySnapshot;
   skills: UiSkill[];
   models: UiModel[];
   providers: UiProviderStatus[];
@@ -324,6 +391,13 @@ export interface CompassApi {
   loginProvider(provider: string): Promise<InitPayload>;
   removeApiKey(provider: string): Promise<InitPayload>;
   runPrerequisiteAction(actionId: string): Promise<InitPayload>;
+  refreshDependencies(): Promise<DependencySnapshot>;
+  installDependency(
+    dependencyId: DependencyId,
+    sessionId?: string,
+  ): Promise<{ ok: boolean; error?: string }>;
+  cancelDependencyInstall(dependencyId: DependencyId): Promise<{ ok: boolean; error?: string }>;
+  openDependencySource(dependencyId: DependencyId): Promise<void>;
   setSkillEnabled(name: string, enabled: boolean): Promise<InitPayload>;
   addSkillDir(): Promise<InitPayload | null>;
   removeSkillDir(dir: string): Promise<InitPayload>;

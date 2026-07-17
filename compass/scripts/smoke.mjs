@@ -51,7 +51,8 @@ try {
   }, { key: "compass.clients.v1", name: migratedClientName });
   const migratedBrands = await page.evaluate(async (name) => {
     const payload = await window.compass.init();
-    return payload.clientRegistry.profiles[name.toLocaleLowerCase("zh-CN")]?.hearingAidBrands ?? [];
+    return Object.values(payload.clientRegistry.profiles)
+      .find((profile) => profile.displayName === name)?.hearingAidBrands ?? [];
   }, migratedClientName);
   if (!migratedBrands.includes("unitron") || !migratedBrands.includes("oticon") || !migratedBrands.includes("other")) {
     throw new Error(`Legacy client migration dropped retired brands: ${migratedBrands.join(", ")}`);
@@ -157,8 +158,25 @@ try {
     throw new Error("The profile menu did not adopt the persisted profile username");
   }
   await page.locator(".profile-menu button").filter({ hasText: "Skill library" }).click();
-  await page.getByRole("heading", { name: "Skills" }).waitFor();
+  await page.getByRole("heading", { name: "Skills", exact: true }).waitFor();
   await shot("03-skills-settings");
+  const skillsSearch = page.getByRole("textbox", { name: "Search skills", exact: true });
+  await skillsSearch.fill("phonak-target");
+  if ((await page.locator(".settings-skill-row").count()) !== 1) {
+    throw new Error("Skill search did not keep the matching Target skill");
+  }
+  await skillsSearch.fill("__no_matching_skill__");
+  await page.locator(".settings-skills-empty").waitFor();
+  await skillsSearch.fill("");
+  await page.locator(".settings-skills-filters button").filter({ hasText: "Disabled skills" }).click();
+  await page.locator(".settings-skills-empty").waitFor();
+  await page.locator(".settings-skills-filters button").filter({ hasText: "All" }).click();
+  await page.locator(".settings-skill-row").first().waitFor();
+  await page.setViewportSize({ width: 600, height: 880 });
+  await page.locator(".settings-skills-search input").waitFor();
+  await page.locator(".settings-skills-filters").waitFor();
+  await shot("03b-skills-settings-responsive");
+  await page.setViewportSize({ width: 1320, height: 880 });
   await page.getByRole("complementary").getByRole("button", { name: "Back" }).click();
 
   await page.locator(".user-profile").click();
@@ -177,6 +195,54 @@ try {
     const trigger = document.querySelector('.settings-language-dropdown-btn');
     return document.activeElement === trigger && trigger?.getAttribute("aria-expanded") === "false";
   });
+
+  await page
+    .getByRole("navigation", { name: "Settings navigation" })
+    .getByRole("button", { name: "Dependencies", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "Dependencies", exact: true }).waitFor();
+  await page.locator(".settings-dependency-card").first().waitFor();
+  if ((await page.locator(".settings-dependency-card").count()) !== 6) {
+    throw new Error("Dependencies settings did not render the six allow-listed resources");
+  }
+  await page.waitForFunction(() => {
+    const images = Array.from(document.querySelectorAll(".settings-dependency-artwork img"));
+    return images.length === 6 && images.every((image) => image.complete && image.naturalWidth > 0);
+  });
+  const dependencyArtworkLoaded = await page.locator(".settings-dependency-artwork img").evaluateAll(
+    (images) => images.length === 6 && images.every((image) => image.complete && image.naturalWidth > 0),
+  );
+  if (!dependencyArtworkLoaded) {
+    throw new Error("One or more dependency logos failed to load");
+  }
+  const dependencyPayload = await page.evaluate(() => window.compass.init());
+  if (
+    dependencyPayload.dependencies?.items.length !== 6
+    || !dependencyPayload.dependencies.items.some((item) => item.id === "signia-connexx")
+    || !dependencyPayload.dependencies.items.some((item) => item.id === "noahlink-wireless-driver")
+  ) {
+    throw new Error("Dependency detection payload is incomplete");
+  }
+  const signiaCard = page.locator(".settings-dependency-card").filter({ hasText: "Signia Connexx" });
+  const signiaInstall = signiaCard.getByRole("button", { name: "Download & install", exact: true });
+  if (await signiaInstall.isVisible()) {
+    await signiaInstall.click();
+    await signiaCard.getByText("Compass will download from the fixed source and then open the Windows installer.").waitFor();
+    await signiaCard.getByRole("button", { name: "Cancel", exact: true }).click();
+    await signiaCard.locator(".settings-dependency-confirm").waitFor({ state: "detached" });
+  }
+  await shot("03c-dependencies-settings");
+  await page.setViewportSize({ width: 600, height: 880 });
+  await page.locator(".settings-dependency-grid").first().waitFor();
+  await shot("03d-dependencies-settings-responsive");
+  await page.setViewportSize({ width: 1320, height: 880 });
+  await page.locator(".settings-dependency-card").filter({ hasText: "Noahlink Wireless Driver" }).scrollIntoViewIfNeeded();
+  await shot("03e-dependencies-driver");
+  await page
+    .getByRole("navigation", { name: "Settings navigation" })
+    .getByRole("button", { name: "General", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "General" }).waitFor();
 
   const settingsSearch = page.locator(".settings-search input");
   await settingsSearch.fill("color theme");
@@ -594,6 +660,7 @@ try {
   await sessionSearch.fill("");
   const searchResultCount = await page.locator('.session-search-result[role="option"]').count();
   let openedSearchResult = false;
+  let openedSearchResultTitle = "";
   if (searchResultCount > 0) {
     const selectedBefore = await sessionSearch.getAttribute("aria-activedescendant");
     await sessionSearch.press("ArrowDown");
@@ -601,6 +668,7 @@ try {
     if (searchResultCount > 1 && selectedAfter === selectedBefore) {
       throw new Error("ArrowDown did not move the session search selection");
     }
+    openedSearchResultTitle = (await page.locator(".session-search-result.selected strong").textContent())?.trim() ?? "";
     await sessionSearch.press("Enter");
     openedSearchResult = true;
   } else {
@@ -608,6 +676,11 @@ try {
   }
   await page.locator(".session-search-dialog").waitFor({ state: "detached" });
   if (openedSearchResult) {
+    if (openedSearchResultTitle) {
+      await page.waitForFunction((title) => Array.from(
+        document.querySelectorAll(".thread-file-item.active .file-name"),
+      ).some((node) => node.textContent?.trim() === title), openedSearchResultTitle);
+    }
     await page.getByRole("button", { name: "Hearing health", exact: true }).click();
     const hearingHealthWorkspace = page.getByRole("region", { name: "Hearing health", exact: true });
     await hearingHealthWorkspace.waitFor();
@@ -638,8 +711,9 @@ try {
   });
   await page.locator(".approval-request").waitFor();
   await page.waitForTimeout(650);
-  if ((await page.locator(".approval-request-actions button").count()) !== 2) {
-    throw new Error("Inline approval must expose Allow and Deny actions");
+  const approvalActionCount = await page.locator(".approval-request-actions button").count();
+  if (approvalActionCount !== 2) {
+    throw new Error(`Inline approval must expose Allow and Deny actions; found ${approvalActionCount}`);
   }
   await shot("12b-inline-approval");
   await app.evaluate(({ BrowserWindow }) => {
@@ -1005,6 +1079,71 @@ try {
       ) {
         throw new Error(`Assigned client was not injected into context: ${JSON.stringify(assignedContext)}`);
       }
+
+      const dependencyScenario = await page.evaluate(async () => {
+        const payload = await window.compass.init();
+        if (!payload.dependencies || !payload.stats.sessionId) return null;
+        return {
+          original: payload.dependencies,
+          sessionId: payload.stats.sessionId,
+          missing: {
+            ...payload.dependencies,
+            items: payload.dependencies.items.map((item) => item.id === "phonak-target"
+              ? {
+                  ...item,
+                  availability: "missing",
+                  installedVersion: undefined,
+                  installedPath: undefined,
+                }
+              : item),
+            installs: [],
+            checkedAt: Date.now(),
+          },
+        };
+      });
+      if (!dependencyScenario) throw new Error("Dependency scenario could not resolve the active session");
+      await app.evaluate(({ BrowserWindow }, dependencies) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+          kind: "dependencies-changed",
+          dependencies,
+        });
+      }, dependencyScenario.missing);
+      const dependencyCard = page.locator(".thread-dependency-card");
+      await dependencyCard.waitFor();
+      await dependencyCard.getByRole("button", { name: "Download & install Target", exact: true }).waitFor();
+      await dependencyCard.getByRole("button", { name: "Later", exact: true }).waitFor();
+      await page.waitForTimeout(650);
+      await shot("13c-session-dependency-recommendation");
+
+      await app.evaluate(({ BrowserWindow }, { sessionId }) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+          kind: "dependency-install-progress",
+          progress: {
+            dependencyId: "phonak-target",
+            phase: "downloading",
+            progress: 0.37,
+            downloadedBytes: 38797312,
+            totalBytes: 104857600,
+            sessionId,
+            updatedAt: Date.now(),
+          },
+        });
+      }, { sessionId: dependencyScenario.sessionId });
+      const dependencyProgress = dependencyCard.getByRole("progressbar");
+      await dependencyProgress.waitFor();
+      if ((await dependencyProgress.getAttribute("aria-valuenow")) !== "37") {
+        throw new Error("Session dependency progress did not render the expected percentage");
+      }
+      await dependencyCard.getByText("37%").waitFor();
+      await page.waitForTimeout(220);
+      await shot("13d-session-dependency-progress");
+      await app.evaluate(({ BrowserWindow }, dependencies) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+          kind: "dependencies-changed",
+          dependencies,
+        });
+      }, dependencyScenario.original);
+      await dependencyCard.waitFor({ state: "detached" });
     } finally {
       await page.evaluate((registry) => {
         if (registry === null) localStorage.removeItem("compass.clients.v1");
@@ -1050,6 +1189,21 @@ try {
   await page.locator(".sidebar-toggle").click();
   await page.locator(".sidebar.mobile-open").waitFor();
   await shot("14-mobile-sidebar");
+
+  await page.setViewportSize({ width: 1320, height: 880 });
+  await page.evaluate(() => window.compass.setLanguage("zh-CN"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(async () => (await window.compass.init()).settings.language === "zh-CN");
+  await page.locator(".user-profile").click();
+  await page.locator(".profile-menu button").filter({ hasText: "设置" }).click();
+  await page
+    .getByRole("navigation", { name: "设置导航" })
+    .getByRole("button", { name: "依赖项", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "依赖项", exact: true }).waitFor();
+  await page.locator(".settings-dependency-card").first().waitFor();
+  await page.waitForTimeout(650);
+  await shot("15-dependencies-zh-CN");
 
   console.log(`done, outDir=${outDir}`);
 } finally {

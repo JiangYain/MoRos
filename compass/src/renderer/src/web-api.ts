@@ -237,6 +237,13 @@ export function createWebApi(): CompassApi {
     removeApiKey: (provider) => rpc<InitPayload>("removeApiKey", [provider]),
     runPrerequisiteAction: (actionId) =>
       rpc<InitPayload>("runPrerequisiteAction", [actionId]),
+    refreshDependencies: () => rpc("refreshDependencies"),
+    installDependency: (dependencyId, sessionId) =>
+      rpc("installDependency", [dependencyId, sessionId]),
+    cancelDependencyInstall: (dependencyId) =>
+      rpc("cancelDependencyInstall", [dependencyId]),
+    openDependencySource: (dependencyId) =>
+      rpc<void>("openDependencySource", [dependencyId]),
     setSkillEnabled: (name, enabled) =>
       rpc<InitPayload>("setSkillEnabled", [name, enabled]),
     addSkillDir: () => rpc<InitPayload | null>("addSkillDir"),

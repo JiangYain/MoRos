@@ -696,15 +696,22 @@ textarea {
 .hero-ascii-title {
   position: relative;
   margin: 0;
-  display: inline-block;
+  display: inline-flex;
+  align-items: flex-start;
   max-width: 100%;
   isolation: isolate;
   font-weight: 400;
   font-style: normal;
 }
 
+.hero-ascii-word {
+  position: relative;
+  display: block;
+}
+
 .hero-ascii-base,
-.hero-ascii-glow {
+.hero-ascii-glow,
+.hero-ascii-period {
   display: block;
   margin: 0;
   padding: 0;
@@ -716,6 +723,12 @@ textarea {
   letter-spacing: 0.02em;
   white-space: pre;
   user-select: none;
+}
+
+.hero-ascii-period {
+  flex: 0 0 auto;
+  margin-left: 1ch;
+  color: var(--color-accent);
 }
 
 .hero-ascii-base {

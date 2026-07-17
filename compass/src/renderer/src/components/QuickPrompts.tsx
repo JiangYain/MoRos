@@ -140,14 +140,9 @@ export function QuickPrompts(): React.JSX.Element {
     >
       <QuickPromptButton index={currentIndex} text={currentPrompt} />
       {prompts.length > 1 && (
-        <>
-          <span className="quick-prompts-hint" aria-hidden="true">
-            {t("settings.quickPromptsScrollHint")}
-          </span>
-          <span className="quick-prompts-status" aria-live="polite">
-            {t("settings.quickPromptsPosition", { current: currentIndex + 1, total: prompts.length })}
-          </span>
-        </>
+        <span className="quick-prompts-status" aria-live="polite">
+          {t("settings.quickPromptsPosition", { current: currentIndex + 1, total: prompts.length })}
+        </span>
       )}
     </div>
   );
