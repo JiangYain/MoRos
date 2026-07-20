@@ -9,8 +9,11 @@ const rootDir = resolve(dirname(scriptPath), "..");
 const piDir = join(rootDir, "vendor", "pi");
 const buildMarkerPath = join(rootDir, "node_modules", ".cache", "compass", "pi-source-build.json");
 const buildRecipe = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+const copilotModelsPath = join(piDir, "packages", "ai", "dist", "providers", "github-copilot.models.js");
+const copilotModelDataPath = join(piDir, "packages", "ai", "dist", "providers", "data", "github-copilot.json");
 const requiredDistFiles = [
-  join(piDir, "packages", "ai", "dist", "providers", "github-copilot.models.js"),
+  copilotModelsPath,
+  copilotModelDataPath,
   join(piDir, "packages", "ai", "dist", "types.d.ts"),
   join(piDir, "packages", "agent", "dist", "index.js"),
   join(piDir, "packages", "agent", "dist", "types.d.ts"),
@@ -68,8 +71,8 @@ function writeBuildMarker(revision) {
 
 function builtFromSourceHasRequiredModels() {
   if (!requiredDistFiles.every(existsSync)) return false;
-  const copilotModels = readFileSync(requiredDistFiles[0], "utf8");
-  return copilotModels.includes("claude-sonnet-5");
+  return [copilotModelsPath, copilotModelDataPath]
+    .some((path) => readFileSync(path, "utf8").includes("claude-sonnet-5"));
 }
 
 if (process.env.COMPASS_SKIP_PI_SOURCE_BUILD === "1") {
@@ -90,18 +93,19 @@ if (builtFromSourceHasRequiredModels() && buildMarkerMatches(revision)) {
 
 run("npm", ["ci", "--ignore-scripts"], piDir);
 
-const buildSteps = [
-  ["run", "build", "--workspace", "@earendil-works/pi-tui"],
-  // Pi AI's default build regenerates model source files from upstream catalogs.
-  // Compass needs the checked-in upstream source exactly, then a local dist compile.
-  ["exec", "--workspace", "@earendil-works/pi-ai", "--", "tsgo", "-p", "tsconfig.build.json"],
-  ["run", "build", "--workspace", "@earendil-works/pi-agent-core"],
-  ["run", "build", "--workspace", "@earendil-works/pi-coding-agent"],
-];
+run("npm", ["run", "build", "--workspace", "@earendil-works/pi-tui"], piDir);
 
-for (const args of buildSteps) {
-  run("npm", args, piDir);
+// Pi AI now keeps provider values in generated, ignored JSON files. Its package build
+// creates those catalogs before compiling and copies them into dist. Restore the tracked
+// generated TypeScript afterward so installing Compass never dirties the Pi checkout.
+try {
+  run("npm", ["run", "build", "--workspace", "@earendil-works/pi-ai"], piDir);
+} finally {
+  run("git", ["restore", "--", "packages/ai/src/providers", "packages/ai/src/models.generated.ts"], piDir);
 }
+
+run("npm", ["run", "build", "--workspace", "@earendil-works/pi-agent-core"], piDir);
+run("npm", ["run", "build", "--workspace", "@earendil-works/pi-coding-agent"], piDir);
 
 if (!builtFromSourceHasRequiredModels()) {
   throw new Error("Built Pi source does not contain claude-sonnet-5 in github-copilot models.");

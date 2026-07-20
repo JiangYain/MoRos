@@ -155,6 +155,7 @@
   },
   "xai": {
     "supportsApiKey": true,
+    "supportsOAuth": true,
     "envVars": ["XAI_API_KEY"],
     "requiredEnv": []
   },

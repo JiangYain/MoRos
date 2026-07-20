@@ -46,8 +46,19 @@ try {
   }, { key: "compass.clients.v1", name: migratedClientName });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForFunction(async ({ key, name }) => {
-    const payload = await window.compass.init();
-    return localStorage.getItem(key) === null && payload.clientRegistry.clients.includes(name);
+    const migrated = async () => {
+      const payload = await window.compass.init();
+      const profile = Object.values(payload.clientRegistry.profiles)
+        .find((entry) => entry.displayName === name);
+      return localStorage.getItem(key) === null
+        && payload.clientRegistry.clients.includes(name)
+        && profile?.hearingAidBrands.includes("unitron")
+        && profile.hearingAidBrands.includes("oticon")
+        && profile.hearingAidBrands.includes("other");
+    };
+    if (!await migrated()) return false;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return migrated();
   }, { key: "compass.clients.v1", name: migratedClientName });
   const migratedBrands = await page.evaluate(async (name) => {
     const payload = await window.compass.init();

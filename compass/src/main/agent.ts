@@ -1,19 +1,19 @@
 import {
   AgentSession,
   type AgentSessionEvent,
-  AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionFactory,
   getAgentDir,
   ModelRegistry,
+  ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type {
   Api,
   AssistantMessage,
+  AuthInteraction,
   Model,
-  OAuthLoginCallbacks,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
@@ -135,8 +135,9 @@ function toolResultContent(value: unknown): ToolResultMessage["content"] | undef
 export class AgentService {
   private emit: Emit;
   private settings: AppSettings;
-  private authStorage: AuthStorage;
-  private modelRegistry: ModelRegistry;
+  private readonly modelRuntimePromise: Promise<ModelRuntime>;
+  private modelRuntime!: ModelRuntime;
+  private modelRegistry!: ModelRegistry;
   private session?: AgentSession;
   private unsubscribe?: () => void;
   private loader?: DefaultResourceLoader;
@@ -151,9 +152,13 @@ export class AgentService {
     this.emit = emit;
     this.getClientRegistry = getClientRegistry;
     this.settings = loadSettings();
-    this.authStorage = AuthStorage.create();
-    this.modelRegistry = ModelRegistry.create(this.authStorage);
-    this.ensureModelPreferences();
+    this.modelRuntimePromise = ModelRuntime.create();
+  }
+
+  private async ensureModelRuntime(): Promise<void> {
+    if (this.modelRuntime && this.modelRegistry) return;
+    this.modelRuntime = await this.modelRuntimePromise;
+    this.modelRegistry = new ModelRegistry(this.modelRuntime);
   }
 
   private nextId(prefix: string): string {
@@ -250,6 +255,7 @@ export class AgentService {
 
   async start(options?: { sessionPath?: string }): Promise<void> {
     this.disposeSession();
+    await this.ensureModelRuntime();
     this.ensureModelPreferences();
 
     const cwd = this.settings.workspaceDir;
@@ -297,8 +303,7 @@ export class AgentService {
       agentDir: getAgentDir(),
       resourceLoader: loader,
       sessionManager,
-      authStorage: this.authStorage,
-      modelRegistry: this.modelRegistry,
+      modelRuntime: this.modelRuntime,
       ...(model && !options?.sessionPath ? { model } : {}),
     });
 
@@ -672,7 +677,12 @@ export class AgentService {
     const providers = new Map<string, UiProviderStatus>();
     const allModels = this.modelRegistry.getAll();
     const modelsByProvider = new Map<string, Model<Api>[]>();
-    const oauthIds = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id));
+    const oauthIds = new Set(
+      this.modelRuntime
+        .getProviders()
+        .filter((provider) => provider.auth.oauth !== undefined)
+        .map((provider) => provider.id),
+    );
     for (const model of allModels) {
       const id = String(model.provider);
       const providerModels = modelsByProvider.get(id) ?? [];
@@ -939,6 +949,7 @@ export class AgentService {
   }
 
   async buildInitPayload(): Promise<InitPayload> {
+    await this.ensureModelRuntime();
     return {
       settings: this.getSettingsView(),
       prerequisites: this.getPrerequisites(),
@@ -1057,24 +1068,29 @@ export class AgentService {
   }
 
   async setApiKey(provider: string, key: string): Promise<void> {
-    this.authStorage.set(provider, { type: "api_key", key });
-    this.modelRegistry.refresh();
+    await this.modelRuntime.login(provider, "api_key", {
+      prompt: async (prompt) => {
+        if (prompt.type !== "secret") {
+          throw new Error(`Unexpected ${prompt.type} prompt while saving an API key for ${provider}`);
+        }
+        return key;
+      },
+      notify: () => {},
+    });
     this.ensureModelPreferences();
     await this.syncSessionModelAfterAuth(provider);
     this.emitStats();
   }
 
-  async loginProvider(provider: string, callbacks: OAuthLoginCallbacks): Promise<void> {
-    await this.authStorage.login(provider, callbacks);
-    this.modelRegistry.refresh();
+  async loginProvider(provider: string, interaction: AuthInteraction): Promise<void> {
+    await this.modelRuntime.login(provider, "oauth", interaction);
     this.ensureModelPreferences();
     await this.syncSessionModelAfterAuth(provider);
     this.emitStats();
   }
 
   async removeApiKey(provider: string): Promise<void> {
-    this.authStorage.remove(provider);
-    this.modelRegistry.refresh();
+    await this.modelRuntime.logout(provider);
     this.ensureModelPreferences();
     const session = this.session;
     const current = session?.model;

@@ -49,34 +49,39 @@ export class AuthLoginController {
       const language = this.service.getSettingsView().language;
       await this.service.loginProvider(provider, {
         signal: authController.signal,
-        onAuth: (info) => {
-          const message = [info.instructions, info.url].filter(Boolean).join("\n");
-          this.emitNotice("info", message || authMessage(language, "opening", { provider }));
-          void shell.openExternal(info.url);
-        },
-        onDeviceCode: (info) => {
-          this.emitNotice("info", `Open ${info.verificationUri}\nCode: ${info.userCode}`);
-          void shell.openExternal(info.verificationUri);
-        },
-        onPrompt: async (prompt) => {
-          if (prompt.allowEmpty) return "";
-          this.emitNotice(
-            "warn",
-            `${prompt.message}: ${authMessage(language, "manualCode")}`,
-          );
+        prompt: async (prompt) => {
+          if (prompt.type === "select") {
+            const selected = prompt.options[0];
+            this.emitNotice(
+              "info",
+              selected
+                ? `${prompt.message}: ${authMessage(language, "selected", { value: selected.label })}`
+                : `${prompt.message}: ${authMessage(language, "noOptions")}`,
+            );
+            if (!selected) throw new Error(authMessage(language, "noOptions"));
+            return selected.id;
+          }
+          if (prompt.type === "manual_code") {
+            this.emitNotice("warn", `${prompt.message}: ${authMessage(language, "manualCode")}`);
+            return this.waitForCancellation(provider, prompt.signal ?? authController.signal);
+          }
+          this.emitNotice("warn", `${prompt.message}: ${authMessage(language, "manualCode")}`);
           return "";
         },
-        onProgress: (message) => this.emitNotice("info", message),
-        onManualCodeInput: () => this.waitForCancellation(provider, authController.signal),
-        onSelect: async (prompt) => {
-          const selected = prompt.options[0]?.id;
-          this.emitNotice(
-            "info",
-            selected
-              ? `${prompt.message}: ${authMessage(language, "selected", { value: prompt.options[0]?.label ?? selected })}`
-              : `${prompt.message}: ${authMessage(language, "noOptions")}`,
-          );
-          return selected;
+        notify: (event) => {
+          if (event.type === "auth_url") {
+            const message = [event.instructions, event.url].filter(Boolean).join("\n");
+            this.emitNotice("info", message || authMessage(language, "opening", { provider }));
+            void shell.openExternal(event.url);
+          } else if (event.type === "device_code") {
+            this.emitNotice("info", `Open ${event.verificationUri}\nCode: ${event.userCode}`);
+            void shell.openExternal(event.verificationUri);
+          } else if (event.type === "info") {
+            const message = [event.message, ...(event.links ?? []).map((link) => link.url)].join("\n");
+            this.emitNotice("info", message);
+          } else {
+            this.emitNotice("info", event.message);
+          }
         },
       });
       return this.service.buildInitPayload();
