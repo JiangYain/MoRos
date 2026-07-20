@@ -118,7 +118,8 @@ try {
 
   await page.locator(".profile-menu-head-button").click();
   await page.getByRole("heading", { name: "Profile" }).waitFor();
-  await page.locator(".settings-profile-metrics").waitFor();
+  await page.locator(".settings-profile-identity").waitFor();
+  await page.locator(".settings-profile-photo-actions").waitFor();
   await page.locator("#profile-name-input").fill("Compass Smoke Tester");
   await page.locator("#profile-handle-input").fill("compass_smoke");
   await page.getByRole("heading", { name: "Profile" }).click();

@@ -32,12 +32,10 @@ import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
 import type {
-  AppLanguage,
   DependencyCategory,
   DependencyId,
   DependencyInstallProgress,
   DependencyResource,
-  RuntimePrerequisites,
   UiProviderStatus,
 } from "@shared/types";
 import { APP_LANGUAGES, DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
@@ -65,7 +63,6 @@ import {
   Search,
   Settings2,
   Sparkles,
-  Terminal,
   Trash2,
   UserRound,
   X,
@@ -135,7 +132,6 @@ function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): Setting
     // General
     { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
     { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
-    { sectionId: "general", targetId: "settings-runtime", title: t("settings.runtime"), description: t("settings.runtimeDescription"), keywords: "git bash shell" },
     // Appearance
     { sectionId: "appearance", targetId: "settings-theme", title: t("settings.colorTheme"), description: t("settings.appearanceDescription"), keywords: "theme light dark system" },
     // Profile
@@ -235,57 +231,6 @@ function ProviderBrandIcon({ provider, size = 18 }: { provider: string; size?: n
     case "zai-coding-cn": return <ZAIIcon size={size} />;
   }
   return <Box size={size - 1} strokeWidth={1.45} />;
-}
-
-function RuntimeCard({ prerequisites }: { prerequisites?: RuntimePrerequisites }): React.JSX.Element | null {
-  const { t } = useI18n();
-  const runPrerequisiteAction = useCompass((state) => state.runPrerequisiteAction);
-  const [busy, setBusy] = useState<string | null>(null);
-  const shell = prerequisites?.shell;
-  if (!shell) return null;
-
-  const detail = shell.ok
-    ? t(shell.detail.includes("settings.json") ? "settings.runtimeConfigured" : "settings.runtimeAvailable")
-    : t("settings.runtimeMissing");
-  const actionKeys: Record<string, TranslationKey> = {
-    "refresh-prerequisites": "settings.runtimeRefresh",
-    "install-git-with-winget": "settings.runtimeInstall",
-    "open-git-download": "settings.runtimeDownload",
-  };
-
-  const run = async (actionId: string): Promise<void> => {
-    setBusy(actionId);
-    try {
-      await runPrerequisiteAction(actionId);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="settings-card settings-runtime-card">
-      <div className="settings-row-icon"><Terminal size={16} strokeWidth={1.55} /></div>
-      <div className="settings-row-copy">
-        <strong>{shell.name}</strong>
-        <span>{detail}</span>
-        {shell.shellPath && <code>{shell.shellPath}</code>}
-      </div>
-      <span className={`settings-status${shell.ok ? " ready" : " required"}`}>
-        {shell.ok ? <Check size={15} strokeWidth={1.7} /> : t("common.required")}
-      </span>
-      {!shell.ok && shell.actions.map((action) => (
-        <button
-          type="button"
-          className="settings-small-btn"
-          disabled={busy !== null}
-          key={action.id}
-          onClick={() => void run(action.id)}
-        >
-          {busy === action.id ? t("common.working") : t(actionKeys[action.id] ?? "settings.runtimeRefresh")}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function QuickPromptSettings(): React.JSX.Element {
@@ -440,7 +385,6 @@ function QuickPromptSettings(): React.JSX.Element {
 
 function GeneralSettings(): React.JSX.Element {
   const { language, t } = useI18n();
-  const prerequisites = useCompass((state) => state.prerequisites);
   const setLanguage = useCompass((state) => state.setLanguage);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [langQuery, setLangQuery] = useState("");
@@ -483,7 +427,6 @@ function GeneralSettings(): React.JSX.Element {
         <div className="settings-card settings-language-row">
           <div className="settings-language-copy">
             <strong>{t("language.label")}</strong>
-            <span>{t("language.description")}</span>
           </div>
           <div className="settings-language-selector-container" ref={dropdownRef}>
             <button
@@ -566,13 +509,6 @@ function GeneralSettings(): React.JSX.Element {
       <div id="settings-quick-prompts">
         <QuickPromptSettings />
       </div>
-
-      <section className="settings-section-block" id="settings-runtime">
-        <div className="settings-section-title">
-          <div><h2>{t("settings.runtime")}</h2><p>{t("settings.runtimeDescription")}</p></div>
-        </div>
-        <RuntimeCard prerequisites={prerequisites} />
-      </section>
     </div>
   );
 }
@@ -669,19 +605,8 @@ function AppearanceSettings(): React.JSX.Element {
   );
 }
 
-function formatCompactMetric(value: number, language: AppLanguage): string {
-  return new Intl.NumberFormat(localeFor(language), {
-    maximumFractionDigits: value >= 10_000 ? 0 : 1,
-    notation: value >= 1_000 ? "compact" : "standard",
-  }).format(value);
-}
-
 function ProfileSettings(): React.JSX.Element {
-  const { language, t } = useI18n();
-  const sessions = useCompass((state) => state.sessions);
-  const skills = useCompass((state) => state.skills);
-  const stats = useCompass((state) => state.stats);
-  const settings = useCompass((state) => state.settings);
+  const { t } = useI18n();
   const profileAvatar = useCompass((state) => state.profileAvatar);
   const setProfileAvatar = useCompass((state) => state.setProfileAvatar);
   const setError = useCompass((state) => state.setError);
@@ -692,9 +617,6 @@ function ProfileSettings(): React.JSX.Element {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [nameDraft, setNameDraft] = useState(profileName);
   const [handleDraft, setHandleDraft] = useState(profileHandle);
-  const enabledSkills = skills.filter((skill) => skill.enabled).length;
-  const sessionTokens = (stats?.tokensIn ?? 0) + (stats?.tokensOut ?? 0);
-  const permission = settings?.permissionMode;
 
   useEffect(() => {
     setNameDraft(profileName);
@@ -710,13 +632,6 @@ function ProfileSettings(): React.JSX.Element {
       setProfileIdentity(normalizedName, normalizedHandle);
     }
   };
-
-  const metrics = [
-    { label: t("settings.localSessions"), value: formatCompactMetric(sessions.length, language) },
-    { label: t("settings.sessionTokens"), value: formatCompactMetric(sessionTokens, language) },
-    { label: t("settings.contextUsed"), value: stats?.contextPercent === null || stats?.contextPercent === undefined ? "—" : `${Math.round(stats.contextPercent)}%` },
-    { label: t("settings.enabledSkills"), value: formatCompactMetric(enabledSkills, language) },
-  ];
 
   const uploadAvatar = async (file: File | undefined): Promise<void> => {
     if (!file || avatarBusy) return;
@@ -766,6 +681,16 @@ function ProfileSettings(): React.JSX.Element {
           accept="image/png,image/jpeg,image/webp,image/gif"
           onChange={(event) => void uploadAvatar(event.currentTarget.files?.[0])}
         />
+        <div className="settings-profile-photo-actions">
+          <button type="button" onClick={() => avatarInput.current?.click()}>
+            {avatarBusy ? t("settings.processing") : profileAvatar ? t("settings.changePhoto") : t("settings.addPhoto")}
+          </button>
+          {profileAvatar && (
+            <button type="button" className="remove" onClick={() => setProfileAvatar(null)}>
+              <Trash2 size={12} strokeWidth={1.6} /> {t("common.remove")}
+            </button>
+          )}
+        </div>
         <div className="settings-profile-inputs">
           <div className="settings-profile-input">
             <label htmlFor="profile-name-input">{t("settings.profileName")}</label>
@@ -796,46 +721,6 @@ function ProfileSettings(): React.JSX.Element {
                 if (event.key === "Enter") event.currentTarget.blur();
               }}
             />
-          </div>
-        </div>
-        <div className="settings-profile-photo-actions">
-          <button type="button" onClick={() => avatarInput.current?.click()}>
-            {avatarBusy ? t("settings.processing") : profileAvatar ? t("settings.changePhoto") : t("settings.addPhoto")}
-          </button>
-          {profileAvatar && (
-            <button type="button" className="remove" onClick={() => setProfileAvatar(null)}>
-              <Trash2 size={12} strokeWidth={1.6} /> {t("common.remove")}
-            </button>
-          )}
-        </div>
-      </section>
-
-      <section className="settings-profile-metrics" aria-label={t("settings.localActivity")}>
-        {metrics.map((metric) => (
-          <div key={metric.label}>
-            <strong>{metric.value}</strong>
-            <span>{metric.label}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="settings-profile-environment">
-        <div className="settings-profile-environment-head">
-          <h2>{t("settings.environment")}</h2>
-          <span>{t("settings.currentConfiguration")}</span>
-        </div>
-        <div className="settings-profile-details">
-          <div>
-            <strong>{t("settings.workspace")}</strong>
-            <code>{settings?.workspaceDir || t("common.notSelected")}</code>
-          </div>
-          <div>
-            <strong>{t("settings.activeModel")}</strong>
-            <small>{stats?.model?.name ?? t("common.notConfigured")}</small>
-          </div>
-          <div>
-            <strong>{t("settings.permissionMode")}</strong>
-            <small>{permission ? t(`settings.permission.${permission}` as TranslationKey) : t("common.notConfigured")}</small>
           </div>
         </div>
       </section>
@@ -904,9 +789,11 @@ function ProviderRow({ provider }: { provider: UiProviderStatus }): React.JSX.El
               : provider.authNote || t("common.notConfigured"))}
         </span>
       </div>
-      <span className={`settings-provider-state${provider.configured ? " connected" : ""}`}>
-        {provider.configured ? t("common.connected") : t("common.notSet")}
-      </span>
+      {provider.configured && (
+        <span className="settings-provider-state connected">
+          {t("common.connected")}
+        </span>
+      )}
       {provider.supportsOAuth && (
         <button type="button" className="settings-text-btn" disabled={busy} onClick={() => void login()}>
           {provider.configured ? t("settings.reconnect") : t("settings.signIn")}
@@ -1764,28 +1651,34 @@ function DependenciesSettings(): React.JSX.Element {
 
   return (
     <div className="settings-page settings-dependencies-page" id="settings-page-dependencies">
-      <header className="settings-page-head settings-page-head-with-action">
+      <header className="settings-page-head">
         <div>
           <span className="settings-eyebrow">{t("settings.dependenciesEyebrow")}</span>
-          <h1>{t("settings.nav.dependencies")}</h1>
+          <div className="settings-title-with-refresh">
+            <h1>{t("settings.nav.dependencies")}</h1>
+            <button
+              type="button"
+              className="settings-dependencies-refresh-inline-title"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+              title={t("settings.dependenciesRefresh")}
+              aria-label={t("settings.dependenciesRefresh")}
+            >
+              <RotateCw size={15} className={refreshing ? "spin" : ""} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </div>
           <p>{t("settings.dependenciesDescription")}</p>
         </div>
-        <button
-          type="button"
-          className="settings-small-btn settings-dependencies-refresh"
-          disabled={refreshing}
-          onClick={() => void refresh()}
-        >
-          <RotateCw size={13} strokeWidth={1.7} aria-hidden="true" />
-          <span>{t(refreshing ? "settings.dependenciesRefreshing" : "settings.dependenciesRefresh")}</span>
-        </button>
       </header>
 
-      <section className={`settings-dependencies-summary${requiredReady ? " ready" : " missing"}`}>
+      <section
+        className={`settings-dependencies-summary${requiredReady ? " ready" : " missing"}`}
+        aria-live="polite"
+      >
         <div className="settings-dependencies-summary-icon">
           {requiredReady
-            ? <CircleCheck size={18} strokeWidth={1.7} aria-hidden="true" />
-            : <CircleAlert size={18} strokeWidth={1.7} aria-hidden="true" />}
+            ? <CircleCheck size={17} strokeWidth={1.7} aria-hidden="true" />
+            : <CircleAlert size={17} strokeWidth={1.7} aria-hidden="true" />}
         </div>
         <div>
           <strong>{t(requiredReady ? "settings.dependenciesRequiredReady" : "settings.dependenciesRequiredMissing")}</strong>
