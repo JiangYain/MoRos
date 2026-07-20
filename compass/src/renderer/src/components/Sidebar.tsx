@@ -353,7 +353,6 @@ export function Sidebar(): React.JSX.Element {
   const enabledSkills = skills.filter((skill) => skill.enabled).length;
   const contextPercent = stats?.contextPercent == null ? null : Math.round(stats.contextPercent);
   const displayProfileName = profileName || t("settings.profile");
-  const displayProfileDetail = profileHandle ? `@${profileHandle}` : t("settings.localIdentity");
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -1065,7 +1064,7 @@ export function Sidebar(): React.JSX.Element {
                 <ProfileAvatar className="large" />
                 <span>
                   <b>{displayProfileName}</b>
-                  <small>{displayProfileDetail}</small>
+                  {profileHandle && <small>@{profileHandle}</small>}
                 </span>
               </button>
               <div className="profile-menu-rule" />
