@@ -143,6 +143,16 @@
     "envVars": ["OPENROUTER_API_KEY"],
     "requiredEnv": []
   },
+  "qwen-token-plan": {
+    "supportsApiKey": true,
+    "envVars": ["QWEN_TOKEN_PLAN_API_KEY"],
+    "requiredEnv": []
+  },
+  "qwen-token-plan-cn": {
+    "supportsApiKey": true,
+    "envVars": ["QWEN_TOKEN_PLAN_CN_API_KEY"],
+    "requiredEnv": []
+  },
   "together": {
     "supportsApiKey": true,
     "envVars": ["TOGETHER_API_KEY"],
