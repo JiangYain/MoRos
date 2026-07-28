@@ -83,6 +83,7 @@
   },
   "kimi-coding": {
     "supportsApiKey": true,
+    "supportsOAuth": true,
     "envVars": ["KIMI_API_KEY"],
     "requiredEnv": []
   },
@@ -140,6 +141,7 @@
   },
   "openrouter": {
     "supportsApiKey": true,
+    "supportsOAuth": true,
     "envVars": ["OPENROUTER_API_KEY"],
     "requiredEnv": []
   },
