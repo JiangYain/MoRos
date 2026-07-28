@@ -1,7 +1,7 @@
 # Provider audit
 
-Compass uses Pi's provider registry from `@mariozechner/pi-ai` and the auth/model
-resolution layer from `@mariozechner/pi-coding-agent`.
+Compass uses Pi's provider registry from `@earendil-works/pi-ai` and the auth/model
+resolution layer from `@earendil-works/pi-coding-agent`.
 
 ## Commands
 
@@ -30,15 +30,22 @@ npm run audit:providers -- --timeout-ms=15000
 
 ## Credential sources
 
-Pi resolves credentials in this order:
+Pi resolves credentials with these ownership rules:
 
-1. Runtime override.
-2. Stored Pi auth data under `~/.pi/auth.json`.
-3. OAuth token from Pi auth data.
-4. Environment variables.
-5. Custom provider fallback from `~/.pi/agent/models.json`.
+1. An explicit request/runtime API-key override wins.
+2. A stored API-key or OAuth credential under `~/.pi/agent/auth.json` owns that
+   provider. A failed refresh or mismatched stored credential does not silently
+   fall back to ambient environment credentials.
+3. Only when no credential is stored does the provider resolve ambient sources
+   such as environment variables, AWS credentials, or Google ADC.
+4. `~/.pi/agent/models.json` can compose custom provider/model configuration;
+   it is not a universal final API-key fallback.
 
-## Provider environment variables
+## Provider environment variable examples
+
+This table is a convenience snapshot, not the provider catalog. The current
+source of truth is `src/shared/provider-auth-registry.json`, checked against
+the pinned Pi catalog by `npm run audit:providers:static`.
 
 | Provider | Environment variables |
 | --- | --- |
