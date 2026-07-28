@@ -24,7 +24,10 @@ test("static provider audit loads the current Pi model runtime", () => {
   const report = JSON.parse(result.stdout) as {
     registryLoadError?: string;
     totals: { providers: number; models: number; staticFailures: number };
-    results: Array<{ provider: string; auth: { missingHint: boolean } }>;
+    results: Array<{
+      provider: string;
+      auth: { missingHint: boolean; missingOAuthHint: boolean; supportsOAuth: boolean };
+    }>;
   };
   assert.equal(report.registryLoadError, undefined);
   assert.ok(report.totals.providers > 0);
@@ -34,5 +37,15 @@ test("static provider audit loads the current Pi model runtime", () => {
     const providerResult = report.results.find((entry) => entry.provider === provider);
     assert.ok(providerResult, `${provider} must be present in the Pi provider registry`);
     assert.equal(providerResult.auth.missingHint, false, `${provider} must have a Compass auth hint`);
+  }
+  for (const provider of ["kimi-coding", "openrouter"]) {
+    const providerResult = report.results.find((entry) => entry.provider === provider);
+    assert.ok(providerResult, `${provider} must be present in the Pi provider registry`);
+    assert.equal(providerResult.auth.supportsOAuth, true, `${provider} must expose Pi OAuth`);
+    assert.equal(
+      providerResult.auth.missingOAuthHint,
+      false,
+      `${provider} must have a Compass OAuth hint`,
+    );
   }
 });
