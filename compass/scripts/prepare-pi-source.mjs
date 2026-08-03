@@ -17,6 +17,8 @@ const requiredDistFiles = [
   join(piDir, "packages", "ai", "dist", "types.d.ts"),
   join(piDir, "packages", "agent", "dist", "index.js"),
   join(piDir, "packages", "agent", "dist", "types.d.ts"),
+  join(piDir, "packages", "protocol", "dist", "index.js"),
+  join(piDir, "packages", "client", "dist", "index.js"),
   join(piDir, "packages", "tui", "dist", "index.js"),
   join(piDir, "packages", "coding-agent", "dist", "index.js"),
   join(piDir, "packages", "coding-agent", "dist", "core", "agent-session.d.ts"),
@@ -105,6 +107,8 @@ try {
 }
 
 run("npm", ["run", "build", "--workspace", "@earendil-works/pi-agent-core"], piDir);
+run("npm", ["run", "build", "--workspace", "@earendil-works/pi-protocol"], piDir);
+run("npm", ["run", "build", "--workspace", "@earendil-works/pi-client"], piDir);
 run("npm", ["run", "build", "--workspace", "@earendil-works/pi-coding-agent"], piDir);
 
 if (!builtFromSourceHasRequiredModels()) {
