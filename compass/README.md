@@ -1,25 +1,27 @@
 # Compass
 
-基于 [Pi Agent Runtime](https://github.com/badlogic/pi-mono) 的智能助听器验配辅助决策应用（Electron + 本地 Web + TypeScript + React）。
+> 新会话、架构、数据边界与验证入口见仓库根目录的 [`PROJECT_CONTEXT.md`](../PROJECT_CONTEXT.md)。
+
+基于 [Pi Agent Runtime](https://github.com/earendil-works/pi) 的智能助听器验配辅助决策应用（Electron + 本地 Web + TypeScript + React）。
 
 把听力数据与主观主诉，转化为**可解释、可确认、可执行、可验证、可记录**的验配决策。
 
 ## 功能
 
-- **Pi 作为 Agent 基座**：主进程内运行 `@mariozechner/pi-coding-agent` 会话，支持全部 Pi Provider（Anthropic / OpenAI / DeepSeek / 智谱 / Groq 等 30+）。
+- **Pi 作为 Agent 基座**：主进程内运行 `@earendil-works/pi-coding-agent` 会话；当前 Provider 与模型目录来自固定提交的 Pi 子模块。
 - **SKILL 动态加载**：自动扫描工作目录及自定义目录下的 `SKILL.md` 技能包（如 `phonak-target-control`），可在技能库面板启用/停用，输入 `/` 触发技能命令。
 - **Codex 式对话体验**：流式回复、思考块折叠、工具执行卡片、转向/追问队列、上下文用量与费用统计。
 - **精简任务输入区**：工作区入口、模型与思考深度胶囊、可点击上下文用量环、桌面端系统语音输入（`Win+H`）/ Web 端浏览器语音识别，以及统一的发送/停止控制。
 - **会话与客户导航**：会话自动持久化（Pi SessionManager），侧边栏按客户线索归组，支持搜索、重命名、删除和归档，并提供本地操作员菜单。
-- **桌面与 Web 双入口**：一次启动同时打开 Electron 桌面窗口，并在 `http://127.0.0.1:5173` 提供完整 Web 页面；两端共享同一个 Agent 会话、设置和流式事件。
-- **设计系统**：高端医疗科技风 —— Cormorant Garamond + Inter 双字形，黑白灰 + 陶土红（#D94632），以中性胶囊、柔和圆角和克制动效构成 Codex 式桌面界面，支持 `prefers-reduced-motion`。
+- **桌面与 Web 双入口**：一次启动同时打开 Electron 桌面窗口，并在 `http://127.0.0.1:5173` 提供完整 Web 页面；两端共享后端 Agent、会话、客户库和流式事件，各 renderer 的 localStorage 偏好彼此独立。
+- **设计系统**：高端医疗科技风 —— Cormorant Garamond + Inter 双字形，黑白灰 + 陶土红（#C74634），以中性胶囊、柔和圆角和克制动效构成 Codex 式桌面界面，支持 `prefers-reduced-motion`。
 
 ## 开发
 
 ```bash
 npm install
 npm run dev        # 启动 Web（HMR）和 Electron，浏览器访问 http://127.0.0.1:5173
-npm run test:unit  # 运行权限策略等纯逻辑测试
+npm run test:unit  # 运行本地单元与行为测试
 ```
 
 ## 构建与运行
@@ -39,8 +41,8 @@ npm run test:smoke       # 覆盖设置、模型、上下文、权限、图片�
 
 ## 配置
 
-- 首次使用：右下角 **Settings → 模型提供方**，为任一 Provider 填入 API Key，然后在输入框的 Model 选择器中切换模型。
-- 工作目录：Agent 的文件与命令均相对该目录执行；目录内的 `SKILL.md` 子目录会被自动发现（默认为本项目的上级目录，即 `FAI/`）。
+- 首次使用：在 **Settings → 模型提供方** 按该 Provider 支持的 API Key、OAuth 或环境配置完成认证，然后在输入框的 Model 选择器中切换模型。
+- 工作目录：Agent 的文件与命令均相对该目录执行，目录内的 `SKILL.md` 子目录会被自动发现；开发模式默认指向 `FAI/`，打包模式则根据应用安装位置计算默认目录，也可从 Composer 的 workspace 入口更换。
 - 设置持久化在 `%APPDATA%/compass/compass-settings.json`；API Key 存于 Pi 的 `~/.pi/` 认证存储。
 - 客户档案、助听器品牌和会话归属存储在 `%APPDATA%/compass/compass.sqlite3`。首次启动新版时会把旧的 `localStorage` 客户档案事务性导入 SQLite，成功后删除旧键。
 - Web 服务仅监听本机回环地址。可用 `COMPASS_WEB_PORT` 修改默认 Web 端口 `5173`；开发模式内部 API 端口可用 `COMPASS_WEB_API_PORT` 修改（默认 `4317`）。
