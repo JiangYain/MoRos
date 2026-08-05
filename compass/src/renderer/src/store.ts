@@ -109,6 +109,8 @@ interface CompassState {
   installDependency(dependencyId: DependencyId, sessionId?: string): Promise<void>;
   cancelDependencyInstall(dependencyId: DependencyId): Promise<void>;
   openDependencySource(dependencyId: DependencyId): Promise<void>;
+  selectDependencyExecutable(dependencyId: DependencyId, path?: string): Promise<void>;
+  resetDependencyExecutable(dependencyId: DependencyId): Promise<void>;
   dismissDependencyPrompt(sessionId: string, dependencyId: DependencyId): void;
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
   addSkillDir(): Promise<void>;
@@ -742,6 +744,16 @@ export const useCompass = create<CompassState>((set, get) => {
 
   openDependencySource: (dependencyId) => runIpc(async () => {
     await api.openDependencySource(dependencyId);
+  }),
+
+  selectDependencyExecutable: (dependencyId, path) => runIpc(async () => {
+    const dependencies = await api.selectDependencyExecutable(dependencyId, path);
+    if (dependencies) set({ dependencies });
+  }),
+
+  resetDependencyExecutable: (dependencyId) => runIpc(async () => {
+    const dependencies = await api.resetDependencyExecutable(dependencyId);
+    set({ dependencies });
   }),
 
   dismissDependencyPrompt: (sessionId, dependencyId) => {

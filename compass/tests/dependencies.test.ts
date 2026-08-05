@@ -4,6 +4,7 @@ import { isDependencyId, type DependencySnapshot } from "../src/shared/types.ts"
 import {
   matchInstalledProgram,
   parseWindowsInventory,
+  resolveDependencyExecutableSelection,
 } from "../src/main/dependency-manager.ts";
 import {
   dependencyPromptKey,
@@ -29,12 +30,50 @@ test("Windows inventory parsing accepts PowerShell singleton output", () => {
       Status: "OK",
       InstanceId: "USB\\VID_16F0&PID_0003",
     },
+    targetExecutables: {
+      Path: "C:\\Program Files (x86)\\Phonak\\Phonak Target\\Target.exe",
+      FileVersion: "28.1.1.3472",
+    },
   }));
 
   assert.equal(inventory.programs.length, 1);
+  assert.deepEqual(inventory.targetExecutables, [{
+    path: "C:\\Program Files (x86)\\Phonak\\Phonak Target\\Target.exe",
+    fileVersion: "28.1.1.3472",
+  }]);
   assert.equal(inventory.noahDevice?.friendlyName, "Noahlink Wireless");
   assert.equal(matchInstalledProgram(inventory.programs, "phonak-target")?.displayVersion, "11.1.0.3472");
   assert.equal(matchInstalledProgram(inventory.programs, "signia-connexx"), undefined);
+});
+
+test("Target executable selection is deterministic and honors a manual version", () => {
+  const target11 = "C:\\Program Files (x86)\\Phonak\\Target 11\\Target.exe";
+  const target12 = "C:\\Program Files (x86)\\Phonak\\Target 12\\Target.exe";
+  const candidates = [
+    { path: target11, version: "11.2" },
+    { path: target12, version: "12.0" },
+    { path: target12.toUpperCase(), version: "12.0" },
+  ];
+
+  const automatic = resolveDependencyExecutableSelection(candidates);
+  assert.equal(automatic.multipleDetected, true);
+  assert.equal(automatic.candidates.length, 2);
+  assert.equal(automatic.selectedPath, target12);
+  assert.equal(automatic.source, "automatic");
+
+  const manual = resolveDependencyExecutableSelection(candidates, target11);
+  assert.equal(manual.selectedPath, target11);
+  assert.equal(manual.source, "user");
+});
+
+test("a missing manual Target path is not silently replaced by another version", () => {
+  const selection = resolveDependencyExecutableSelection(
+    [{ path: "C:\\Phonak\\Target 12\\Target.exe", version: "12.0" }],
+    "C:\\Phonak\\Removed Target\\Target.exe",
+  );
+  assert.equal(selection.configuredPath, "C:\\Phonak\\Removed Target\\Target.exe");
+  assert.equal(selection.selectedPath, undefined);
+  assert.equal(selection.source, undefined);
 });
 
 const missingTargetDependencies: DependencySnapshot = {

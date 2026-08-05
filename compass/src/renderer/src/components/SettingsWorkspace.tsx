@@ -75,7 +75,7 @@ import himsaLogo from "../assets/dependency-himsa.png";
 import signiaLogo from "../assets/hearing-aid-signia.svg";
 import widexLogo from "../assets/hearing-aid-widex.svg";
 import phonakTargetAppIcon from "../assets/phonak-target-app.png";
-import { localeFor, translate, type TranslationKey, useI18n } from "../i18n";
+import { translate, type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
 import { type ThemePreference, useThemePreference } from "../theme";
 import { CopyButton } from "./CopyButton";
@@ -923,6 +923,11 @@ function ModelsSettings(): React.JSX.Element {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const configuredProviders = useMemo(
+    () => providers.filter((provider) => provider.configured),
+    [providers],
+  );
+
   const enabled = useMemo(
     () => new Set(settings?.enabledModels ?? []),
     [settings?.enabledModels],
@@ -1030,8 +1035,26 @@ function ModelsSettings(): React.JSX.Element {
             </div>
             <div className="settings-models-card-row-copy">
               <strong>{t("settings.providersKeys")}</strong>
-              <span>{t("settings.connectedCount", { count: providers.filter((provider) => provider.configured).length })}</span>
+              <span>{t("settings.connectedCount", { count: configuredProviders.length })}</span>
             </div>
+            {configuredProviders.length > 0 && (
+              <div className="settings-provider-icon-stack" aria-label={t("settings.connectedProvidersList")}>
+                {configuredProviders.slice(0, configuredProviders.length > 6 ? 5 : 6).map((provider) => (
+                  <span
+                    key={provider.id}
+                    className="settings-provider-chip-icon"
+                    title={provider.name}
+                  >
+                    <ProviderBrandIcon provider={provider.id} size={12} />
+                  </span>
+                ))}
+                {configuredProviders.length > 6 && (
+                  <span className="settings-provider-chip-more" title={`+${configuredProviders.length - 5}`}>
+                    +{configuredProviders.length - 5}
+                  </span>
+                )}
+              </div>
+            )}
             {providersOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
           {providersOpen && (
@@ -1517,6 +1540,80 @@ function DependencyProgress({
   );
 }
 
+function TargetExecutableSelector({ item }: { item: DependencyResource }): React.JSX.Element | null {
+  const { t } = useI18n();
+  const selectDependencyExecutable = useCompass((state) => state.selectDependencyExecutable);
+  const resetDependencyExecutable = useCompass((state) => state.resetDependencyExecutable);
+  const selection = item.executableSelection;
+  if (!selection) return null;
+
+  const selectedCandidate = selection.selectedPath
+    ? selection.candidates.find((candidate) =>
+        candidate.path === selection.selectedPath,
+      )
+    : undefined;
+  const configuredUnavailable = Boolean(selection.configuredPath && !selection.selectedPath);
+  const description = configuredUnavailable
+    ? t("settings.dependency.targetSelectionUnavailable")
+    : selection.multipleDetected
+      ? t("settings.dependency.targetMultipleDetected", { count: selection.candidates.length })
+      : selection.selectedPath
+        ? t("settings.dependency.targetSingleDetected")
+        : t("settings.dependency.targetNotDetected");
+
+  return (
+    <div className={`settings-target-selector${configuredUnavailable ? " unavailable" : ""}`}>
+      <div className="settings-target-selector-head">
+        <div>
+          <strong>{t("settings.dependency.targetExecutableLabel")}</strong>
+          <span>{description}</span>
+        </div>
+        {selection.source && (
+          <small>{t(selection.source === "user"
+            ? "settings.dependency.targetManual"
+            : "settings.dependency.targetAutomatic")}</small>
+        )}
+      </div>
+      {selection.selectedPath && (
+        <div className="settings-target-selector-path" title={selection.selectedPath}>
+          {selectedCandidate?.version && <span>Target {selectedCandidate.version}</span>}
+          <code>{selection.selectedPath}</code>
+        </div>
+      )}
+      {selection.candidates.length > 1 && (
+        <select
+          className="settings-target-selector-candidates"
+          aria-label={t("settings.dependency.targetDetectedVersions")}
+          value={selection.selectedPath ?? ""}
+          onChange={(event) => void selectDependencyExecutable(item.id, event.target.value)}
+        >
+          {!selection.selectedPath && <option value="" disabled>{t("common.notSelected")}</option>}
+          {selection.candidates.map((candidate) => {
+            const directoryName = candidate.path.split(/[\\/]/).at(-2) ?? "Target.exe";
+            const label = candidate.version
+              ? `Target ${candidate.version} — ${directoryName}`
+              : directoryName;
+            return <option value={candidate.path} key={candidate.path}>{label}</option>;
+          })}
+        </select>
+      )}
+      <div className="settings-target-selector-actions">
+        <button type="button" onClick={() => void selectDependencyExecutable(item.id)}>
+          <FolderOpen size={12} strokeWidth={1.65} aria-hidden="true" />
+          {t(selection.selectedPath
+            ? "settings.dependency.targetChangeExecutable"
+            : "settings.dependency.targetChooseExecutable")}
+        </button>
+        {selection.configuredPath && (
+          <button type="button" className="muted" onClick={() => void resetDependencyExecutable(item.id)}>
+            {t("settings.dependency.targetResetExecutable")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DependencyCard({
   item,
   progress,
@@ -1574,6 +1671,7 @@ function DependencyCard({
               ? <span>{t("settings.dependency.recommended", { version: item.recommendedVersion })}</span>
               : null}
         </div>
+        {item.id === "phonak-target" && <TargetExecutableSelector item={item} />}
         {progress && <DependencyProgress progress={progress} />}
         {confirming ? (
           <div className="settings-dependency-confirm">
@@ -1625,7 +1723,7 @@ function DependencyCard({
 }
 
 function DependenciesSettings(): React.JSX.Element {
-  const { language, t } = useI18n();
+  const { t } = useI18n();
   const dependencies = useCompass((state) => state.dependencies);
   const refreshDependencies = useCompass((state) => state.refreshDependencies);
   const installDependency = useCompass((state) => state.installDependency);
@@ -1633,10 +1731,6 @@ function DependenciesSettings(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [confirmingId, setConfirmingId] = useState<DependencyId | null>(null);
   const items = dependencies.items;
-  const readyCount = items.filter((item) => item.availability === "installed").length;
-  const requiredItems = items.filter((item) => item.required);
-  const requiredReady = requiredItems.length > 0
-    && requiredItems.every((item) => item.availability === "installed");
   const installs = new Map(dependencies.installs.map((progress) => [progress.dependencyId, progress]));
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -1670,29 +1764,6 @@ function DependenciesSettings(): React.JSX.Element {
           <p>{t("settings.dependenciesDescription")}</p>
         </div>
       </header>
-
-      <section
-        className={`settings-dependencies-summary${requiredReady ? " ready" : " missing"}`}
-        aria-live="polite"
-      >
-        <div className="settings-dependencies-summary-icon">
-          {requiredReady
-            ? <CircleCheck size={17} strokeWidth={1.7} aria-hidden="true" />
-            : <CircleAlert size={17} strokeWidth={1.7} aria-hidden="true" />}
-        </div>
-        <div>
-          <strong>{t(requiredReady ? "settings.dependenciesRequiredReady" : "settings.dependenciesRequiredMissing")}</strong>
-          <span>{t("settings.dependenciesReady", { ready: readyCount, total: items.length })}</span>
-        </div>
-        <small>
-          {dependencies.checkedAt > 0
-            ? t("settings.dependenciesChecked", {
-                time: new Intl.DateTimeFormat(localeFor(language), { hour: "2-digit", minute: "2-digit" })
-                  .format(dependencies.checkedAt),
-              })
-            : t("common.loading")}
-        </small>
-      </section>
 
       {items.length === 0 ? (
         <div className="settings-dependencies-empty">

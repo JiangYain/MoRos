@@ -45,6 +45,10 @@ const api: CompassApi = {
   cancelDependencyInstall: (dependencyId) => ipcRenderer.invoke("dependencies:cancel", dependencyId),
   openDependencySource: (dependencyId) =>
     ipcRenderer.invoke("dependencies:open-source", dependencyId),
+  selectDependencyExecutable: (dependencyId, path) =>
+    ipcRenderer.invoke("dependencies:select-executable", dependencyId, path),
+  resetDependencyExecutable: (dependencyId) =>
+    ipcRenderer.invoke("dependencies:reset-executable", dependencyId),
   setSkillEnabled: (name, enabled) => ipcRenderer.invoke("skills:set-enabled", name, enabled),
   addSkillDir: () => ipcRenderer.invoke("skills:add-dir"),
   removeSkillDir: (dir) => ipcRenderer.invoke("skills:remove-dir", dir),

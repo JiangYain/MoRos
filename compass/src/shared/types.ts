@@ -287,6 +287,20 @@ export type DependencyCategory = "runtime" | "fitting-software" | "driver";
 export type DependencyAvailability = "installed" | "missing" | "unsupported";
 export type DependencyInstallKind = "winget" | "archive" | "executable";
 
+export interface DependencyExecutableCandidate {
+  path: string;
+  version?: string;
+  fileVersion?: string;
+}
+
+export interface DependencyExecutableSelection {
+  candidates: DependencyExecutableCandidate[];
+  configuredPath?: string;
+  selectedPath?: string;
+  source?: "automatic" | "user";
+  multipleDetected: boolean;
+}
+
 export interface DependencyResource {
   id: DependencyId;
   category: DependencyCategory;
@@ -298,6 +312,7 @@ export interface DependencyResource {
   recommendedVersion?: string;
   installedVersion?: string;
   installedPath?: string;
+  executableSelection?: DependencyExecutableSelection;
   sourceUrl: string;
   documentationUrl: string;
 }
@@ -398,6 +413,11 @@ export interface CompassApi {
   ): Promise<{ ok: boolean; error?: string }>;
   cancelDependencyInstall(dependencyId: DependencyId): Promise<{ ok: boolean; error?: string }>;
   openDependencySource(dependencyId: DependencyId): Promise<void>;
+  selectDependencyExecutable(
+    dependencyId: DependencyId,
+    path?: string,
+  ): Promise<DependencySnapshot | null>;
+  resetDependencyExecutable(dependencyId: DependencyId): Promise<DependencySnapshot>;
   setSkillEnabled(name: string, enabled: boolean): Promise<InitPayload>;
   addSkillDir(): Promise<InitPayload | null>;
   removeSkillDir(dir: string): Promise<InitPayload>;

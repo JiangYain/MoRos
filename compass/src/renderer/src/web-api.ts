@@ -244,6 +244,10 @@ export function createWebApi(): CompassApi {
       rpc("cancelDependencyInstall", [dependencyId]),
     openDependencySource: (dependencyId) =>
       rpc<void>("openDependencySource", [dependencyId]),
+    selectDependencyExecutable: (dependencyId, path) =>
+      rpc("selectDependencyExecutable", [dependencyId, path]),
+    resetDependencyExecutable: (dependencyId) =>
+      rpc("resetDependencyExecutable", [dependencyId]),
     setSkillEnabled: (name, enabled) =>
       rpc<InitPayload>("setSkillEnabled", [name, enabled]),
     addSkillDir: () => rpc<InitPayload | null>("addSkillDir"),

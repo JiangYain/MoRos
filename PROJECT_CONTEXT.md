@@ -273,14 +273,14 @@ sequenceDiagram
 
 | 模块 / symbol | 输入 → 输出 | 持久化或副作用 | 容易出错的边界 |
 | --- | --- | --- | --- |
-| [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、真实模型请求 | 恢复旧会话时沿用会话模型；自动标题另发请求；切换工作区会创建新会话 |
+| [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、依赖可执行文件环境变量、真实模型请求 | 恢复旧会话时沿用会话模型；自动标题另发请求；切换工作区会创建新会话 |
 | [`SessionManager.create/open`](compass/src/main/agent.ts) | workspace 或 session path → 活动 Pi session | JSONL append、rename/archive/delete | 客户归属使用 session ID；`openSession` 当前不像 rename/archive/delete 那样先验证 path 属于已列出会话 |
 | [`projectThread`](compass/src/main/thread-projector.ts) | Pi messages/tool results → `UiThreadItem[]` | 无独立存储 | UI thread 是投影，不是第二份会话数据库 |
 | [`generateMissingSessionTitle`](compass/src/main/agent.ts) | 已完成线程 + summary model → session name | 写 Pi session info；网络/费用 | best-effort；失败不会阻断对话，不应假设每个会话都有标题 |
 | [`normalizeImages`](compass/src/main/image-attachments.ts) | UI base64 图片 → Pi attachment | 请求体/内存、模型请求与 Pi session 内容 | 最多 8 张、单张 10 MiB、解码后总计 24 MiB；Web 的 26 MB JSON 上限会被 base64 膨胀提前触发 |
 | [`startWindowsDictation`](compass/src/main/compass-api.ts) / [`focusWindowForDictation`](compass/src/main/dictation-window.ts) | 桌面请求 → Windows dictation | 聚焦窗口、触发系统输入 | 桌面专属；Web 使用浏览器 `SpeechRecognition`，不是同一实现 |
 | [`permissionExtension`](compass/src/main/agent.ts) / [`evaluateToolApproval`](compass/src/main/permission-policy.ts) | Pi `tool_call` → allow/block/审批事件 | 可触发文件、shell、网络或外部工具 | 只是工具名、少量参数字段与正则策略，不是 OS 沙箱 |
-| [`DependencyManager`](compass/src/main/dependency-manager.ts) | inventory、catalog、用户安装动作 → snapshot/progress | 下载、解压、启动安装器、写 userData | 真实系统变更；Windows 专属项；取消不保证撤销已启动的外部安装器 |
+| [`DependencyManager`](compass/src/main/dependency-manager.ts) | inventory、catalog、用户安装/可执行文件选择 → snapshot/progress | 下载、解压、启动安装器、写 userData/Compass settings | 真实系统变更；Windows 专属项；并行 Target 安装必须保持选择与 Skill 环境一致；取消不保证撤销已启动的外部安装器 |
 | [`getRuntimePrerequisites`](compass/src/main/prerequisites.ts) | workspace/平台 → Git Bash 前置状态 | 检测进程；操作动作可启动 winget/网页 | 检测与安装是两步；Web 页面仍依赖桌面主进程执行 |
 | [`ModelRuntime`](compass/vendor/pi/packages/coding-agent/src/core/model-runtime.ts) + [`AuthLoginController`](compass/src/main/auth-login-controller.ts) | Provider、key/OAuth → models/auth status | Pi auth 文件、浏览器登录、网络 | 已存凭据会“拥有”该 Provider；失败时不会静默退回环境变量 |
 | [`loadSettings` / `saveSettings`](compass/src/main/settings.ts) | JSON ↔ `AppSettings` | 覆写 `compass-settings.json` | 不存在的 workspace 回退默认；不存在的额外 Skill 目录会被过滤 |
@@ -622,13 +622,15 @@ Compass UI 的 `setApiKey` 和 OAuth login 最终写入 Pi credential store（�
 
 [`DependencyManager`](compass/src/main/dependency-manager.ts) 数据流：
 
-1. `snapshot()` 并行查找 Git/Bash 命令、读取 Windows uninstall inventory，并检查 Noahlink PnP device；结果缓存 10 秒。
+1. `snapshot()` 并行查找 Git/Bash 命令、读取 Windows uninstall inventory、递归枚举 Phonak `Target.exe`，并检查 Noahlink PnP device；结果缓存 10 秒。
 2. Settings Dependencies 通过 `refreshDependencies` 请求强制刷新。
 3. `startInstall` 为一个 dependency 建立 `AbortController`，发出 queued/downloading/extracting/installing/launching/awaiting-user/completed/failed/cancelled 进度。
 4. 下载只允许 HTTPS，最多 8 次 redirect；archive 解压前检查 traversal，再选择 `.exe/.msi` installer。
 5. winget 项调用系统 winget；archive/executable 项从 userData dependency 目录启动安装器，最终安装仍可能等待用户 UI。
 6. `cancelInstall` 中止当前下载/子进程等待；已由外部安装器完成的变更不会自动回滚。
 7. 主进程把进度转为 `dependency-install-progress`，store 和 Settings/Thread 更新 UI。
+
+Phonak Target 可以并行安装多个版本。Dependencies 卡片展示候选并允许用户手动选择 `Target.exe`；选择保存在 `compass-settings.json` 的 `dependencyExecutablePaths`，由 `AgentService` 注入 `COMPASS_PHONAK_TARGET_PATH`。Pi bash 每次执行都读取当前 `process.env`，因此 Skill 无需改写脚本文件即可取得最新选择。`open-target.ps1` 的优先级为显式参数、Compass 环境设置、按文件版本排序的自动发现，并在一次调用中始终用同一路径匹配进程、启动和等待窗口。
 
 下载流程没有固定 SHA-256、代码签名或 publisher 校验；installer 又由文件名/token 启发式选择。HTTPS 和 zip traversal 防护不能替代发布物完整性验证。重新安装会清理该 dependency 自己的 userData item 目录，但完成/失败/取消后的 artifact 可能保留。
 

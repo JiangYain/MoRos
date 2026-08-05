@@ -30,26 +30,31 @@ const BACKEND_COPY: Record<AppLanguage, {
   voiceExitFailed: string;
   chooseSkillDirectory: string;
   chooseWorkspace: string;
+  chooseTargetExecutable: string;
 }> = {
   "zh-CN": {
     voiceWindowsOnly: "语音输入目前仅支持 Windows。", mainWindowUnavailable: "Compass 主窗口不可用。",
     voiceStartFailed: "无法启动 Windows 语音输入：{error}", voiceExitFailed: "Windows 语音输入启动失败（退出码 {code}）。",
     chooseSkillDirectory: "选择技能目录", chooseWorkspace: "选择工作目录",
+    chooseTargetExecutable: "选择要由 Compass 使用的 Target.exe",
   },
   "zh-TW": {
     voiceWindowsOnly: "語音輸入目前僅支援 Windows。", mainWindowUnavailable: "Compass 主視窗無法使用。",
     voiceStartFailed: "無法啟動 Windows 語音輸入：{error}", voiceExitFailed: "Windows 語音輸入啟動失敗（結束代碼 {code}）。",
     chooseSkillDirectory: "選擇技能目錄", chooseWorkspace: "選擇工作目錄",
+    chooseTargetExecutable: "選擇要由 Compass 使用的 Target.exe",
   },
   en: {
     voiceWindowsOnly: "Voice input is currently available only on Windows.", mainWindowUnavailable: "The Compass window is unavailable.",
     voiceStartFailed: "Could not start Windows voice input: {error}", voiceExitFailed: "Windows voice input failed to start (exit code {code}).",
     chooseSkillDirectory: "Choose skill directory", chooseWorkspace: "Choose working directory",
+    chooseTargetExecutable: "Choose the Target.exe Compass should use",
   },
   de: {
     voiceWindowsOnly: "Die Spracheingabe ist derzeit nur unter Windows verfügbar.", mainWindowUnavailable: "Das Compass-Fenster ist nicht verfügbar.",
     voiceStartFailed: "Windows-Spracheingabe konnte nicht gestartet werden: {error}", voiceExitFailed: "Windows-Spracheingabe konnte nicht gestartet werden (Exitcode {code}).",
     chooseSkillDirectory: "Skill-Verzeichnis auswählen", chooseWorkspace: "Arbeitsverzeichnis auswählen",
+    chooseTargetExecutable: "Target.exe für Compass auswählen",
   },
 };
 
@@ -134,6 +139,21 @@ async function chooseDirectory(
   title: string,
 ): Promise<string | undefined> {
   const options: OpenDialogOptions = { title, properties: ["openDirectory"] };
+  const result = ownerWindow
+    ? await dialog.showOpenDialog(ownerWindow, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? undefined : result.filePaths[0];
+}
+
+async function chooseExecutable(
+  ownerWindow: BrowserWindow | undefined,
+  title: string,
+): Promise<string | undefined> {
+  const options: OpenDialogOptions = {
+    title,
+    properties: ["openFile"],
+    filters: [{ name: "Target.exe", extensions: ["exe"] }],
+  };
   const result = ownerWindow
     ? await dialog.showOpenDialog(ownerWindow, options)
     : await dialog.showOpenDialog(options);
@@ -231,6 +251,24 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     cancelDependencyInstall: async (dependencyId) =>
       dependencyManager.cancelInstall(dependencyId),
     openDependencySource: async (dependencyId) => dependencyManager.openSource(dependencyId),
+    selectDependencyExecutable: async (dependencyId, requestedPath) => {
+      const language = service.getSettingsView().language;
+      const path = requestedPath ?? await chooseExecutable(
+          getWindow(),
+          backendMessage(language, "chooseTargetExecutable"),
+        );
+      if (!path) return null;
+      await dependencyManager.setExecutable(dependencyId, path);
+      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), true);
+      emitEvent({ kind: "dependencies-changed", dependencies });
+      return dependencies;
+    },
+    resetDependencyExecutable: async (dependencyId) => {
+      await dependencyManager.setExecutable(dependencyId, undefined);
+      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), true);
+      emitEvent({ kind: "dependencies-changed", dependencies });
+      return dependencies;
+    },
     setSkillEnabled: async (name, enabled) => {
       await service.setSkillEnabled(name, enabled);
       return buildAndPublish();

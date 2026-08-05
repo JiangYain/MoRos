@@ -1,4 +1,5 @@
-import type { UiThreadItem } from "../../../shared/types.ts";
+import type { AppLanguage, UiThreadItem } from "../../../shared/types.ts";
+import type { TranslationKey } from "../i18n.ts";
 
 export type ActivityToolItem = Extract<UiThreadItem, { kind: "tool" }>;
 export type ToolActivity = "command" | "read" | "write" | "edit" | "search";
@@ -29,12 +30,25 @@ export interface ToolExplorationGroupItem {
   groups: ToolActivityGroupItem[];
 }
 
+export type SummaryTimelineEntry =
+  | { kind: "thinking"; id: string; text: string }
+  | { kind: "exploration"; id: string; group: ToolExplorationGroupItem };
+
+export interface ExecutionSummaryItem {
+  kind: "execution-summary";
+  id: string;
+  thoughtCount: number;
+  exploredFilesCount: number;
+  commandsCount: number;
+  timelineEntries: SummaryTimelineEntry[];
+}
+
 export interface AssistantIdentityItem {
   kind: "assistant-identity";
   id: string;
 }
 
-export type GroupedThreadItem = UiThreadItem | ToolExplorationGroupItem;
+export type GroupedThreadItem = UiThreadItem | ToolExplorationGroupItem | ExecutionSummaryItem;
 export type RenderThreadItem = GroupedThreadItem | AssistantIdentityItem;
 
 const REDUNDANT_COMPLETION_OPENER = /^\s*Done\s*[—–-]\s*both actions were completed\.\s*/i;
@@ -70,6 +84,34 @@ export function toolActivity(item: UiThreadItem): ToolActivity | undefined {
   return (Object.entries(TOOL_ACTIVITY_NAMES) as Array<[ToolActivity, ReadonlySet<string>]>).find(
     ([, names]) => names.has(name),
   )?.[0];
+}
+
+export function buildSummaryText(
+  t: (key: TranslationKey, values?: Record<string, string | number>) => string,
+  language: AppLanguage,
+  item: { thoughtCount: number; exploredFilesCount: number; commandsCount: number },
+): string {
+  const parts: string[] = [];
+
+  if (item.thoughtCount > 0) {
+    const key: TranslationKey =
+      item.thoughtCount === 1 ? "thread.summary.thought" : "thread.summary.thoughtPlural";
+    parts.push(t(key, { count: item.thoughtCount }));
+  }
+
+  if (item.exploredFilesCount > 0) {
+    const key: TranslationKey =
+      item.exploredFilesCount === 1 ? "thread.summary.explored" : "thread.summary.exploredPlural";
+    parts.push(t(key, { count: item.exploredFilesCount }));
+  }
+
+  if (item.commandsCount > 0) {
+    const key: TranslationKey =
+      item.commandsCount === 1 ? "thread.summary.commands" : "thread.summary.commandsPlural";
+    parts.push(t(key, { count: item.commandsCount }));
+  }
+
+  return parts.join(" · ");
 }
 
 export function summarizeToolActivity(item: ActivityToolItem): string {
@@ -153,6 +195,162 @@ export function groupToolActivities(items: UiThreadItem[]): GroupedThreadItem[] 
 }
 
 /**
+ * Once the current agent lifecycle is complete, merge all thinking blocks and
+ * tool exploration groups belonging to that turn into one ExecutionSummaryItem.
+ * Per-item streaming/running flags remain as a fallback for restored history.
+ */
+export function summarizeExecutionTurns(
+  items: GroupedThreadItem[],
+  currentAgentActive = false,
+): GroupedThreadItem[] {
+  const result: GroupedThreadItem[] = [];
+  let currentTurnItems: GroupedThreadItem[] = [];
+
+  const processTurn = (turnItems: GroupedThreadItem[], deferSummary = false): void => {
+    if (turnItems.length === 0) return;
+
+    // The lifecycle flag bridges the quiet hand-off gaps between assistant and
+    // tool events. Item flags still guard partially restored active history.
+    const isStreaming = deferSummary || turnItems.some((item) => {
+      if (item.kind === "assistant" && item.streaming) return true;
+      if (item.kind === "tool" && item.running) return true;
+      if (item.kind === "tool-exploration-group") {
+        return item.groups.some((group) => group.items.some((tool) => tool.running));
+      }
+      return false;
+    });
+
+    if (isStreaming) {
+      result.push(...turnItems);
+      return;
+    }
+
+    // Settled turn: collect process entries in their original timeline order.
+    // Valid body text and tool entries break consecutive thinking runs.
+    const timelineEntries: SummaryTimelineEntry[] = [];
+    let canMergeThinking = false;
+
+    for (const item of turnItems) {
+      if (item.kind === "tool-exploration-group") {
+        timelineEntries.push({
+          kind: "exploration",
+          id: item.id,
+          group: item,
+        });
+        canMergeThinking = false;
+      } else if (item.kind === "assistant" && Array.isArray(item.blocks)) {
+        for (const [blockIndex, block] of item.blocks.entries()) {
+          if (block.type === "thinking" && block.text.trim()) {
+            const previous = timelineEntries[timelineEntries.length - 1];
+            if (canMergeThinking && previous?.kind === "thinking") {
+              previous.text = `${previous.text.trimEnd()}\n\n${block.text.trimStart()}`;
+            } else {
+              timelineEntries.push({
+                kind: "thinking",
+                id: `summary-thinking-${item.id}-${blockIndex}`,
+                text: block.text,
+              });
+            }
+            canMergeThinking = true;
+          } else if (block.type !== "thinking" && block.text.trim()) {
+            canMergeThinking = false;
+          }
+        }
+      } else if (item.kind !== "assistant") {
+        canMergeThinking = false;
+      }
+    }
+
+    if (timelineEntries.length === 0) {
+      result.push(...turnItems);
+      return;
+    }
+
+    let commandsCount = 0;
+    let exploredFilesCount = 0;
+
+    for (const entry of timelineEntries) {
+      if (entry.kind !== "exploration") continue;
+      const exploration = entry.group;
+      for (const group of exploration.groups) {
+        if (group.activity === "command") {
+          commandsCount += group.items.length;
+        } else {
+          exploredFilesCount += group.items.length;
+        }
+      }
+    }
+
+    const firstAssistant = turnItems.find(
+      (item): item is Extract<UiThreadItem, { kind: "assistant" }> => item.kind === "assistant",
+    );
+    const firstExploration = timelineEntries.find((entry) => entry.kind === "exploration");
+    const summaryId = `execution-summary-${firstAssistant?.id ?? firstExploration?.id ?? "turn"}`;
+
+    const summaryItem: ExecutionSummaryItem = {
+      kind: "execution-summary",
+      id: summaryId,
+      thoughtCount: timelineEntries.filter((entry) => entry.kind === "thinking").length,
+      exploredFilesCount,
+      commandsCount,
+      timelineEntries,
+    };
+
+    let summaryPlaced = false;
+    for (const item of turnItems) {
+      if (item.kind === "tool-exploration-group") {
+        if (!summaryPlaced) {
+          result.push(summaryItem);
+          summaryPlaced = true;
+        }
+        continue;
+      }
+
+      if (item.kind === "assistant") {
+        const hasThinking = item.blocks.some(
+          (block) => block.type === "thinking" && block.text.trim(),
+        );
+        if (hasThinking && !summaryPlaced) {
+          result.push(summaryItem);
+          summaryPlaced = true;
+        }
+        const nonThinkingBlocks = item.blocks.filter(
+          (block) => block.type !== "thinking" && block.text.trim(),
+        );
+        if (nonThinkingBlocks.length > 0) {
+          result.push({
+            ...item,
+            blocks: nonThinkingBlocks,
+          });
+        }
+        continue;
+      }
+
+      result.push(item);
+    }
+
+    if (!summaryPlaced) {
+      result.push(summaryItem);
+    }
+  };
+
+  for (const item of items) {
+    if (item.kind === "user") {
+      processTurn(currentTurnItems);
+      currentTurnItems = [];
+      result.push(item);
+      continue;
+    }
+    currentTurnItems.push(item);
+  }
+
+  // Only the final turn can belong to the currently running agent. Earlier
+  // completed turns stay summarized while a new response is in progress.
+  processTurn(currentTurnItems, currentAgentActive);
+  return result;
+}
+
+/**
  * Render one Compass identity marker at the start of every assistant turn.
  * Historical sessions can place a tool-only assistant message before the
  * final text message, so the marker cannot live inside the text item itself.
@@ -168,7 +366,11 @@ export function placeAssistantIdentities(items: GroupedThreadItem[]): RenderThre
       continue;
     }
 
-    const startsAssistantTurn = item.kind === "assistant" || item.kind === "tool-exploration-group" || item.kind === "tool";
+    const startsAssistantTurn =
+      item.kind === "assistant" ||
+      item.kind === "tool-exploration-group" ||
+      item.kind === "tool" ||
+      item.kind === "execution-summary";
     if (!placedForTurn && startsAssistantTurn) {
       rendered.push({ kind: "assistant-identity", id: `assistant-identity-${item.id}` });
       placedForTurn = true;

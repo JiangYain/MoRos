@@ -27,12 +27,15 @@ import {
 import { CopyButton } from "./CopyButton";
 import { Markdown } from "./Markdown";
 import {
+  buildSummaryText,
   groupToolActivities,
   placeAssistantIdentities,
   shouldShowToolActivityOutput,
   stripRedundantCompletionOpener,
+  summarizeExecutionTurns,
   summarizeToolActivity,
   TOOL_ACTIVITY_COPY,
+  type ExecutionSummaryItem,
   type ToolActivity,
   type ToolActivityGroupItem,
   type ToolExplorationGroupItem,
@@ -125,14 +128,14 @@ function ThinkingBlock({
         aria-expanded={open}
         onClick={() => setManual(!open)}
       >
+        {orbState && <AgentActivityOrb state={orbState} decorative className="thinking-activity-orb" />}
+        <span className="thinking-title-cn">{t("thread.thinking")}</span>
         <ChevronRight
           className={`thinking-chevron${open ? " open" : ""}`}
-          size={13}
-          strokeWidth={2}
+          size={14}
+          strokeWidth={1.65}
           aria-hidden
         />
-        <span className="thinking-title-cn">{t("thread.thinking")}</span>
-        {orbState && <AgentActivityOrb state={orbState} decorative className="thinking-activity-orb" />}
       </button>
       <AnimatePresence initial={false}>
         {open && (
@@ -141,9 +144,11 @@ function ThinkingBlock({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="thinking-content-text">{text}</div>
+            <div className="thinking-content-text">
+              <Markdown text={text} />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -307,6 +312,56 @@ const TOOL_LABELS: Record<string, string> = {
   ls: "List",
 };
 
+/* ---------------- execution summary card */
+
+function ExecutionSummaryCard({
+  item,
+}: {
+  item: ExecutionSummaryItem;
+}): React.JSX.Element {
+  const { t, language } = useI18n();
+  const [open, setOpen] = useState(false);
+  const summaryText = buildSummaryText(t, language, item);
+
+  return (
+    <div className="execution-summary-container">
+      <button
+        type="button"
+        className="execution-summary-bar"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="summary-text">{summaryText}</span>
+        <ChevronRight
+          className={`summary-chevron${open ? " open" : ""}`}
+          size={14}
+          strokeWidth={1.65}
+          aria-hidden
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            className="execution-summary-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="execution-summary-body-inner">
+              {item.timelineEntries.map((entry) => (
+                entry.kind === "thinking"
+                  ? <ThinkingBlock key={entry.id} text={entry.text} live={false} />
+                  : <ToolExplorationGroup key={entry.id} exploration={entry.group} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function ToolCard({
   item,
   activity,
@@ -341,13 +396,16 @@ function StandardToolCard({
       {...entrance}
     >
       <button type="button" className="tool-head" aria-expanded={open} onClick={() => setManual(!open)}>
-        {active ? (
-          <AgentActivityOrb state={active.state} decorative className="tool-card-activity-orb" />
-        ) : (
-          <span
-            className={`tool-dot${item.running ? " running" : ""}${item.isError ? " failed" : ""}`}
-          />
-        )}
+        <AgentActivityOrb
+          state={active?.state}
+          decorative
+          className="tool-card-activity-orb"
+          fallback={
+            <span
+              className={`tool-dot${item.running ? " running" : ""}${item.isError ? " failed" : ""}`}
+            />
+          }
+        />
         <span className="tool-name">{label}</span>
         <span className="tool-summary">{summary}</span>
         <span className={`tool-status${item.isError ? " error" : ""}`}>
@@ -851,6 +909,7 @@ function SessionDependencyCard({
 export function Thread(): React.JSX.Element {
   const { t } = useI18n();
   const thread = useCompass((s) => s.thread) ?? [];
+  const agentStreaming = useCompass((s) => s.streaming);
   const approvals = useCompass((s) => s.approvals) ?? [];
   const sessionId = useCompass((s) => s.stats?.sessionId);
   const clientRegistry = useCompass((s) => s.clientRegistry);
@@ -873,7 +932,12 @@ export function Thread(): React.JSX.Element {
     ? targetInstall
     : undefined;
   const activity = useMemo(() => resolveThreadActivity(thread), [thread]);
-  const renderItems = useMemo(() => placeAssistantIdentities(groupToolActivities(thread)), [thread]);
+  const renderItems = useMemo(
+    () => placeAssistantIdentities(
+      summarizeExecutionTurns(groupToolActivities(thread), agentStreaming),
+    ),
+    [agentStreaming, thread],
+  );
   const promptEntries = useMemo(() => buildPromptRailEntries(thread), [thread]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -921,6 +985,8 @@ export function Thread(): React.JSX.Element {
                 return <AssistantMessage key={item.id} item={item} activity={activity} />;
               case "assistant-identity":
                 return <AssistantIdentity key={item.id} />;
+              case "execution-summary":
+                return <ExecutionSummaryCard key={item.id} item={item} />;
               case "tool":
                 return <ToolCard key={item.id} item={item} activity={activity} />;
               case "tool-exploration-group":

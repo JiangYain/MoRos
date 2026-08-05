@@ -156,6 +156,12 @@ function registerIpc(api: CompassBackendApi): void {
   ipcMain.handle("dependencies:open-source", (_event, dependencyId: DependencyId) =>
     api.openDependencySource(dependencyId),
   );
+  ipcMain.handle("dependencies:select-executable", (_event, dependencyId: DependencyId, path?: string) =>
+    api.selectDependencyExecutable(dependencyId, path),
+  );
+  ipcMain.handle("dependencies:reset-executable", (_event, dependencyId: DependencyId) =>
+    api.resetDependencyExecutable(dependencyId),
+  );
   ipcMain.handle(
     "agent:prompt",
     (_event, text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
@@ -244,6 +250,8 @@ async function startApplication(): Promise<void> {
     openPath: (path) => shell.openPath(path),
     openExternal: (url) => shell.openExternal(url),
     onProgress: (progress) => emitAgentEvent({ kind: "dependency-install-progress", progress }),
+    getExecutablePath: (dependencyId) => agent?.getDependencyExecutablePath(dependencyId),
+    setExecutablePath: (dependencyId, path) => agent?.setDependencyExecutablePath(dependencyId, path),
   });
   const backendApi = createCompassBackendApi({
     service: agent,

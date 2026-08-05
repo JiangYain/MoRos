@@ -738,6 +738,13 @@ try {
 
   await app.evaluate(({ BrowserWindow }) => {
     const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    contents?.send("agent:event", { kind: "agent-start" });
+    contents?.send("agent:event", {
+      kind: "user-message",
+      id: "smoke-tool-exploration-turn",
+      text: "Inspect completed tool grouping",
+      ts: Date.now(),
+    });
     const tools = [
       { id: "smoke-bash", callId: "smoke-bash-call", name: "bash", args: { command: "npm run check" }, output: "hidden command output" },
       { id: "smoke-read", callId: "smoke-read-call", name: "read", args: { path: "C:/workspace/notes.md" }, output: "# Smoke read content\n\nLine two is visible." },
@@ -824,6 +831,10 @@ try {
     throw new Error("Successful tool output is not compacted inside the exploration group");
   }
   await shot("12c-tool-exploration");
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", { kind: "agent-end" });
+  });
+  await exploration.waitFor({ state: "detached" });
 
   const activityCanvasSelector = "canvas.agent-activity-orb-canvas[data-agent-activity-state]";
   const assertActivityOrb = async (state, scope, statusText) => {
@@ -1122,10 +1133,21 @@ try {
   }, longSmokeAnswer);
   await assertNoActivityOrb();
   await setActivityTheme(previousTheme);
-  if ((await reasoningMessage.locator(".thinking-toggle-button").getAttribute("aria-expanded")) !== "true") {
-    throw new Error("Reasoning collapsed after the final response completed");
+  await reasoningMessage.waitFor({ state: "detached" });
+  const completedSummary = page.locator(".execution-summary-container").last();
+  const completedSummaryToggle = completedSummary.locator(":scope > .execution-summary-bar");
+  await completedSummaryToggle.waitFor();
+  if ((await completedSummaryToggle.getAttribute("aria-expanded")) !== "true") {
+    await completedSummaryToggle.click();
   }
-  if (!(await reasoningMessage.locator(".thinking-content-text").textContent())?.includes("Reasoning remains readable")) {
+  const completedThinkingToggle = completedSummary.locator(".thinking-toggle-button").first();
+  await completedThinkingToggle.waitFor();
+  if ((await completedThinkingToggle.getAttribute("aria-expanded")) !== "true") {
+    await completedThinkingToggle.click();
+  }
+  const completedThinking = completedSummary.locator(".thinking-content-text").first();
+  await completedThinking.waitFor();
+  if (!(await completedThinking.textContent())?.includes("Reasoning remains readable")) {
     throw new Error("Completed Thinking content is no longer readable");
   }
   const assistantCopyButton = finalMessage.getByRole("button", { name: "Copy response" });

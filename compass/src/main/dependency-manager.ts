@@ -1,4 +1,6 @@
 import type {
+  DependencyExecutableCandidate,
+  DependencyExecutableSelection,
   DependencyId,
   DependencyInstallProgress,
   DependencyResource,
@@ -37,6 +39,7 @@ export interface InstalledProgramRecord {
 
 interface WindowsInventory {
   programs: InstalledProgramRecord[];
+  targetExecutables: DependencyExecutableCandidate[];
   noahDevice?: {
     friendlyName?: string;
     status?: string;
@@ -55,6 +58,8 @@ interface DependencyManagerOptions {
   openPath: (path: string) => Promise<string>;
   openExternal: (url: string) => Promise<void>;
   onProgress: (progress: DependencyInstallProgress) => void;
+  getExecutablePath: (dependencyId: DependencyId) => string | undefined;
+  setExecutablePath: (dependencyId: DependencyId, path?: string) => void;
 }
 
 const CATALOG: readonly DependencyCatalogItem[] = [
@@ -185,7 +190,7 @@ function optionalString(value: unknown): string | undefined {
 
 export function parseWindowsInventory(serialized: string): WindowsInventory {
   const parsed = asRecord(JSON.parse(serialized));
-  if (!parsed) return { programs: [] };
+  if (!parsed) return { programs: [], targetExecutables: [] };
   const rawPrograms = Array.isArray(parsed.programs)
     ? parsed.programs
     : parsed.programs
@@ -202,9 +207,24 @@ export function parseWindowsInventory(serialized: string): WindowsInventory {
       displayIcon: optionalString(record.DisplayIcon ?? record.displayIcon),
     }];
   });
+  const rawTargetExecutables = Array.isArray(parsed.targetExecutables)
+    ? parsed.targetExecutables
+    : parsed.targetExecutables
+      ? [parsed.targetExecutables]
+      : [];
+  const targetExecutables = rawTargetExecutables.flatMap((candidate): DependencyExecutableCandidate[] => {
+    const record = asRecord(candidate);
+    const path = optionalString(record?.Path ?? record?.path);
+    if (!record || !path) return [];
+    return [{
+      path,
+      fileVersion: optionalString(record.FileVersion ?? record.fileVersion),
+    }];
+  });
   const rawDevice = asRecord(parsed.noahDevice);
   return {
     programs,
+    targetExecutables,
     ...(rawDevice
       ? {
           noahDevice: {
@@ -214,6 +234,54 @@ export function parseWindowsInventory(serialized: string): WindowsInventory {
           },
         }
       : {}),
+  };
+}
+
+function versionParts(value?: string): number[] {
+  return value?.match(/\d+/g)?.map(Number) ?? [];
+}
+
+function compareVersions(left?: string, right?: string): number {
+  const leftParts = versionParts(left);
+  const rightParts = versionParts(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function samePath(left: string, right: string): boolean {
+  return resolve(left).toLowerCase() === resolve(right).toLowerCase();
+}
+
+export function resolveDependencyExecutableSelection(
+  candidates: readonly DependencyExecutableCandidate[],
+  configuredPath?: string,
+): DependencyExecutableSelection {
+  const unique = new Map<string, DependencyExecutableCandidate>();
+  for (const candidate of candidates) {
+    const path = candidate.path.trim();
+    if (!path) continue;
+    const key = resolve(path).toLowerCase();
+    if (!unique.has(key)) unique.set(key, { ...candidate, path });
+  }
+  const sorted = [...unique.values()].sort((left, right) =>
+    compareVersions(right.version ?? right.fileVersion, left.version ?? left.fileVersion)
+      || left.path.localeCompare(right.path),
+  );
+  const configured = configuredPath?.trim();
+  const configuredCandidate = configured
+    ? sorted.find((candidate) => samePath(candidate.path, configured))
+    : undefined;
+  const selected = configured ? configuredCandidate : sorted[0];
+  return {
+    candidates: sorted,
+    ...(configured ? { configuredPath: configured } : {}),
+    ...(selected ? { selectedPath: selected.path } : {}),
+    ...(selected ? { source: configuredCandidate ? "user" as const : "automatic" as const } : {}),
+    multipleDetected: sorted.length > 1,
   };
 }
 
@@ -331,7 +399,7 @@ async function detectBash(
 }
 
 async function readWindowsInventory(): Promise<WindowsInventory> {
-  if (process.platform !== "win32") return { programs: [] };
+  if (process.platform !== "win32") return { programs: [], targetExecutables: [] };
   const script = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -346,7 +414,21 @@ $programs = Get-ItemProperty -Path $paths |
 $noahDevice = Get-PnpDevice -ErrorAction SilentlyContinue |
   Where-Object { $_.FriendlyName -match 'Noahlink\s+Wireless' } |
   Select-Object -First 1 FriendlyName, Status, InstanceId
-[ordered]@{ programs = @($programs); noahDevice = $noahDevice } |
+$targetRoot = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Phonak'
+$targetExecutables = if (Test-Path -LiteralPath $targetRoot -PathType Container) {
+  Get-ChildItem -LiteralPath $targetRoot -Filter 'Target.exe' -File -Recurse -Force |
+    ForEach-Object {
+      [pscustomobject]@{
+        Path = $_.FullName
+        FileVersion = $_.VersionInfo.FileVersion
+      }
+    }
+} else { @() }
+[ordered]@{
+  programs = @($programs)
+  noahDevice = $noahDevice
+  targetExecutables = @($targetExecutables)
+} |
   ConvertTo-Json -Depth 4 -Compress
 `;
   const result = await runProcess(
@@ -354,11 +436,11 @@ $noahDevice = Get-PnpDevice -ErrorAction SilentlyContinue |
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShell(script)],
     { timeoutMs: 20_000 },
   );
-  if (result.code !== 0 || !result.stdout.trim()) return { programs: [] };
+  if (result.code !== 0 || !result.stdout.trim()) return { programs: [], targetExecutables: [] };
   try {
     return parseWindowsInventory(result.stdout.trim());
   } catch {
-    return { programs: [] };
+    return { programs: [], targetExecutables: [] };
   }
 }
 
@@ -399,12 +481,55 @@ function unavailableResource(item: DependencyCatalogItem): DependencyResource {
   };
 }
 
-async function inspectResources(prerequisites: RuntimePrerequisites): Promise<DependencyResource[]> {
+function targetProgramVersion(program: InstalledProgramRecord): string | undefined {
+  const nameVersion = program.displayName.match(/phonak\s+target(?:\s+\[internal\])?\s+(\d+(?:\.\d+)+)/i)?.[1];
+  if (nameVersion) return nameVersion;
+  return program.displayVersion && program.displayVersion !== "1.000.00000"
+    ? program.displayVersion
+    : undefined;
+}
+
+function enrichTargetExecutableCandidates(
+  candidates: readonly DependencyExecutableCandidate[],
+  programs: readonly InstalledProgramRecord[],
+): DependencyExecutableCandidate[] {
+  const targetPrograms = programs.filter((program) => /phonak\s+target/i.test(program.displayName));
+  return candidates.map((candidate) => {
+    const executablePath = resolve(candidate.path).toLowerCase();
+    const program = targetPrograms.find((entry) => {
+      const location = programLocation(entry);
+      if (!location) return false;
+      const normalizedLocation = resolve(location).toLowerCase().replace(/[\\/]+$/, "");
+      return executablePath === normalizedLocation || executablePath.startsWith(`${normalizedLocation}${sep}`);
+    });
+    return {
+      ...candidate,
+      version: program ? targetProgramVersion(program) : undefined,
+    };
+  });
+}
+
+async function inspectResources(
+  prerequisites: RuntimePrerequisites,
+  configuredTargetPath?: string,
+): Promise<DependencyResource[]> {
   const [inventory, git, bash] = await Promise.all([
     readWindowsInventory(),
     detectGit(),
     detectBash(prerequisites),
   ]);
+  const configuredTargetCandidate = configuredTargetPath
+    && basename(configuredTargetPath).toLowerCase() === "target.exe"
+    && await fileExists(configuredTargetPath)
+    ? [{ path: resolve(configuredTargetPath) }]
+    : [];
+  const targetSelection = resolveDependencyExecutableSelection(
+    enrichTargetExecutableCandidates(
+      [...inventory.targetExecutables, ...configuredTargetCandidate],
+      inventory.programs,
+    ),
+    configuredTargetPath,
+  );
   return CATALOG.map((item) => {
     if (item.id === "git") {
       return git.path ? installedResource(item, git.version, dirname(git.path)) : unavailableResource(item);
@@ -414,6 +539,27 @@ async function inspectResources(prerequisites: RuntimePrerequisites): Promise<De
     }
     if (item.id === "noahlink-wireless-driver" && inventory.noahDevice) {
       return installedResource(item, item.recommendedVersion);
+    }
+    if (item.id === "phonak-target") {
+      const selectedCandidate = targetSelection.selectedPath
+        ? targetSelection.candidates.find((candidate) => samePath(candidate.path, targetSelection.selectedPath!))
+        : undefined;
+      const selectedProgram = selectedCandidate
+        ? inventory.programs.find((program) => {
+            const location = programLocation(program);
+            return Boolean(location && resolve(selectedCandidate.path).toLowerCase().startsWith(
+              `${resolve(location).toLowerCase().replace(/[\\/]+$/, "")}${sep}`,
+            ));
+          })
+        : matchInstalledProgram(inventory.programs, item.id);
+      const resource = selectedCandidate || selectedProgram
+        ? installedResource(
+            item,
+            selectedCandidate?.version ?? selectedProgram?.displayVersion,
+            selectedCandidate ? dirname(selectedCandidate.path) : programLocation(selectedProgram!),
+          )
+        : unavailableResource(item);
+      return { ...resource, executableSelection: targetSelection };
     }
     const program = matchInstalledProgram(inventory.programs, item.id);
     if (!program) return unavailableResource(item);
@@ -577,6 +723,8 @@ export class DependencyManager {
   private readonly openPath: DependencyManagerOptions["openPath"];
   private readonly openExternal: DependencyManagerOptions["openExternal"];
   private readonly onProgress: DependencyManagerOptions["onProgress"];
+  private readonly getExecutablePath: DependencyManagerOptions["getExecutablePath"];
+  private readonly persistExecutablePath: DependencyManagerOptions["setExecutablePath"];
   private readonly installs = new Map<DependencyId, DependencyInstallProgress>();
   private readonly tasks = new Map<DependencyId, AbortController>();
   private cachedItems?: DependencyResource[];
@@ -587,6 +735,8 @@ export class DependencyManager {
     this.openPath = options.openPath;
     this.openExternal = options.openExternal;
     this.onProgress = options.onProgress;
+    this.getExecutablePath = options.getExecutablePath;
+    this.persistExecutablePath = options.setExecutablePath;
   }
 
   private updateProgress(
@@ -610,7 +760,10 @@ export class DependencyManager {
 
   async snapshot(prerequisites: RuntimePrerequisites, force = false): Promise<DependencySnapshot> {
     if (force || !this.cachedItems || Date.now() - this.cachedAt > INVENTORY_CACHE_MS) {
-      this.cachedItems = await inspectResources(prerequisites);
+      this.cachedItems = await inspectResources(
+        prerequisites,
+        this.getExecutablePath("phonak-target"),
+      );
       this.cachedAt = Date.now();
       for (const item of this.cachedItems) {
         const progress = this.installs.get(item.id);
@@ -629,7 +782,17 @@ export class DependencyManager {
       }
     }
     return {
-      items: this.cachedItems.map((item) => ({ ...item })),
+      items: this.cachedItems.map((item) => ({
+        ...item,
+        ...(item.executableSelection
+          ? {
+              executableSelection: {
+                ...item.executableSelection,
+                candidates: item.executableSelection.candidates.map((candidate) => ({ ...candidate })),
+              },
+            }
+          : {}),
+      })),
       installs: Array.from(this.installs.values(), (progress) => ({ ...progress })),
       checkedAt: this.cachedAt || Date.now(),
     };
@@ -639,6 +802,26 @@ export class DependencyManager {
     const item = CATALOG_BY_ID.get(dependencyId);
     if (!item) throw new Error(`Unknown dependency: ${dependencyId}`);
     await this.openExternal(item.documentationUrl);
+  }
+
+  async setExecutable(dependencyId: DependencyId, path?: string): Promise<void> {
+    if (dependencyId !== "phonak-target") {
+      throw new Error(`Executable selection is not supported for ${dependencyId}.`);
+    }
+    if (!path) {
+      this.persistExecutablePath(dependencyId, undefined);
+      this.invalidateInventory();
+      return;
+    }
+    const resolvedPath = resolve(path);
+    if (basename(resolvedPath).toLowerCase() !== "target.exe") {
+      throw new Error("Choose the Phonak Target executable named Target.exe.");
+    }
+    if (!await fileExists(resolvedPath)) {
+      throw new Error("The selected Target.exe is no longer available.");
+    }
+    this.persistExecutablePath(dependencyId, resolvedPath);
+    this.invalidateInventory();
   }
 
   startInstall(dependencyId: DependencyId, sessionId?: string): { ok: boolean; error?: string } {
