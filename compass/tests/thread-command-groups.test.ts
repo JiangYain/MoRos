@@ -10,6 +10,7 @@ import {
   TOOL_ACTIVITY_COPY,
   toolActivity,
 } from "../src/renderer/src/components/threadCommands.ts";
+import { resolveThreadActivity } from "../src/renderer/src/components/threadActivity.ts";
 
 const user = (id: string): UiThreadItem => ({ kind: "user", id, text: id, ts: 1 });
 const assistant = (id: string): UiThreadItem => ({
@@ -151,4 +152,101 @@ test("keeps all tool activity labels in English", () => {
   assert.equal(TOOL_ACTIVITY_COPY.write.complete, "Wrote files");
   assert.equal(TOOL_ACTIVITY_COPY.edit.itemActive, "Editing");
   assert.equal(TOOL_ACTIVITY_COPY.search.complete, "Searched files");
+});
+
+test("gives a running tool priority over a streaming assistant", () => {
+  const thinking = {
+    ...assistant("a1"),
+    blocks: [{ type: "thinking" as const, text: "Inspecting the repository" }],
+    streaming: true,
+  };
+  const read = { ...tool("r1", "read", { path: "C:/one.md" }), running: true };
+
+  const activity = resolveThreadActivity([thinking, read]);
+  assert.ok(activity && activity.target === "tool");
+  assert.equal(activity.callId, "r1");
+  assert.equal(activity.state, "searching");
+});
+
+test("maps read and search tools to searching", () => {
+  for (const name of ["read", "read_file", "grep", "search"]) {
+    const activity = resolveThreadActivity([{ ...tool(name, name), running: true }]);
+    assert.ok(activity && activity.target === "tool");
+    assert.equal(activity.state, "searching", name);
+  }
+});
+
+test("maps write, edit and command tools to working", () => {
+  for (const name of ["write", "apply_patch", "shell_command"]) {
+    const activity = resolveThreadActivity([{ ...tool(name, name), running: true }]);
+    assert.ok(activity && activity.target === "tool");
+    assert.equal(activity.state, "working", name);
+  }
+});
+
+test("maps the last valid thinking block to solving", () => {
+  const activity = resolveThreadActivity([{
+    ...assistant("a1"),
+    blocks: [
+      { type: "thinking", text: "Working through the problem" },
+      { type: "text", text: "   " },
+    ],
+    streaming: true,
+  }]);
+
+  assert.deepEqual(activity, {
+    target: "assistant-thinking",
+    state: "solving",
+    itemId: "a1",
+    blockIndex: 0,
+  });
+});
+
+test("maps an empty streaming assistant to working", () => {
+  const activity = resolveThreadActivity([{
+    ...assistant("a1"),
+    blocks: [],
+    streaming: true,
+  }]);
+
+  assert.deepEqual(activity, {
+    target: "assistant-stream",
+    state: "working",
+    itemId: "a1",
+  });
+});
+
+test("maps ordinary streaming text to composing", () => {
+  const activity = resolveThreadActivity([{
+    ...assistant("a1"),
+    blocks: [
+      { type: "thinking", text: "Plan" },
+      { type: "text", text: "The response has started." },
+    ],
+    streaming: true,
+  }]);
+
+  assert.deepEqual(activity, {
+    target: "assistant-stream",
+    state: "composing",
+    itemId: "a1",
+  });
+});
+
+test("returns no activity after assistants and tools complete", () => {
+  assert.equal(resolveThreadActivity([
+    assistant("a1"),
+    tool("r1", "read", { path: "C:/one.md" }),
+  ]), undefined);
+});
+
+test("selects exactly one latest target when multiple entries appear active", () => {
+  const activity = resolveThreadActivity([
+    { ...tool("r1", "read"), running: true },
+    { ...tool("w1", "write"), running: true },
+  ]);
+
+  assert.ok(activity && activity.target === "tool");
+  assert.equal(activity.callId, "w1");
+  assert.equal(activity.state, "working");
 });

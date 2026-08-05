@@ -389,24 +389,45 @@
   }
 }
 
-.stream-caret {
+.agent-activity-orb {
+  position: relative;
   display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 2px;
-  vertical-align: -0.18em;
-  background: var(--color-accent);
-  animation: caret-blink 1.05s step-end infinite;
+  width: 20px;
+  min-width: 20px;
+  max-width: 20px;
+  height: 1em;
+  flex: 0 0 auto;
+  align-self: center;
+  overflow: visible;
+  line-height: 1;
+  pointer-events: none;
 }
 
-@keyframes caret-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
+.agent-activity-orb-canvas {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.agent-activity-status-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.assistant-stream-activity {
+  align-self: flex-start;
+}
+
+.assistant-stream-activity.has-content {
+  margin-top: -14px;
 }
 
 .msg-error {
@@ -435,15 +456,6 @@
 
 .thinking-block-capsule:hover {
   background: var(--color-surface-active);
-}
-
-@keyframes thinking-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-
-.thinking-block-capsule.live {
-  animation: thinking-pulse 2s ease-in-out infinite;
 }
 
 .thinking-toggle-button {
@@ -489,18 +501,8 @@
   margin-left: 2px;
 }
 
-.thinking-live-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-accent);
+.thinking-activity-orb {
   margin-left: 4px;
-  animation: thinking-live-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes thinking-live-pulse {
-  0%, 100% { transform: scale(0.8); opacity: 0.5; }
-  50% { transform: scale(1.2); opacity: 1; }
 }
 
 .thinking-content-wrapper {
@@ -637,37 +639,8 @@
   color: inherit;
 }
 
-.tool-exploration.running .tool-exploration-label {
-  color: transparent;
-  background-image: linear-gradient(
-    105deg,
-    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 0%,
-    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 42%,
-    color-mix(in srgb, var(--color-accent) 48%, var(--color-on-accent)) 48%,
-    var(--color-accent) 50%,
-    color-mix(in srgb, var(--color-accent) 48%, var(--color-on-accent)) 52%,
-    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 58%,
-    color-mix(in srgb, var(--color-accent) 78%, var(--color-text-secondary)) 100%
-  );
-  background-position: 145% 50%;
-  background-size: 260% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: exploration-shimmer 2.6s ease-in-out infinite;
-}
-
 .tool-exploration.running .tool-exploration-chevron {
   color: color-mix(in srgb, var(--color-accent) 68%, var(--color-text-tertiary));
-}
-
-@keyframes exploration-shimmer {
-  0% {
-    background-position: 145% 50%;
-  }
-  72%,
-  100% {
-    background-position: -105% 50%;
-  }
 }
 
 .tool-exploration-chevron {
@@ -788,15 +761,6 @@
   white-space: nowrap;
 }
 
-.tool-activity-running-dot {
-  width: 4px;
-  height: 4px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--color-accent);
-  animation: tool-running-pulse 1.4s ease-in-out infinite;
-}
-
 .tool-activity-output-shell {
   position: relative;
   margin: 0.42rem 0 0 1.55rem;
@@ -823,18 +787,6 @@
 .tool-activity-output.error {
   border-color: color-mix(in srgb, var(--color-danger) 22%, var(--color-border));
   color: var(--color-danger);
-}
-
-@keyframes tool-running-pulse {
-  0%,
-  100% {
-    opacity: 0.38;
-    transform: scale(0.82);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
 /* ---------------- dependency recommendation / install */
@@ -1174,7 +1126,6 @@
 
 .tool-head .tool-dot.running {
   background: var(--color-accent);
-  animation: tool-running-pulse 1.4s ease-in-out infinite;
 }
 
 .tool-head .tool-dot.failed {
@@ -1397,12 +1348,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tool-exploration.running .tool-exploration-label {
-    color: var(--color-accent);
-    background: none;
-    animation: none;
-  }
-
   .thread-prompt-marker-dash,
   .thread-prompt-preview {
     transition: none;

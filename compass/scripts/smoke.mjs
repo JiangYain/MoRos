@@ -825,22 +825,85 @@ try {
   }
   await shot("12c-tool-exploration");
 
+  const activityCanvasSelector = "canvas.agent-activity-orb-canvas[data-agent-activity-state]";
+  const assertActivityOrb = async (state, scope, statusText) => {
+    await page.waitForFunction(({ selector, expectedState }) => {
+      const canvases = Array.from(document.querySelectorAll(selector));
+      return canvases.length === 1 && canvases[0]?.getAttribute("data-agent-activity-state") === expectedState;
+    }, { selector: activityCanvasSelector, expectedState: state });
+    const canvases = page.locator(activityCanvasSelector);
+    const count = await canvases.count();
+    if (count !== 1) {
+      throw new Error("Expected exactly one activity Orb, found " + count);
+    }
+    const canvas = canvases.first();
+    const details = await canvas.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const slotBounds = element.parentElement?.getBoundingClientRect();
+      return {
+        state: element.getAttribute("data-agent-activity-state"),
+        width: bounds.width,
+        height: bounds.height,
+        slotHeight: slotBounds?.height,
+        role: element.getAttribute("role"),
+        ariaHidden: element.getAttribute("aria-hidden"),
+        ariaLabel: element.getAttribute("aria-label"),
+        animationName: getComputedStyle(element).animationName,
+      };
+    });
+    if (
+      details.state !== state
+      || Math.abs(details.width - 20) > 0.1
+      || Math.abs(details.height - 20) > 0.1
+      || typeof details.slotHeight !== "number"
+      || details.slotHeight >= 20
+      || details.role !== "presentation"
+      || details.ariaHidden !== "true"
+      || details.ariaLabel
+      || details.animationName !== "none"
+    ) {
+      throw new Error("Activity Orb contract mismatch: " + JSON.stringify(details));
+    }
+    if (scope && (await scope.locator(activityCanvasSelector).count()) !== 1) {
+      throw new Error("Activity Orb mounted outside its active content");
+    }
+
+    const status = page.locator('[role="status"][data-agent-activity-orb]');
+    if (statusText) {
+      if ((await status.count()) !== 1 || !(await status.textContent())?.includes(statusText)) {
+        throw new Error("Localized activity status is missing: " + statusText);
+      }
+    } else {
+      if ((await status.count()) !== 0 || (await canvas.locator("..").getAttribute("aria-hidden")) !== "true") {
+        throw new Error("Decorative activity Orb leaked into the accessibility tree");
+      }
+    }
+  };
+  const assertNoActivityOrb = async () => {
+    await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 0, activityCanvasSelector);
+  };
+  const setActivityTheme = async (preference) => {
+    await page.evaluate((next) => {
+      localStorage.setItem("compass.theme.v1", next);
+      window.dispatchEvent(new Event("compass:theme-change"));
+    }, preference);
+    if (preference === "light" || preference === "dark") {
+      await page.waitForFunction((expected) => document.documentElement.dataset.theme === expected, preference);
+    }
+  };
+
+  await setActivityTheme("light");
+
   await app.evaluate(({ BrowserWindow }) => {
     const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    contents?.send("agent:event", { kind: "agent-start" });
     contents?.send("agent:event", {
       kind: "user-message",
       id: "smoke-live-tools-turn",
       text: "Inspect a live tool group",
       ts: Date.now(),
     });
-    contents?.send("agent:event", {
-      kind: "tool-start",
-      id: "smoke-live-read",
-      callId: "smoke-live-read-call",
-      name: "read",
-      args: { path: "C:/workspace/live.md" },
-      ts: Date.now(),
-    });
+    contents?.send("agent:event", { kind: "assistant-start", id: "smoke-reasoning", ts: Date.now() });
   });
   const plainUserBubble = page.locator(".msg-user-bubble").filter({ hasText: "Inspect a live tool group" });
   await plainUserBubble.waitFor();
@@ -854,6 +917,77 @@ try {
   if (plainBubbleHeight > 48) {
     throw new Error(`Plain user message bubble is too tall: ${plainBubbleHeight}`);
   }
+  const reasoningMessage = page.locator('[data-assistant-message-id="smoke-reasoning"]');
+  await reasoningMessage.waitFor();
+  await assertActivityOrb("working", reasoningMessage, "Agent is working");
+
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-delta",
+      id: "smoke-reasoning",
+      blockType: "thinking",
+      contentIndex: 0,
+      delta: "Reasoning remains readable after the tool runs.",
+    });
+  });
+  await reasoningMessage.locator(".thinking-content-wrapper").waitFor();
+  await assertActivityOrb("solving", reasoningMessage.locator(".thinking-toggle-button"));
+  const liveThinkingState = await reasoningMessage.locator(".thinking-block-capsule").evaluate((block) => ({
+    live: block.classList.contains("live"),
+    label: block.querySelector(".thinking-title-cn")?.textContent?.trim(),
+    expanded: block.querySelector(".thinking-toggle-button")?.getAttribute("aria-expanded"),
+    animationName: getComputedStyle(block).animationName,
+  }));
+  if (
+    !liveThinkingState.live
+    || liveThinkingState.label !== "Thinking"
+    || liveThinkingState.expanded !== "true"
+    || liveThinkingState.animationName !== "none"
+  ) {
+    throw new Error("Live Thinking treatment is incomplete: " + JSON.stringify(liveThinkingState));
+  }
+  await page.waitForTimeout(650);
+  await shot("12d-activity-solving-light");
+  await setActivityTheme("dark");
+  await assertActivityOrb("solving", reasoningMessage.locator(".thinking-toggle-button"));
+  await page.waitForTimeout(120);
+  await shot("12e-activity-solving-dark");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  if (!await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+    throw new Error("Electron did not apply the reduced-motion media preference");
+  }
+  await assertActivityOrb("solving", reasoningMessage.locator(".thinking-toggle-button"));
+  await page.waitForTimeout(120);
+  await shot("12f-activity-solving-reduced-motion-dark");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await setActivityTheme("light");
+
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-end",
+      id: "smoke-reasoning",
+      blocks: [{ type: "thinking", text: "Reasoning remains readable after the tool runs." }],
+      stopReason: "toolUse",
+    });
+  });
+  await assertNoActivityOrb();
+  if ((await reasoningMessage.locator(".thinking-toggle-button").getAttribute("aria-expanded")) !== "true") {
+    throw new Error("Reasoning collapsed when its streaming phase ended");
+  }
+  if (await reasoningMessage.locator(".thinking-block-capsule.live").count()) {
+    throw new Error("Thinking remained live after assistant-end");
+  }
+
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "tool-start",
+      id: "smoke-live-read",
+      callId: "smoke-live-read-call",
+      name: "read",
+      args: { path: "C:/workspace/live.md" },
+      ts: Date.now(),
+    });
+  });
   const liveReadGroup = page.locator(
     '[data-tool-exploration="true"][data-tool-call-ids~="smoke-live-read-call"]',
   );
@@ -863,6 +997,38 @@ try {
     throw new Error("A running tool exploration did not open automatically");
   }
   await liveReadGroup.locator('[data-tool-call-id="smoke-live-read-call"].running').waitFor();
+  await assertActivityOrb("searching", liveReadToggle);
+  await shot("12g-activity-searching-tool");
+  await page.setViewportSize({ width: 560, height: 780 });
+  await assertActivityOrb("searching", liveReadToggle);
+  const narrowToolPlacement = await liveReadToggle.evaluate((toggle) => {
+    const orb = toggle.querySelector("canvas.agent-activity-orb-canvas")?.getBoundingClientRect();
+    const chevron = toggle.querySelector(".tool-exploration-chevron")?.getBoundingClientRect();
+    if (!orb || !chevron) return undefined;
+    return {
+      orbLeft: orb.left,
+      orbRight: orb.right,
+      viewport: window.innerWidth,
+      overlapsChevron: orb.left < chevron.right
+        && orb.right > chevron.left
+        && orb.top < chevron.bottom
+        && orb.bottom > chevron.top,
+    };
+  });
+  if (
+    !narrowToolPlacement
+    || narrowToolPlacement.orbLeft < 0
+    || narrowToolPlacement.orbRight > narrowToolPlacement.viewport
+    || narrowToolPlacement.overlapsChevron
+  ) {
+    throw new Error("Narrow tool Orb placement overflowed: " + JSON.stringify(narrowToolPlacement));
+  }
+  await shot("12g2-activity-searching-tool-narrow");
+  await page.setViewportSize({ width: 1320, height: 880 });
+  await assertActivityOrb("searching", liveReadToggle);
+  if ((await liveReadGroup.locator(".tool-activity-row canvas").count()) !== 0) {
+    throw new Error("A running tool duplicated its Orb inside an activity row");
+  }
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
       kind: "tool-end",
@@ -871,6 +1037,7 @@ try {
       isError: false,
     });
   });
+  await assertNoActivityOrb();
   await page.waitForFunction((callId) => {
     const group = document.querySelector(`[data-tool-call-ids~="${callId}"]`);
     const toggle = group?.querySelector(":scope > .tool-exploration-toggle");
@@ -891,68 +1058,91 @@ try {
   }
 
   await app.evaluate(({ BrowserWindow }) => {
-    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
-    contents?.send("agent:event", { kind: "assistant-start", id: "smoke-reasoning", ts: Date.now() });
-    contents?.send("agent:event", {
-      kind: "assistant-delta",
-      id: "smoke-reasoning",
-      blockType: "thinking",
-      contentIndex: 0,
-      delta: "Reasoning remains readable while the answer begins.",
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-start",
+      id: "smoke-final-answer",
+      ts: Date.now(),
     });
   });
-  const reasoningMessage = page.locator(".msg-assistant").filter({ hasText: "Reasoning remains readable" });
-  await reasoningMessage.locator(".thinking-content-wrapper").waitFor();
-  const liveThinkingState = await reasoningMessage.locator(".thinking-block-capsule").evaluate((block) => {
-    const style = getComputedStyle(block);
+  const finalMessage = page.locator('[data-assistant-message-id="smoke-final-answer"]');
+  await finalMessage.waitFor();
+  await assertActivityOrb("working", finalMessage, "Agent is working");
+
+  const longSmokeAnswer = [
+    "The final answer is ready. Compass kept the activity indicator aligned with the live response without changing the message rhythm.",
+    "The completed reasoning remains readable above the tool exploration, and the tool details can still be collapsed or expanded independently.",
+    "This longer paragraph verifies that the composing Orb stays attached to the current answer while wrapped text grows naturally in a narrow message column.",
+  ].join("\n\n");
+  await app.evaluate(({ BrowserWindow }, answer) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-delta",
+      id: "smoke-final-answer",
+      blockType: "text",
+      contentIndex: 0,
+      delta: answer,
+    });
+  }, longSmokeAnswer);
+  await finalMessage.getByText("The final answer is ready.").waitFor();
+  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  await page.waitForTimeout(650);
+  await shot("12h-activity-composing-long-reply");
+  await page.setViewportSize({ width: 560, height: 780 });
+  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  const narrowReplyPlacement = await finalMessage.locator(activityCanvasSelector).evaluate((canvas) => {
+    const orb = canvas.getBoundingClientRect();
+    const thread = document.querySelector(".thread-scroll")?.getBoundingClientRect();
     return {
-      live: block.classList.contains("live"),
-      label: block.querySelector(".thinking-title-cn")?.textContent?.trim(),
-      liveDotCount: block.querySelectorAll(".thinking-live-dot").length,
-      animationName: style.animationName,
+      orbLeft: orb.left,
+      orbRight: orb.right,
+      threadLeft: thread?.left,
+      threadRight: thread?.right,
     };
   });
   if (
-    !liveThinkingState.live
-    || liveThinkingState.label !== "Thinking"
-    || liveThinkingState.liveDotCount !== 1
-    || liveThinkingState.animationName !== "thinking-pulse"
+    typeof narrowReplyPlacement.threadLeft !== "number"
+    || typeof narrowReplyPlacement.threadRight !== "number"
+    || narrowReplyPlacement.orbLeft < narrowReplyPlacement.threadLeft
+    || narrowReplyPlacement.orbRight > narrowReplyPlacement.threadRight
   ) {
-    throw new Error(`Live Thinking treatment is incomplete: ${JSON.stringify(liveThinkingState)}`);
+    throw new Error("Narrow composing Orb overflowed: " + JSON.stringify(narrowReplyPlacement));
   }
-  await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+  await shot("12i-activity-composing-long-reply-narrow");
+  await page.setViewportSize({ width: 1320, height: 880 });
+  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+
+  await app.evaluate(({ BrowserWindow }, answer) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    contents?.send("agent:event", {
       kind: "assistant-end",
-      id: "smoke-reasoning",
-      blocks: [
-        { type: "thinking", text: "Reasoning remains readable while the answer begins." },
-        { type: "text", text: "The final answer is ready." },
-      ],
+      id: "smoke-final-answer",
+      blocks: [{ type: "text", text: answer }],
       stopReason: "stop",
     });
-  });
-  await page.waitForTimeout(120);
+    contents?.send("agent:event", { kind: "agent-end" });
+  }, longSmokeAnswer);
+  await assertNoActivityOrb();
+  await setActivityTheme(previousTheme);
   if ((await reasoningMessage.locator(".thinking-toggle-button").getAttribute("aria-expanded")) !== "true") {
-    throw new Error("Reasoning collapsed when streaming ended");
+    throw new Error("Reasoning collapsed after the final response completed");
   }
-  if (await reasoningMessage.locator(".thinking-block-capsule.live").count()) {
-    throw new Error("Thinking kept its live animation after streaming ended");
+  if (!(await reasoningMessage.locator(".thinking-content-text").textContent())?.includes("Reasoning remains readable")) {
+    throw new Error("Completed Thinking content is no longer readable");
   }
-  const assistantCopyButton = reasoningMessage.getByRole("button", { name: "Copy response" });
+  const assistantCopyButton = finalMessage.getByRole("button", { name: "Copy response" });
   if ((await assistantCopyButton.locator("span").count()) !== 0) {
     throw new Error("Assistant copy action must remain icon-only");
   }
   if ((await assistantCopyButton.evaluate((element) => getComputedStyle(element).alignSelf)) !== "flex-start") {
     throw new Error("Assistant copy action is not aligned to the left");
   }
-  await reasoningMessage.hover();
+  await finalMessage.hover();
   await page.waitForFunction((element) => {
     if (!(element instanceof HTMLElement)) return false;
     const style = getComputedStyle(element);
     return style.pointerEvents === "auto" && Number.parseFloat(style.opacity) > 0.99;
   }, await assistantCopyButton.elementHandle());
   await assistantCopyButton.click();
-  await reasoningMessage.locator(".assistant-copy-button.copied").waitFor();
+  await finalMessage.locator(".assistant-copy-button.copied").waitFor();
   await shot("12d-reasoning-copy");
 
   const firstSession = page.locator(".thread-item-shell").first();

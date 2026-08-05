@@ -38,6 +38,8 @@ import {
   type ToolExplorationGroupItem,
 } from "./threadCommands";
 import { shouldStickToLatest } from "./thread-scroll";
+import { AgentActivityOrb } from "./AgentActivityOrb";
+import { resolveThreadActivity, type ThreadActivity } from "./threadActivity";
 
 /* ------------------------------------------------------------- helpers */
 
@@ -102,9 +104,11 @@ function parseSkillBlock(text: string): ParsedSkillBlock | undefined {
 function ThinkingBlock({
   text,
   live,
+  orbState,
 }: {
   text: string;
   live: boolean;
+  orbState?: "solving";
 }): React.JSX.Element {
   const { t } = useI18n();
   const [manual, setManual] = useState<boolean | null>(null);
@@ -128,7 +132,7 @@ function ThinkingBlock({
           aria-hidden
         />
         <span className="thinking-title-cn">{t("thread.thinking")}</span>
-        {live && <span className="thinking-live-dot" />}
+        {orbState && <AgentActivityOrb state={orbState} decorative className="thinking-activity-orb" />}
       </button>
       <AnimatePresence initial={false}>
         {open && (
@@ -224,8 +228,10 @@ function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }
 
 function AssistantMessage({
   item,
+  activity,
 }: {
   item: Extract<UiThreadItem, { kind: "assistant" }>;
+  activity?: ThreadActivity;
 }): React.JSX.Element {
   const { t } = useI18n();
   // Fast Refresh can briefly retain a pre-migration assistant item while the
@@ -233,34 +239,52 @@ function AssistantMessage({
   // hand-off instead of crashing the entire workspace on a missing `blocks`.
   const blocks = Array.isArray(item.blocks) ? item.blocks : [];
   const displayBlocks = blocks
-    .map((block) => block.type === "text" && !item.streaming
-      ? { ...block, text: stripRedundantCompletionOpener(block.text) }
-      : block)
-    .filter((block) => block.type !== "text" || block.text.trim());
-  const lastBlock = displayBlocks[displayBlocks.length - 1];
+    .map((block, sourceIndex) => ({
+      block: block.type === "text" && !item.streaming
+        ? { ...block, text: stripRedundantCompletionOpener(block.text) }
+        : block,
+      sourceIndex,
+    }))
+    .filter(({ block }) => block.type !== "text" || block.text.trim());
+  let lastValidBlockIndex = -1;
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    if (blocks[index].text.trim()) {
+      lastValidBlockIndex = index;
+      break;
+    }
+  }
   const aborted = item.stopReason === "aborted";
   const copyText = displayBlocks
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
+    .filter(({ block }) => block.type === "text")
+    .map(({ block }) => block.text)
     .join("\n\n")
     .trim();
+  const streamActivity = activity?.itemId === item.id && activity.target === "assistant-stream"
+    ? activity
+    : undefined;
   return (
-    <motion.div className="msg-assistant" {...entrance}>
-      {displayBlocks.map((block, index) =>
+    <motion.div className="msg-assistant" data-assistant-message-id={item.id} {...entrance}>
+      {displayBlocks.map(({ block, sourceIndex }) =>
         block.type === "thinking" ? (
           <ThinkingBlock
-            key={index}
+            key={sourceIndex}
             text={block.text}
-            live={item.streaming && index === blocks.length - 1}
+            live={item.streaming && sourceIndex === lastValidBlockIndex}
+            orbState={activity?.itemId === item.id
+              && activity.target === "assistant-thinking"
+              && activity.blockIndex === sourceIndex
+              ? activity.state
+              : undefined}
           />
         ) : (
-          <SkillBlock key={index} text={block.text} />
+          <SkillBlock key={sourceIndex} text={block.text} />
         ),
       )}
-      {item.streaming && (!lastBlock || lastBlock.type === "text") && (
-        <div aria-hidden style={{ marginTop: displayBlocks.length ? -14 : 0 }}>
-          <span className="stream-caret" />
-        </div>
+      {streamActivity && (
+        <AgentActivityOrb
+          state={streamActivity.state}
+          className={`assistant-stream-activity${displayBlocks.length ? " has-content" : ""}`}
+        />
       )}
       {item.errorMessage && !aborted && <div className="msg-error">{item.errorMessage}</div>}
       {aborted && <div className="notice-row warn">{t("thread.aborted")}</div>}
@@ -283,11 +307,23 @@ const TOOL_LABELS: Record<string, string> = {
   ls: "List",
 };
 
-function ToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool" }> }): React.JSX.Element {
-  return <StandardToolCard item={item} />;
+function ToolCard({
+  item,
+  activity,
+}: {
+  item: Extract<UiThreadItem, { kind: "tool" }>;
+  activity?: ThreadActivity;
+}): React.JSX.Element {
+  return <StandardToolCard item={item} activity={activity} />;
 }
 
-function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool" }> }): React.JSX.Element {
+function StandardToolCard({
+  item,
+  activity,
+}: {
+  item: Extract<UiThreadItem, { kind: "tool" }>;
+  activity?: ThreadActivity;
+}): React.JSX.Element {
   const { t } = useI18n();
   const [manual, setManual] = useState<boolean | null>(null);
   const open = manual ?? item.running;
@@ -295,6 +331,7 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
   const summary = summarizeArgs(item.args);
   const argsJson =
     item.args && typeof item.args === "object" ? JSON.stringify(item.args, null, 2) : undefined;
+  const active = activity?.target === "tool" && activity.callId === item.callId ? activity : undefined;
 
   return (
     <motion.div
@@ -304,9 +341,13 @@ function StandardToolCard({ item }: { item: Extract<UiThreadItem, { kind: "tool"
       {...entrance}
     >
       <button type="button" className="tool-head" aria-expanded={open} onClick={() => setManual(!open)}>
-        <span
-          className={`tool-dot${item.running ? " running" : ""}${item.isError ? " failed" : ""}`}
-        />
+        {active ? (
+          <AgentActivityOrb state={active.state} decorative className="tool-card-activity-orb" />
+        ) : (
+          <span
+            className={`tool-dot${item.running ? " running" : ""}${item.isError ? " failed" : ""}`}
+          />
+        )}
         <span className="tool-name">{label}</span>
         <span className="tool-summary">{summary}</span>
         <span className={`tool-status${item.isError ? " error" : ""}`}>
@@ -382,7 +423,6 @@ function ToolActivityEntry({
         <ToolActivityIcon activity={activity} />
         <span className="tool-activity-state">{state}</span>
         <span className="tool-activity-summary">{summary}</span>
-        {item.running && <span className="tool-activity-running-dot" aria-hidden />}
       </div>
       {showOutput && (
         <div className="tool-activity-output-shell">
@@ -569,9 +609,19 @@ function ToolActivityGroup({ group }: { group: ToolActivityGroupItem }): React.J
   );
 }
 
-function ToolExplorationGroup({ exploration }: { exploration: ToolExplorationGroupItem }): React.JSX.Element {
+function ToolExplorationGroup({
+  exploration,
+  activity,
+}: {
+  exploration: ToolExplorationGroupItem;
+  activity?: ThreadActivity;
+}): React.JSX.Element {
   const running = exploration.groups.some((group) => group.items.some((item) => item.running));
   const [open, setOpen] = useState(true);
+  const active = activity?.target === "tool"
+    && exploration.groups.some((group) => group.items.some((item) => item.callId === activity.callId))
+    ? activity
+    : undefined;
 
   return (
     <section
@@ -585,6 +635,7 @@ function ToolExplorationGroup({ exploration }: { exploration: ToolExplorationGro
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
+        {active && <AgentActivityOrb state={active.state} decorative className="tool-exploration-activity-orb" />}
         <span className="tool-exploration-label">Exploring</span>
         <ChevronRight
           aria-hidden
@@ -821,6 +872,7 @@ export function Thread(): React.JSX.Element {
     && !(targetPromptDismissed && ["failed", "cancelled"].includes(targetInstall.phase))
     ? targetInstall
     : undefined;
+  const activity = useMemo(() => resolveThreadActivity(thread), [thread]);
   const renderItems = useMemo(() => placeAssistantIdentities(groupToolActivities(thread)), [thread]);
   const promptEntries = useMemo(() => buildPromptRailEntries(thread), [thread]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -866,13 +918,13 @@ export function Thread(): React.JSX.Element {
               case "user":
                 return <UserMessage key={item.id} item={item} />;
               case "assistant":
-                return <AssistantMessage key={item.id} item={item} />;
+                return <AssistantMessage key={item.id} item={item} activity={activity} />;
               case "assistant-identity":
                 return <AssistantIdentity key={item.id} />;
               case "tool":
-                return <ToolCard key={item.id} item={item} />;
+                return <ToolCard key={item.id} item={item} activity={activity} />;
               case "tool-exploration-group":
-                return <ToolExplorationGroup key={item.id} exploration={item} />;
+                return <ToolExplorationGroup key={item.id} exploration={item} activity={activity} />;
               case "notice":
                 return (
                   <div key={item.id} className={`notice-row${item.tone === "warn" ? " warn" : ""}`}>
