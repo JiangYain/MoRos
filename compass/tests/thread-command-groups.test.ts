@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { UiThreadItem } from "../src/shared/types.ts";
 import {
+  buildSummaryText,
   groupToolActivities,
   placeAssistantIdentities,
   shouldShowToolActivityOutput,
   stripRedundantCompletionOpener,
+  summarizeExecutionTurns,
   summarizeToolActivity,
   TOOL_ACTIVITY_COPY,
   toolActivity,
 } from "../src/renderer/src/components/threadCommands.ts";
+import { resolveThreadActivity } from "../src/renderer/src/components/threadActivity.ts";
 
 const user = (id: string): UiThreadItem => ({ kind: "user", id, text: id, ts: 1 });
 const assistant = (id: string): UiThreadItem => ({
@@ -151,4 +154,270 @@ test("keeps all tool activity labels in English", () => {
   assert.equal(TOOL_ACTIVITY_COPY.write.complete, "Wrote files");
   assert.equal(TOOL_ACTIVITY_COPY.edit.itemActive, "Editing");
   assert.equal(TOOL_ACTIVITY_COPY.search.complete, "Searched files");
+});
+
+test("gives a running tool priority over a streaming assistant", () => {
+  const thinking = {
+    ...assistant("a1"),
+    blocks: [{ type: "thinking" as const, text: "Inspecting the repository" }],
+    streaming: true,
+  };
+  const read = { ...tool("r1", "read", { path: "C:/one.md" }), running: true };
+
+  const activity = resolveThreadActivity([thinking, read]);
+  assert.ok(activity && activity.target === "tool");
+  assert.equal(activity.callId, "r1");
+  assert.equal(activity.state, "searching");
+});
+
+test("maps read and search tools to searching", () => {
+  for (const name of ["read", "read_file", "grep", "search"]) {
+    const activity = resolveThreadActivity([{ ...tool(name, name), running: true }]);
+    assert.ok(activity && activity.target === "tool");
+    assert.equal(activity.state, "searching", name);
+  }
+});
+
+test("maps write, edit and command tools to working", () => {
+  for (const name of ["write", "apply_patch", "shell_command"]) {
+    const activity = resolveThreadActivity([{ ...tool(name, name), running: true }]);
+    assert.ok(activity && activity.target === "tool");
+    assert.equal(activity.state, "working", name);
+  }
+});
+
+test("maps the last valid thinking block to solving", () => {
+  const activity = resolveThreadActivity([{
+    ...assistant("a1"),
+    blocks: [
+      { type: "thinking", text: "Working through the problem" },
+      { type: "text", text: "   " },
+    ],
+    streaming: true,
+  }]);
+
+  assert.deepEqual(activity, {
+    target: "assistant-thinking",
+    state: "solving",
+    itemId: "a1",
+    blockIndex: 0,
+  });
+});
+
+test("maps an empty streaming assistant to working", () => {
+  const activity = resolveThreadActivity([{
+    ...assistant("a1"),
+    blocks: [],
+    streaming: true,
+  }]);
+
+  assert.deepEqual(activity, {
+    target: "assistant-stream",
+    state: "working",
+    itemId: "a1",
+  });
+});
+
+test("maps ordinary streaming text to composing", () => {
+  const activity = resolveThreadActivity([{
+    ...assistant("a1"),
+    blocks: [
+      { type: "thinking", text: "Plan" },
+      { type: "text", text: "The response has started." },
+    ],
+    streaming: true,
+  }]);
+
+  assert.deepEqual(activity, {
+    target: "assistant-stream",
+    state: "composing",
+    itemId: "a1",
+  });
+});
+
+test("returns no activity after assistants and tools complete", () => {
+  assert.equal(resolveThreadActivity([
+    assistant("a1"),
+    tool("r1", "read", { path: "C:/one.md" }),
+  ]), undefined);
+});
+
+test("selects exactly one latest target when multiple entries appear active", () => {
+  const activity = resolveThreadActivity([
+    { ...tool("r1", "read"), running: true },
+    { ...tool("w1", "write"), running: true },
+  ]);
+
+  assert.ok(activity && activity.target === "tool");
+  assert.equal(activity.callId, "w1");
+  assert.equal(activity.state, "working");
+});
+
+test("preserves summary timeline order, merges consecutive thinking, and drops empty assistants", () => {
+  const completedTurn = summarizeExecutionTurns(
+    groupToolActivities([
+      user("u1"),
+      {
+        ...assistant("a1"),
+        blocks: [{ type: "thinking", text: "Thought 1" }],
+        streaming: false,
+      },
+      tool("r1", "read", { path: "C:/one.md" }),
+      {
+        ...assistant("a2"),
+        blocks: [{ type: "thinking", text: "Thought 2" }],
+        streaming: false,
+      },
+      {
+        ...assistant("a2b"),
+        blocks: [{ type: "thinking", text: "Thought 3" }],
+        streaming: false,
+      },
+      tool("c1", "bash", { command: "npm test" }),
+      {
+        ...assistant("a3"),
+        blocks: [{ type: "thinking", text: "Thought 4" }],
+        streaming: false,
+      },
+      {
+        ...assistant("a4"),
+        blocks: [{ type: "text", text: "Done!" }],
+        streaming: false,
+      },
+    ]),
+  );
+
+  const summary = completedTurn.find((item) => item.kind === "execution-summary");
+  assert.ok(summary && summary.kind === "execution-summary");
+  assert.equal(summary.thoughtCount, 3);
+  assert.equal(summary.exploredFilesCount, 1);
+  assert.equal(summary.commandsCount, 1);
+  assert.deepEqual(
+    summary.timelineEntries.map((entry) => entry.kind),
+    ["thinking", "exploration", "thinking", "exploration", "thinking"],
+  );
+  assert.deepEqual(
+    summary.timelineEntries
+      .filter((entry) => entry.kind === "thinking")
+      .map((entry) => entry.text),
+    ["Thought 1", "Thought 2\n\nThought 3", "Thought 4"],
+  );
+
+  const assistantsInTurn = completedTurn.filter(
+    (item): item is Extract<UiThreadItem, { kind: "assistant" }> => item.kind === "assistant",
+  );
+  assert.equal(assistantsInTurn.length, 1);
+  assert.deepEqual(assistantsInTurn[0].blocks, [{ type: "text", text: "Done!" }]);
+});
+
+test("does not merge thinking separated by valid body text", () => {
+  const completedTurn = summarizeExecutionTurns([
+    user("u1"),
+    {
+      ...assistant("a1"),
+      blocks: [
+        { type: "thinking", text: "Before body" },
+        { type: "text", text: "Body boundary" },
+        { type: "thinking", text: "After body" },
+      ],
+      streaming: false,
+    },
+  ]);
+
+  const summary = completedTurn.find((item) => item.kind === "execution-summary");
+  assert.ok(summary && summary.kind === "execution-summary");
+  assert.equal(summary.thoughtCount, 2);
+  assert.deepEqual(
+    summary.timelineEntries
+      .filter((entry) => entry.kind === "thinking")
+      .map((entry) => entry.text),
+    ["Before body", "After body"],
+  );
+});
+
+test("leaves streaming turns uncollapsed", () => {
+  const streamingTurn = summarizeExecutionTurns(
+    groupToolActivities([
+      user("u2"),
+      tool("r2", "read", { path: "C:/two.md" }),
+      {
+        ...assistant("a2"),
+        blocks: [{ type: "thinking", text: "Thinking..." }],
+        streaming: true,
+      },
+    ]),
+  );
+
+  const streamingSummary = streamingTurn.find((item) => item.kind === "execution-summary");
+  assert.equal(streamingSummary, undefined);
+});
+
+test("defers the latest summary until the whole agent lifecycle ends", () => {
+  const betweenAgentSteps = groupToolActivities([
+    user("u2"),
+    {
+      ...assistant("a2"),
+      blocks: [{ type: "thinking", text: "Inspecting..." }],
+      streaming: false,
+    },
+    tool("r2", "read", { path: "C:/two.md" }),
+  ]);
+
+  const duringAgentRun = summarizeExecutionTurns(betweenAgentSteps, true);
+  assert.equal(
+    duringAgentRun.find((item) => item.kind === "execution-summary"),
+    undefined,
+  );
+  assert.ok(duringAgentRun.some((item) => item.kind === "assistant"));
+  assert.ok(duringAgentRun.some((item) => item.kind === "tool-exploration-group"));
+
+  const afterAgentEnd = summarizeExecutionTurns(betweenAgentSteps, false);
+  assert.ok(afterAgentEnd.some((item) => item.kind === "execution-summary"));
+  assert.equal(afterAgentEnd.some((item) => item.kind === "assistant"), false);
+});
+
+test("keeps earlier turns summarized while the latest agent lifecycle is active", () => {
+  const duringSecondRun = summarizeExecutionTurns([
+    user("u1"),
+    {
+      ...assistant("a1"),
+      blocks: [{ type: "thinking", text: "First turn" }],
+      streaming: false,
+    },
+    user("u2"),
+    {
+      ...assistant("a2"),
+      blocks: [{ type: "thinking", text: "Second turn" }],
+      streaming: false,
+    },
+  ], true);
+
+  const summaries = duringSecondRun.filter((item) => item.kind === "execution-summary");
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].id, "execution-summary-a1");
+  assert.ok(duringSecondRun.some((item) => item.kind === "assistant" && item.id === "a2"));
+});
+
+test("builds localized summary text correctly across languages", () => {
+  const mockT = (key: string, values?: Record<string, string | number>) => {
+    const dict: Record<string, string> = {
+      "thread.summary.thought": "思考了 {count} 次",
+      "thread.summary.thoughtPlural": "思考了 {count} 次",
+      "thread.summary.explored": "探索了 {count} 个文件",
+      "thread.summary.exploredPlural": "探索了 {count} 个文件",
+      "thread.summary.commands": "运行了 {count} 条命令",
+      "thread.summary.commandsPlural": "运行了 {count} 条命令",
+    };
+    const template = dict[key] ?? key;
+    if (!values) return template;
+    return template.replace(/\{([^}]+)\}/g, (_, k) => String(values[k]));
+  };
+
+  const text = buildSummaryText(mockT as any, "zh-CN", {
+    thoughtCount: 2,
+    exploredFilesCount: 4,
+    commandsCount: 1,
+  });
+
+  assert.equal(text, "思考了 2 次 · 探索了 4 个文件 · 运行了 1 条命令");
 });

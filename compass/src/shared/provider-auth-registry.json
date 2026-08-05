@@ -28,6 +28,11 @@
     "envVars": ["AZURE_OPENAI_API_KEY"],
     "requiredEnv": ["AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME"]
   },
+  "baseten": {
+    "supportsApiKey": true,
+    "envVars": ["BASETEN_API_KEY"],
+    "requiredEnv": []
+  },
   "cerebras": {
     "supportsApiKey": true,
     "envVars": ["CEREBRAS_API_KEY"],

@@ -1,12 +1,14 @@
 import { app } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
   DEFAULT_SUMMARY_MODEL,
   isAppLanguage,
+  isDependencyId,
   isPermissionMode,
   isThinkingLevel,
   type AppLanguage,
+  type DependencyId,
   type ModelSelection,
   type PermissionMode,
   type ThinkingLevel,
@@ -29,6 +31,27 @@ export interface AppSettings {
   thinkingLevel?: ThinkingLevel;
   /** User-defined shortcuts shown beside the composer. Undefined uses localized defaults. */
   quickPrompts?: string[];
+  /** User-selected executables for dependencies that may have parallel installations. */
+  dependencyExecutablePaths?: Partial<Record<DependencyId, string>>;
+}
+
+function normalizeDependencyExecutablePaths(
+  value: unknown,
+): Partial<Record<DependencyId, string>> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const normalized: Partial<Record<DependencyId, string>> = {};
+  for (const [id, candidate] of Object.entries(value)) {
+    if (
+      !isDependencyId(id)
+      || typeof candidate !== "string"
+      || !candidate.trim()
+      || !isAbsolute(candidate.trim())
+    ) continue;
+    const path = candidate.trim();
+    if (id === "phonak-target" && basename(path).toLowerCase() !== "target.exe") continue;
+    normalized[id] = path;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function settingsPath(): string {
@@ -76,6 +99,11 @@ export function loadSettings(): AppSettings {
     const quickPrompts = normalizeQuickPrompts(parsed.quickPrompts);
     if (quickPrompts) merged.quickPrompts = quickPrompts;
     else delete merged.quickPrompts;
+    const dependencyExecutablePaths = normalizeDependencyExecutablePaths(
+      parsed.dependencyExecutablePaths,
+    );
+    if (dependencyExecutablePaths) merged.dependencyExecutablePaths = dependencyExecutablePaths;
+    else delete merged.dependencyExecutablePaths;
     if (
       !merged.summaryModel ||
       typeof merged.summaryModel.provider !== "string" ||

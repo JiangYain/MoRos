@@ -1,0 +1,449 @@
+/* ============================================================
+   HEARING HEALTH WORKSPACE — Clinical Precision Audiometry UI
+   Ultra-clean, quiet, restrained 3-panel layout
+   ============================================================ */
+
+.hearing-health-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--color-bg);
+  padding: 32px 36px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hearing-health-container {
+  width: min(1040px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Header Title Only */
+.hearing-health-header {
+  padding-bottom: 2px;
+}
+
+.hearing-health-title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.018em;
+}
+
+/* 3-Column Grid */
+.hearing-health-fitting-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+/* Audiogram Card Container — Clean & Frameless */
+.hearing-health-ear-card {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Top Bar */
+.hearing-health-ear-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 2px;
+}
+
+.hearing-health-ear-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.hearing-health-ear-badge.right {
+  color: #dc2626;
+  border: 1.2px solid #dc2626;
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.hearing-health-ear-badge.left {
+  color: #2563eb;
+  border: 1.2px solid #2563eb;
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.hearing-health-ear-transducer-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.hearing-health-ear-clear-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--border-radius-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s var(--ease-out-power3), background 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-ear-clear-btn:hover {
+  color: #dc2626;
+  background: var(--color-surface);
+}
+
+/* Audiogram Chart Box */
+.hearing-health-chart-container {
+  position: relative;
+  width: 100%;
+  background: var(--color-bg);
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  box-shadow: var(--shadow-precise);
+  user-select: none;
+  overflow: hidden;
+}
+
+.hearing-health-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* SVG Elements */
+.hearing-health-grid-line {
+  stroke: var(--color-border-subtle);
+  stroke-width: 0.5;
+}
+
+.hearing-health-grid-line-inter {
+  stroke: var(--color-border-subtle);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+
+/* Speech Banana Overlay */
+.hearing-health-speech-banana {
+  fill: rgba(217, 119, 6, 0.08);
+  stroke: rgba(217, 119, 6, 0.3);
+  stroke-width: 0.8;
+  stroke-dasharray: 3 2;
+  pointer-events: none;
+}
+
+/* Pictograms Overlay */
+.hearing-health-pictogram-item {
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Curves */
+.hearing-health-path-ac-right {
+  stroke: #dc2626;
+  stroke-width: 1.8;
+  fill: none;
+}
+
+.hearing-health-path-bc-right {
+  stroke: #dc2626;
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
+  fill: none;
+}
+
+.hearing-health-path-ucl-right {
+  stroke: #dc2626;
+  stroke-width: 1.4;
+  stroke-dasharray: 2 2;
+  fill: none;
+}
+
+.hearing-health-path-ac-left {
+  stroke: #2563eb;
+  stroke-width: 1.8;
+  fill: none;
+}
+
+.hearing-health-path-bc-left {
+  stroke: #2563eb;
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
+  fill: none;
+}
+
+.hearing-health-path-ucl-left {
+  stroke: #2563eb;
+  stroke-width: 1.4;
+  stroke-dasharray: 2 2;
+  fill: none;
+}
+
+/* Interactive Hit Column */
+.hearing-health-freq-hitarea {
+  cursor: pointer;
+}
+
+.hearing-health-freq-hitarea:hover {
+  stroke: rgba(0, 0, 0, 0.04);
+  stroke-width: 22;
+}
+
+/* Audiogram Footer Layout (Structured 2-row layout to prevent overlapping) */
+.hearing-health-ear-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 0;
+}
+
+.hearing-health-ear-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hearing-health-use-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hearing-health-green-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16a34a;
+}
+
+.hearing-health-green-dot.off {
+  background: var(--color-border);
+}
+
+.hearing-health-date-input {
+  height: 26px;
+  width: 90px;
+  padding: 0 6px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-xs);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  text-align: center;
+  box-shadow: var(--shadow-precise);
+}
+
+.hearing-health-transducer-select {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-xs);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: border-color 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-transducer-select:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
+/* Center Panel Controls */
+.hearing-health-center-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 36px;
+}
+
+.hearing-health-history-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hearing-health-history-btn {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-xs);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  box-shadow: var(--shadow-precise);
+  transition: background 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-history-btn:hover {
+  background: var(--color-surface);
+}
+
+.hearing-health-add-history-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 3px 0;
+  transition: color 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-add-history-btn:hover {
+  color: var(--color-text-primary);
+}
+
+/* Curve Selector — Frameless & Restrained Segmented Control */
+.hearing-health-curve-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.hearing-health-curve-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  min-height: 26px;
+}
+
+.hearing-health-curve-badge {
+  min-height: 24px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-xs);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-size: 10.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-curve-badge:hover {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+/* Quiet & Restrained Active Badge — Dark/Neutral Focus instead of Harsh Bright Green */
+.hearing-health-curve-badge.active {
+  background: var(--color-text-primary);
+  border-color: var(--color-text-primary);
+  color: var(--color-bg);
+  box-shadow: var(--shadow-precise);
+}
+
+.hearing-health-curve-symbol-left,
+.hearing-health-curve-symbol-right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Options Checkboxes */
+.hearing-health-options-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.hearing-health-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-checkbox-label:hover {
+  color: var(--color-text-primary);
+}
+
+.hearing-health-checkbox-label input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+/* SII Score Badge */
+.hearing-health-sii-score-bar {
+  margin-top: 2px;
+  padding: 6px 10px;
+  border: 0.5px solid var(--color-border-subtle);
+  border-radius: var(--border-radius-xs);
+  background: var(--color-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.hearing-health-sii-score-bar .right {
+  color: #dc2626;
+}
+
+.hearing-health-sii-score-bar .left {
+  color: #2563eb;
+}
+
+@media (max-width: 900px) {
+  .hearing-health-fitting-grid {
+    grid-template-columns: 1fr;
+  }
+}

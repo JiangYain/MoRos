@@ -28,10 +28,22 @@ export const Markdown = memo(function Markdown({ text }: Props): React.JSX.Eleme
             </a>
           ),
           pre: ({ children }) => {
+            let language = "";
+            if (isValidElement<{ className?: string }>(children)) {
+              const match = /(?:^|\s)language-([^\s]+)/.exec(children.props.className ?? "");
+              if (match) language = match[1];
+            }
             const code = plainText(children).replace(/\n$/, "");
             return (
               <div className="md-code-block">
-                <CopyButton className="md-copy-button" label={t("thread.copyCode")} text={code} />
+                <div className="md-code-header">
+                  <span className="md-code-lang">{language || "code"}</span>
+                  <CopyButton
+                    className="md-copy-button-icon"
+                    label={t("thread.copyCode")}
+                    text={code}
+                  />
+                </div>
                 <pre>{children}</pre>
               </div>
             );

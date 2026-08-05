@@ -22,6 +22,7 @@ import type {
   AgentUiEvent,
   AppLanguage,
   AppSettingsView,
+  DependencyId,
   DeveloperContextSnapshot,
   InitPayload,
   PermissionMode,
@@ -152,7 +153,14 @@ export class AgentService {
     this.emit = emit;
     this.getClientRegistry = getClientRegistry;
     this.settings = loadSettings();
+    this.applyDependencyExecutableEnvironment();
     this.modelRuntimePromise = ModelRuntime.create();
+  }
+
+  private applyDependencyExecutableEnvironment(): void {
+    const targetPath = this.settings.dependencyExecutablePaths?.["phonak-target"]?.trim();
+    if (targetPath) process.env.COMPASS_PHONAK_TARGET_PATH = targetPath;
+    else delete process.env.COMPASS_PHONAK_TARGET_PATH;
   }
 
   private async ensureModelRuntime(): Promise<void> {
@@ -928,6 +936,23 @@ export class AgentService {
 
   getPrerequisites(): RuntimePrerequisites {
     return getRuntimePrerequisites(this.settings.workspaceDir);
+  }
+
+  getDependencyExecutablePath(dependencyId: DependencyId): string | undefined {
+    return this.settings.dependencyExecutablePaths?.[dependencyId];
+  }
+
+  setDependencyExecutablePath(dependencyId: DependencyId, path?: string): void {
+    const executablePaths = { ...this.settings.dependencyExecutablePaths };
+    if (path) executablePaths[dependencyId] = path;
+    else delete executablePaths[dependencyId];
+    if (Object.keys(executablePaths).length > 0) {
+      this.settings.dependencyExecutablePaths = executablePaths;
+    } else {
+      delete this.settings.dependencyExecutablePaths;
+    }
+    saveSettings(this.settings);
+    this.applyDependencyExecutableEnvironment();
   }
 
   private appVersion(): string {

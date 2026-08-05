@@ -11,7 +11,7 @@ description: "用于准备和控制 Phonak Target 的行动指南，面向 CLI �
 
 这个 Skill 固化十一个常用操作：
 
-1. 打开内部版 Target 可执行文件，并等待主窗口标题变为 `Phonak Target 12.0`。
+1. 打开 Compass 设置中选定的 Target 可执行文件，并等待该进程的主窗口就绪。
 2. 按当前验证过的工作比例排列窗口：Compass 使用左侧较小区域，约占工作区宽度 `25.4%`；Target 使用右侧较大区域，约占工作区宽度 `74.6%`。完成后用 DWM 可见边界验证坐标。
 3. 快速切换验配软件语言。
 4. 通过 Microsoft UI Automation 快速新建顾客。
@@ -193,17 +193,18 @@ C:\Program Files (x86)\Phonak
 
 执行要求：
 
-- 需要启动 Target 且显式传入 `-TargetPath` 时，优先使用并验证该路径；已有可用主窗口时直接复用现有进程。
-- 未传入 `-TargetPath` 时，在 `-SearchRoot` 下递归查找 `Target.exe`；候选按完整路径排序，存在多个时选择第一个并输出告警。`-SearchRoot` 默认指向上面的 Phonak 安装根目录。
+- 路径优先级固定为：显式 `-TargetPath`、Compass Dependencies 持久设置注入的 `COMPASS_PHONAK_TARGET_PATH`、`-SearchRoot` 自动发现。
+- 脚本在启动前只解析一次 Target 路径；后续的进程复用、启动和就绪等待全部按同一完整路径匹配，不得切换到另一个版本，也不得关闭其他版本。
+- 自动发现时按 `Target.exe` 文件版本从高到低稳定选择一个候选；存在多个版本时输出完整候选清单。`-SearchRoot` 默认指向上面的 Phonak 安装根目录。
 - 不使用开始菜单，也不使用 Windows Run 对话框。
-- 仅在当前没有可用的 `Phonak Target 12.0` 主窗口时，才用 `Start-Process` 启动 Target。
-- 启动后轮询等待可见的 Target 主窗口出现。
-- 以窗口标题 `Phonak Target 12.0` 作为成功条件。
+- 仅在选定路径没有运行中的 Target 进程时启动一次；启动时使用该可执行文件所在目录作为工作目录。
+- 只接受选定路径对应、标题符合 `Phonak Target <版本>` 的可见主窗口作为成功条件。
+- 只需检查选择结果而不启动软件时，使用 `-ResolveOnly`。
 
 给其他 Agent 的极简提示：
 
 ```text
-运行 open-target.ps1；让脚本从 Phonak 安装根目录自动发现 Target.exe，然后等待主窗口标题 "Phonak Target 12.0" 出现。
+运行 open-target.ps1；它会自动使用 Compass Dependencies 中选定的 Target.exe，并只等待同一路径对应的主窗口。
 ```
 
 ## 操作 2：按当前验证比例排列 Compass 和 Target

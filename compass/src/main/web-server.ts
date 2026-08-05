@@ -185,6 +185,13 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
       api.cancelDependencyInstall(dependencyIdArg(args, 0)),
     openDependencySource: (args) =>
       api.openDependencySource(dependencyIdArg(args, 0)),
+    selectDependencyExecutable: (args) =>
+      api.selectDependencyExecutable(
+        dependencyIdArg(args, 0),
+        optionalStringArg(args, 1, "path"),
+      ),
+    resetDependencyExecutable: (args) =>
+      api.resetDependencyExecutable(dependencyIdArg(args, 0)),
     setSkillEnabled: (args) =>
       api.setSkillEnabled(stringArg(args, 0, "name"), booleanArg(args, 1, "enabled")),
     addSkillDir: () => api.addSkillDir(),
