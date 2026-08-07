@@ -4,8 +4,41 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   remainingConfirmationSeconds,
   startThreadConfirmationTimeout,
+  threadConfirmationsReducer,
   THREAD_CONFIRMATION_DURATION_MS,
 } from "../src/renderer/src/components/thread-confirmation.ts";
+
+test("thread confirmations remain independent across multiple sessions", () => {
+  const firstPath = "C:\\sessions\\first.jsonl";
+  const secondPath = "C:\\sessions\\second.jsonl";
+  const first = threadConfirmationsReducer({}, {
+    type: "request",
+    path: firstPath,
+    action: "delete",
+  });
+  const parallel = threadConfirmationsReducer(first, {
+    type: "request",
+    path: secondPath,
+    action: "delete",
+  });
+
+  assert.deepEqual(Object.keys(parallel), [firstPath, secondPath]);
+  const withFirstBusy = threadConfirmationsReducer(parallel, {
+    type: "start",
+    path: firstPath,
+    action: "delete",
+  });
+  const withoutSecond = threadConfirmationsReducer(withFirstBusy, {
+    type: "clear",
+    path: secondPath,
+    action: "delete",
+  });
+  const afterEscape = threadConfirmationsReducer(withFirstBusy, { type: "clear-idle" });
+
+  assert.equal(withoutSecond[firstPath]?.busy, true);
+  assert.equal(withoutSecond[secondPath], undefined);
+  assert.deepEqual(afterEscape, withoutSecond);
+});
 
 test("thread confirmation counts down from five seconds without going negative", () => {
   const startedAt = 10_000;

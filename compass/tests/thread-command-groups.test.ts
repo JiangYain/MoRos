@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { UiThreadItem } from "../src/shared/types.ts";
+import type { UiApprovalRequest, UiThreadItem } from "../src/shared/types.ts";
 import {
   buildSummaryText,
   groupToolActivities,
@@ -12,7 +12,10 @@ import {
   TOOL_ACTIVITY_COPY,
   toolActivity,
 } from "../src/renderer/src/components/threadCommands.ts";
-import { resolveThreadActivity } from "../src/renderer/src/components/threadActivity.ts";
+import {
+  resolveActiveApprovalExplanationId,
+  resolveThreadActivity,
+} from "../src/renderer/src/components/threadActivity.ts";
 
 const user = (id: string): UiThreadItem => ({ kind: "user", id, text: id, ts: 1 });
 const assistant = (id: string): UiThreadItem => ({
@@ -233,6 +236,20 @@ test("maps ordinary streaming text to composing", () => {
     state: "composing",
     itemId: "a1",
   });
+});
+
+test("selects only the newest pending approval explanation when the thread is idle", () => {
+  const approvals: UiApprovalRequest[] = [
+    { id: "approval-1", toolName: "write", message: "First", detail: "", ts: 1 },
+    { id: "approval-2", toolName: "bash", message: "Second", detail: "", ts: 2 },
+  ];
+
+  assert.equal(resolveActiveApprovalExplanationId(approvals, undefined), "approval-2");
+  assert.equal(resolveActiveApprovalExplanationId(approvals, {
+    target: "assistant-stream",
+    state: "working",
+    itemId: "a1",
+  }), undefined);
 });
 
 test("returns no activity after assistants and tools complete", () => {

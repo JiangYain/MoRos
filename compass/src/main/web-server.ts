@@ -1,5 +1,6 @@
 import {
   isAppLanguage,
+  isCommandExplanationLanguage,
   isDependencyId,
   isPermissionMode,
   isThinkingLevel,
@@ -161,6 +162,13 @@ function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
       const language = args[0];
       if (!isAppLanguage(language)) throw new Error("Invalid application language.");
       return api.setLanguage(language);
+    },
+    setCommandExplanationLanguage: (args) => {
+      const language = args[0];
+      if (!isCommandExplanationLanguage(language)) {
+        throw new Error("Invalid command explanation language.");
+      }
+      return api.setCommandExplanationLanguage(language);
     },
     setQuickPrompts: (args) => {
       const prompts = args[0];

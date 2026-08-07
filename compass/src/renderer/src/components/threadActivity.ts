@@ -1,4 +1,4 @@
-import type { UiThreadItem } from "../../../shared/types.ts";
+import type { UiApprovalRequest, UiThreadItem } from "../../../shared/types.ts";
 import { toolActivity, type ToolActivity } from "./threadCommands.ts";
 
 export type ThreadActivityState = "working" | "searching" | "solving" | "composing";
@@ -71,5 +71,24 @@ export function resolveThreadActivity(items: UiThreadItem[]): ThreadActivity | u
     return { target: "assistant-stream", state: "composing", itemId: item.id };
   }
 
+  return undefined;
+}
+
+/**
+ * Approval explanations share the same global activity budget as the thread.
+ * Prefer real agent activity; otherwise only the newest pending explanation may
+ * mount an Orb when several approvals are waiting at once.
+ */
+export function resolveActiveApprovalExplanationId(
+  approvals: UiApprovalRequest[],
+  activity: ThreadActivity | undefined,
+): string | undefined {
+  if (activity) return undefined;
+  for (let index = approvals.length - 1; index >= 0; index -= 1) {
+    const request = approvals[index];
+    if (request.explanationPending !== false && !request.explanation?.trim()) {
+      return request.id;
+    }
+  }
   return undefined;
 }

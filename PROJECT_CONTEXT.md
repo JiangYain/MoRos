@@ -2,8 +2,8 @@
 
 > - **定位**：本文件是新会话的项目上下文入口和当前实现索引，不是宣传材料、需求承诺或安全认证。
 > - **适用范围**：仓库根目录、`compass/` 应用、两个外部验配软件 Skill、调查资产、测试、CI 与宣传站点部署文件。
-> - **最后核验日期**：2026-07-28
-> - **核验基线**：`origin/main` 完整提交 `91d4af3751394626f11d53964a14e26d9dfc4d8c`
+> - **最后核验日期**：2026-08-07
+> - **核验基线**：本轮改动开始前的 `origin/main` 完整提交 `ed9e055b6dae0a87cd281fd6ab793074aa4f8598`
 > - **维护责任**：凡修改架构、契约、持久化、命令、环境变量、语言、Provider、Skill、Pi pin、CI、部署或打包流程的提交，其作者与评审者应同步更新本文件并刷新核验 SHA。
 > - **事实规则**：当前代码、[`compass/package.json`](compass/package.json)、锁文件、[`.gitmodules`](.gitmodules)、子模块 gitlink 和 [CI](.github/workflows/ci.yml) 优先；测试与脚本其次；技术文档再次；[`Compass提案.md`](Compass提案.md)、`Compass_intro*.html` 与部署页面只说明历史背景或产品愿景。冲突时以当前代码为准。
 
@@ -15,6 +15,7 @@
 
 - Electron main + preload + React renderer，并提供同一套 [`CompassApi`](compass/src/shared/types.ts) 给桌面 IPC 和本机 Web RPC；
 - Pi Agent 会话、流式文本/思考/工具事件、图片附件、会话列表、自动标题、模型/Provider 认证、权限审批和 Skill 动态发现；
+- Streamdown 流式 Markdown、按动画帧合并高频 delta，以及工具/思考/正文共享的单一活动 Orb；
 - 客户档案、助听器品牌和“会话—客户”正式归属的 SQLite 持久化；
 - Phonak Target 与 Widex COMPASS GPS 的 Windows UI 自动化 Skill；
 - Git/Bash、验配软件和 Noahlink Wireless driver 的本机检测与安装进度；
@@ -273,7 +274,7 @@ sequenceDiagram
 
 | 模块 / symbol | 输入 → 输出 | 持久化或副作用 | 容易出错的边界 |
 | --- | --- | --- | --- |
-| [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、依赖可执行文件环境变量、真实模型请求 | 恢复旧会话时沿用会话模型；自动标题另发请求；切换工作区会创建新会话 |
+| [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、依赖可执行文件环境变量、真实模型请求 | 恢复旧会话时沿用会话模型；自动标题与审批说明会另发请求；审批结束会取消尚未完成的说明请求；切换工作区会创建新会话 |
 | [`SessionManager.create/open`](compass/src/main/agent.ts) | workspace 或 session path → 活动 Pi session | JSONL append、rename/archive/delete | 客户归属使用 session ID；`openSession` 当前不像 rename/archive/delete 那样先验证 path 属于已列出会话 |
 | [`projectThread`](compass/src/main/thread-projector.ts) | Pi messages/tool results → `UiThreadItem[]` | 无独立存储 | UI thread 是投影，不是第二份会话数据库 |
 | [`generateMissingSessionTitle`](compass/src/main/agent.ts) | 已完成线程 + summary model → session name | 写 Pi session info；网络/费用 | best-effort；失败不会阻断对话，不应假设每个会话都有标题 |
@@ -304,7 +305,9 @@ sequenceDiagram
 
 `general`、`appearance`、`profile`、`models`、`skills`、`dependencies`。
 
-其中包括语言、Quick Prompts、主题、操作员资料、Provider 认证、启用模型、标题 summary model、Skill 目录/开关、依赖项状态/安装。工作区和权限模式都不在 Settings 页面：工作区从 [`Composer`](compass/src/renderer/src/components/Composer.tsx) 的 workspace 操作入口更换，权限模式由同一区域的 [`PermissionMenu`](compass/src/renderer/src/components/composer/PermissionMenu.tsx) 修改；两者都会持久化。
+其中包括界面语言、Command 说明语言、Quick Prompts、主题、操作员资料、Provider 认证、启用模型、标题 summary model、Skill 目录/开关、依赖项状态/安装。Command 说明语言默认跟随界面语言，也可独立指定为简体中文、繁体中文、英语或德语。工作区和权限模式都不在 Settings 页面：工作区从 [`Composer`](compass/src/renderer/src/components/Composer.tsx) 的 workspace 操作入口更换，权限模式由同一区域的 [`PermissionMenu`](compass/src/renderer/src/components/composer/PermissionMenu.tsx) 修改；两者都会持久化。
+
+[`Thread`](compass/src/renderer/src/components/Thread.tsx) 使用 [`Streamdown`](compass/src/renderer/src/components/Markdown.tsx) 渲染 Markdown。只有最新的普通流式正文启用新词淡入，历史、Thinking、工具与 Skill 保持静态；reduced-motion 只关闭动画，不关闭不完整 Markdown 修复。[`agent-event-batcher.ts`](compass/src/renderer/src/agent-event-batcher.ts) 按 animation frame 合并兼容 delta，并在 `assistant-end`、切换会话、取消和完整状态刷新等生命周期屏障前同步冲刷或丢弃。工具、Thinking、正文和审批说明通过 [`threadActivity.ts`](compass/src/renderer/src/components/threadActivity.ts) 竞争唯一活动 Orb。
 
 ### 7.2 Zustand store
 
@@ -365,7 +368,7 @@ sequenceDiagram
 
 | 存储 | 内容 | 默认位置 / 覆盖 |
 | --- | --- | --- |
-| Compass settings | language、workspace、额外/禁用 Skill、permission、default/summary/enabled model、thinking、Quick Prompts | Electron userData 下 `compass-settings.json`；Windows 通常为 `%APPDATA%\compass\compass-settings.json`；整个 userData 可由 `COMPASS_USER_DATA_DIR` 覆盖 |
+| Compass settings | language、commandExplanationLanguage、workspace、额外/禁用 Skill、permission、default/summary/enabled model、thinking、Quick Prompts | Electron userData 下 `compass-settings.json`；Windows 通常为 `%APPDATA%\compass\compass-settings.json`；整个 userData 可由 `COMPASS_USER_DATA_DIR` 覆盖 |
 | 客户 SQLite | clients、brands、session assignments、migration metadata | userData 下 `compass.sqlite3`；`COMPASS_DATABASE_PATH` 可单独覆盖，测试可设 `:memory:` |
 | Pi 认证/模型配置 | Provider API key 或 OAuth credential、`models.json`、model store | 默认 `~/.pi/agent/`；`PI_CODING_AGENT_DIR` 覆盖整个 Pi agent dir |
 | Pi 会话 | append-only JSONL、标题与会话元信息 | 默认 `~/.pi/agent/sessions/--<encoded-workspace>--/*.jsonl`；Compass 的 `SessionManager.create(cwd)` 随 `PI_CODING_AGENT_DIR` 移动 |
@@ -501,9 +504,10 @@ Compass UI 的 `setApiKey` 和 OAuth login 最终写入 Pi credential store（�
 - `defaultModel`：当前/新会话首选，保存在 `compass-settings.json`；
 - `enabledModels`：Composer 选择器显示集合；
 - `summaryModel`：缺失会话标题时使用，默认值定义于 [`DEFAULT_SUMMARY_MODEL`](compass/src/shared/types.ts)；
+- `commandExplanationLanguage`：审批卡片内 Command 说明的生成语言；默认 `auto`，即跟随界面语言，也可独立指定四种受支持语言；
 - `thinkingLevel`：保存偏好，新会话在模型支持时应用；活动会话实际值来自 Pi。
 
-标题生成会发真实请求，即使主要回答已经结束。评估模型成本时要把它计入。
+标题与 Command 说明生成都会通过 summary model 发真实请求。Command 说明会把审批中的命令、路径或关键参数截断后发送给该 Provider，因此可能包含敏感本机上下文；审批被允许、拒绝、超时或因会话结束而取消时会中止尚未完成的说明请求。评估模型成本与数据边界时要把这些额外请求计入。
 
 ### 11.4 Provider audit
 
@@ -811,7 +815,7 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 - 默认 `PermissionMode` 是 `full`；这是当前产品设置，不代表安全推荐。
 - BrowserWindow `sandbox: false`；Web RPC 无用户 token，依赖 loopback + Host/Origin 与本机信任。
 - workspace 内的 Pi project extension 按受信代码载入，工具审批不能把进程内 extension 变成沙箱。
-- summary title best-effort 另发模型请求；会影响网络、额度与审计。
+- summary title 与 Command 说明都是 best-effort 的额外模型请求；会影响网络、额度与审计。
 - sidebar 可依据文本线索归组，但只有 SQLite assignment 是正式客户归属。
 - UI 自动化依赖外部软件、版本、语言、DPI、窗口布局和设备状态，不具备通用稳定性。
 
@@ -868,6 +872,7 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`src/main/client-database.ts`](compass/src/main/client-database.ts) | SQLite schema/migration/transaction | 客户与持久化 |
 | [`src/main/settings.ts`](compass/src/main/settings.ts) | settings default/load/save | 新设置、workspace、权限 |
 | [`src/main/permission-policy.ts`](compass/src/main/permission-policy.ts) | tool approval policy | 权限语义 |
+| [`src/main/approval-explanation.ts`](compass/src/main/approval-explanation.ts) | 审批说明的脱敏上下文与输出规整 | 审批隐私、summary model |
 | [`src/main/dependency-manager.ts`](compass/src/main/dependency-manager.ts) | 检测、下载、安装、进度 | 依赖项/Windows |
 | [`src/main/skills.ts`](compass/src/main/skills.ts) | Skill discovery | Skill 找不到/新增 |
 | [`src/shared/types.ts`](compass/src/shared/types.ts) | IPC/RPC/event/domain 契约 | 跨 main/renderer 变更 |
@@ -878,6 +883,8 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`src/renderer/src/ipc.ts`](compass/src/renderer/src/ipc.ts) / [`web-api.ts`](compass/src/renderer/src/web-api.ts) | 双传输选择/实现 | desktop/Web parity |
 | [`src/renderer/src/components/Composer.tsx`](compass/src/renderer/src/components/Composer.tsx) | 输入、附件、Skill/model/permission | 发送流程 |
 | [`src/renderer/src/components/Thread.tsx`](compass/src/renderer/src/components/Thread.tsx) | 消息/工具/审批展示 | 流式与历史展示 |
+| [`src/renderer/src/components/Markdown.tsx`](compass/src/renderer/src/components/Markdown.tsx) / [`threadMarkdown.ts`](compass/src/renderer/src/components/threadMarkdown.ts) | Streamdown 适配、流式/静态与 reduced-motion 语义 | Markdown、流式动画、安全 |
+| [`src/renderer/src/agent-event-batcher.ts`](compass/src/renderer/src/agent-event-batcher.ts) / [`components/threadActivity.ts`](compass/src/renderer/src/components/threadActivity.ts) | 高频 delta 批处理与唯一活动 Orb 选择 | 流式性能、活动状态 |
 | [`src/renderer/src/components/Sidebar.tsx`](compass/src/renderer/src/components/Sidebar.tsx) | 会话/客户/导航 | 会话列表和归属 |
 | [`src/renderer/src/components/SettingsWorkspace.tsx`](compass/src/renderer/src/components/SettingsWorkspace.tsx) | 设置 UI | Provider/模型/Skill/依赖/语言 |
 | [`src/renderer/src/i18n.ts`](compass/src/renderer/src/i18n.ts) | 四语言 dictionary | 用户文案 |
@@ -886,6 +893,7 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`scripts/audit-providers.mjs`](compass/scripts/audit-providers.mjs) | Provider audit 真相 | Provider drift/readiness |
 | [`scripts/smoke.mjs`](compass/scripts/smoke.mjs) | Electron UI smoke | 复杂 UI/runtime 变更 |
 | [`tests/`](compass/tests/) | 单元/行为测试 | 查既有契约和最小回归 |
+| [`THIRD_PARTY_NOTICES.md`](compass/THIRD_PARTY_NOTICES.md) | 新增运行时依赖的许可证归属 | 依赖升级、发布审查 |
 | [`phonak-target-control/SKILL.md`](phonak-target-control/SKILL.md) | Target 自动化契约 | 操作 Target |
 | [`widex-compass-gps-control/SKILL.md`](widex-compass-gps-control/SKILL.md) | Widex 自动化契约 | 操作 COMPASS GPS |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 实际 CI | 判断合并门禁 |

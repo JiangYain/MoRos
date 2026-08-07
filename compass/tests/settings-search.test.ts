@@ -46,6 +46,13 @@ const TARGETS: readonly SettingsSearchTarget[] = [
     keywords: "sprache 语言 語言",
   },
   {
+    sectionId: "general",
+    targetId: "settings-command-explanation-language",
+    title: "Command explanation language",
+    description: "Choose the language used for generated command explanations.",
+    keywords: "approval summary 命令 说明 语言",
+  },
+  {
     sectionId: "appearance",
     targetId: "settings-theme",
     title: "Color theme",
@@ -102,6 +109,7 @@ test("matches page names across general, appearance, profile, models, and skills
   // A page-level match and a specific setting may both be valid. Confirm that
   // the specific destination remains discoverable without assuming uniqueness.
   assertIncludesTarget("language", "settings-language");
+  assertIncludesTarget("command explanation", "settings-command-explanation-language");
   assertIncludesTarget("color theme", "settings-theme");
   assertIncludesTarget("profile name", "settings-profile-identity");
   assertIncludesTarget("provider", "settings-providers");

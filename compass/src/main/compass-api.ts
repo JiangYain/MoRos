@@ -10,8 +10,9 @@ import { spawn } from "node:child_process";
 import type { AgentService } from "./agent";
 import type { AuthLoginController } from "./auth-login-controller";
 import type { ClientDatabase } from "./client-database";
-import type { DependencyManager } from "./dependency-manager";
+import type { DependencyManager, DependencySnapshotOptions } from "./dependency-manager";
 import { focusWindowForDictation } from "./dictation-window";
+import { ModelMutationCoordinator } from "./model-mutation-coordinator";
 import { runPrerequisiteAction } from "./prerequisite-actions";
 
 interface CompassBackendOptions {
@@ -168,12 +169,20 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     return payload;
   };
 
-  const withDependencies = async (payload: InitPayload): Promise<InitPayload> => ({
+  const withDependencies = async (
+    payload: InitPayload,
+    dependencyOptions?: DependencySnapshotOptions,
+  ): Promise<InitPayload> => ({
     ...payload,
-    dependencies: await dependencyManager.snapshot(payload.prerequisites),
+    dependencies: await dependencyManager.snapshot(payload.prerequisites, dependencyOptions),
   });
-  const buildAndPublish = async (): Promise<InitPayload> =>
-    publish(await withDependencies(await service.buildInitPayload()));
+  const buildAndPublish = async (dependencyOptions?: DependencySnapshotOptions): Promise<InitPayload> =>
+    publish(await withDependencies(await service.buildInitPayload(), dependencyOptions));
+  const modelMutations = new ModelMutationCoordinator({
+    setModel: (provider, id) => service.setModel(provider, id),
+    setModelEnabled: (provider, id, enabled) => service.setModelEnabled(provider, id, enabled),
+    publish: () => buildAndPublish({ allowStale: true }),
+  });
   const publishClientRegistry = <Registry extends InitPayload["clientRegistry"]>(registry: Registry): Registry => {
     emitEvent({ kind: "client-registry-changed", registry });
     return registry;
@@ -187,11 +196,11 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     resolveApproval: async (id, allowed) => service.resolveApproval(id, allowed),
     newSession: async () => {
       await service.start();
-      return buildAndPublish();
+      return buildAndPublish({ allowStale: true });
     },
     openSession: async (path) => {
       await service.start({ sessionPath: path });
-      return buildAndPublish();
+      return buildAndPublish({ allowStale: true });
     },
     listSessions: () => service.listSessions(),
     renameSession: (path, name) => service.renameSession(path, name),
@@ -213,11 +222,9 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       publishClientRegistry(clientDatabase.assignSession(sessionId, clientName)),
     unassignSessionClient: async (sessionId) =>
       publishClientRegistry(clientDatabase.unassignSession(sessionId)),
-    setModel: (provider, id) => service.setModel(provider, id),
-    setModelEnabled: async (provider, id, enabled) => {
-      await service.setModelEnabled(provider, id, enabled);
-      return buildAndPublish();
-    },
+    setModel: (provider, id) => modelMutations.setModel(provider, id),
+    setModelEnabled: (provider, id, enabled) =>
+      modelMutations.setModelEnabled(provider, id, enabled),
     setSummaryModel: async (provider, id) => service.setSummaryModel(provider, id),
     setThinkingLevel: async (level) => {
       const stats = service.setThinkingLevel(level);
@@ -226,6 +233,8 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     },
     setPermissionMode: async (mode) => service.setPermissionMode(mode),
     setLanguage: async (language) => service.setLanguage(language),
+    setCommandExplanationLanguage: async (language) =>
+      service.setCommandExplanationLanguage(language),
     setQuickPrompts: async (prompts) => service.setQuickPrompts(prompts),
     setApiKey: async (provider, key) => {
       await service.setApiKey(provider, key);
@@ -242,7 +251,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       return buildAndPublish();
     },
     refreshDependencies: async () => {
-      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), true);
+      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), { force: true });
       emitEvent({ kind: "dependencies-changed", dependencies });
       return dependencies;
     },
@@ -259,13 +268,13 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
         );
       if (!path) return null;
       await dependencyManager.setExecutable(dependencyId, path);
-      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), true);
+      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), { force: true });
       emitEvent({ kind: "dependencies-changed", dependencies });
       return dependencies;
     },
     resetDependencyExecutable: async (dependencyId) => {
       await dependencyManager.setExecutable(dependencyId, undefined);
-      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), true);
+      const dependencies = await dependencyManager.snapshot(service.getPrerequisites(), { force: true });
       emitEvent({ kind: "dependencies-changed", dependencies });
       return dependencies;
     },
