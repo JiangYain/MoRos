@@ -27,6 +27,7 @@
     "@earendil-works/pi-client": "file:vendor/pi/packages/client",
     "@earendil-works/pi-coding-agent": "file:vendor/pi/packages/coding-agent",
     "@earendil-works/pi-protocol": "file:vendor/pi/packages/protocol",
+    "@earendil-works/pi-telemetry": "file:vendor/pi/packages/telemetry",
     "@earendil-works/pi-tui": "file:vendor/pi/packages/tui",
     "@lobehub/icons": "^5.10.1",
     "lucide-react": "^1.23.0",

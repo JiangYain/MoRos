@@ -19,6 +19,8 @@ const requiredDistFiles = [
   join(piDir, "packages", "agent", "dist", "types.d.ts"),
   join(piDir, "packages", "protocol", "dist", "index.js"),
   join(piDir, "packages", "client", "dist", "index.js"),
+  join(piDir, "packages", "telemetry", "dist", "index.js"),
+  join(piDir, "packages", "telemetry", "dist", "index.d.ts"),
   join(piDir, "packages", "tui", "dist", "index.js"),
   join(piDir, "packages", "coding-agent", "dist", "index.js"),
   join(piDir, "packages", "coding-agent", "dist", "core", "agent-session.d.ts"),
@@ -96,6 +98,7 @@ if (builtFromSourceHasRequiredModels() && buildMarkerMatches(revision)) {
 run("npm", ["ci", "--ignore-scripts"], piDir);
 
 run("npm", ["run", "build", "--workspace", "@earendil-works/pi-tui"], piDir);
+run("npm", ["run", "build", "--workspace", "@earendil-works/pi-telemetry"], piDir);
 
 // Pi AI now keeps provider values in generated, ignored JSON files. Its package build
 // creates those catalogs before compiling and copies them into dist. Restore the tracked
