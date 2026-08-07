@@ -4,10 +4,9 @@ import { useI18n } from "../i18n";
 import {
   remainingConfirmationSeconds,
   startThreadConfirmationTimeout,
+  type ThreadConfirmationAction,
   THREAD_CONFIRMATION_DURATION_MS,
 } from "./thread-confirmation";
-
-export type ThreadConfirmationAction = "archive" | "delete";
 
 interface ThreadInlineConfirmationProps {
   action: ThreadConfirmationAction;

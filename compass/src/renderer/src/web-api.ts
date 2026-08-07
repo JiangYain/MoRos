@@ -3,6 +3,7 @@ import type {
   AgentUiEvent,
   CompassApi,
   InitPayload,
+  ModelPreferenceUpdate,
   PermissionMode,
   ThinkingLevel,
   UiImageAttachment,
@@ -226,11 +227,13 @@ export function createWebApi(): CompassApi {
     unassignSessionClient: (sessionId) => rpc("unassignSessionClient", [sessionId]),
     setModel: (provider, id) => rpc("setModel", [provider, id]),
     setModelEnabled: (provider, id, enabled) =>
-      rpc<InitPayload>("setModelEnabled", [provider, id, enabled]),
+      rpc<ModelPreferenceUpdate>("setModelEnabled", [provider, id, enabled]),
     setSummaryModel: (provider, id) => rpc("setSummaryModel", [provider, id]),
     setThinkingLevel: (level: ThinkingLevel) => rpc<AgentStats>("setThinkingLevel", [level]),
     setPermissionMode: (mode: PermissionMode) => rpc("setPermissionMode", [mode]),
     setLanguage: (language) => rpc("setLanguage", [language]),
+    setCommandExplanationLanguage: (language) =>
+      rpc("setCommandExplanationLanguage", [language]),
     setQuickPrompts: (prompts) => rpc("setQuickPrompts", [prompts]),
     setApiKey: (provider, key) => rpc<InitPayload>("setApiKey", [provider, key]),
     loginProvider: (provider) => rpc<InitPayload>("loginProvider", [provider]),

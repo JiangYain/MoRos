@@ -17,12 +17,13 @@ export function PermissionMenu({ open, onClose, onToggle }: PermissionMenuProps)
   const permissionMode = settings?.permissionMode ?? "full";
   const selected = PERMISSION_OPTIONS.find((option) => option.id === permissionMode) ?? PERMISSION_OPTIONS[2];
   const SelectedIcon = selected.icon;
+  const isFull = permissionMode === "full";
 
   return (
     <div className="toolbar-anchor permission-anchor">
       <button
         type="button"
-        className={`permission-pill${open ? " active" : ""}`}
+        className={`permission-pill${isFull ? " mode-full" : ""}${open ? " active" : ""}`}
         aria-expanded={open}
         onClick={onToggle}
       >
@@ -39,10 +40,11 @@ export function PermissionMenu({ open, onClose, onToggle }: PermissionMenuProps)
           >
             {PERMISSION_OPTIONS.map((option) => {
               const Icon = option.icon;
+              const optionIsFull = option.id === "full";
               return (
                 <button
                   type="button"
-                  className="permission-option"
+                  className={`permission-option${optionIsFull ? " mode-full" : ""}`}
                   key={option.id}
                   onClick={() => {
                     onClose();

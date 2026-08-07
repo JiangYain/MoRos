@@ -22,9 +22,11 @@ import type {
   AgentUiEvent,
   AppLanguage,
   AppSettingsView,
+  CommandExplanationLanguage,
   DependencyId,
   DeveloperContextSnapshot,
   InitPayload,
+  ModelPreferenceUpdate,
   PermissionMode,
   RuntimePrerequisites,
   ThinkingLevel,
@@ -36,7 +38,14 @@ import type {
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
-import { DEFAULT_SUMMARY_MODEL, isAppLanguage, isPermissionMode, isThinkingLevel, modelSelectionKey } from "@shared/types";
+import {
+  DEFAULT_SUMMARY_MODEL,
+  isAppLanguage,
+  isCommandExplanationLanguage,
+  isPermissionMode,
+  isThinkingLevel,
+  modelSelectionKey,
+} from "@shared/types";
 import { isQuickPromptList } from "@shared/quick-prompts";
 import { compactSkillText } from "../shared/skill-display.ts";
 import { app } from "electron";
@@ -44,11 +53,17 @@ import { mkdir, rename, unlink } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { buildClientContext, buildLanguageContext, COMPASS_CONTEXT } from "./compass-context";
+import {
+  buildApprovalExplanationContext,
+  normalizeGeneratedApprovalExplanation,
+  resolveApprovalExplanationLanguage,
+} from "./approval-explanation";
 import { buildEstimatedContextBreakdown } from "./context-usage";
 import { normalizeImages } from "./image-attachments";
 import { evaluateToolApproval, type ToolApprovalRequest } from "./permission-policy";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { getRuntimePrerequisites } from "./prerequisites";
+import { SerialMutationQueue } from "./serial-mutation-queue";
 import { mergeActiveSession } from "./session-list";
 import { buildSessionTitleTranscript, normalizeGeneratedSessionTitle } from "./session-title";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
@@ -113,9 +128,17 @@ interface PendingApproval {
   request: UiApprovalRequest;
   resolve(decision: ToolApprovalDecision): void;
   timer: ReturnType<typeof setTimeout>;
+  explanationAbort: AbortController;
 }
 
 const APPROVAL_TIMEOUT_MS = 10 * 60 * 1_000;
+
+const APPROVAL_EXPLANATION_LANGUAGES: Record<AppLanguage, string> = {
+  "zh-CN": "Simplified Chinese",
+  "zh-TW": "Traditional Chinese",
+  en: "English",
+  de: "German",
+};
 
 function normalizeThinkingLevels(levels: readonly unknown[]): ThinkingLevel[] {
   const normalized = [...new Set(levels.filter(isThinkingLevel))];
@@ -146,6 +169,7 @@ export class AgentService {
   private currentAssistantId?: string;
   private pendingUserMessageIds: string[] = [];
   private pendingApprovals = new Map<string, PendingApproval>();
+  private readonly modelPreferenceUpdates = new SerialMutationQueue();
   private sessionTitleRequests = new Set<string>();
   private getClientRegistry: () => InitPayload["clientRegistry"];
 
@@ -219,10 +243,12 @@ export class AgentService {
       message: approval.message,
       detail: approval.detail,
       args: cloneForUi(args),
+      explanationPending: true,
       ts: Date.now(),
     };
 
     return new Promise<ToolApprovalDecision>((resolveDecision) => {
+      const explanationAbort = new AbortController();
       const timer = setTimeout(() => {
         this.finishApproval(request.id, {
           block: true,
@@ -230,15 +256,83 @@ export class AgentService {
         });
       }, APPROVAL_TIMEOUT_MS);
       timer.unref();
-      this.pendingApprovals.set(request.id, { request, resolve: resolveDecision, timer });
+      this.pendingApprovals.set(request.id, {
+        request,
+        resolve: resolveDecision,
+        timer,
+        explanationAbort,
+      });
       this.emit({ kind: "approval-request", request });
+      void this.generateApprovalExplanation(request.id);
     });
+  }
+
+  private publishApprovalExplanation(id: string, explanation?: string): void {
+    const pending = this.pendingApprovals.get(id);
+    if (!pending) return;
+    pending.request.explanation = explanation;
+    pending.request.explanationPending = false;
+    this.emit({ kind: "approval-explanation", id, explanation });
+  }
+
+  private async generateApprovalExplanation(id: string): Promise<void> {
+    const pending = this.pendingApprovals.get(id);
+    if (!pending) return;
+    const { request, explanationAbort } = pending;
+
+    const context = buildApprovalExplanationContext(request);
+    let explanation: string | undefined;
+    try {
+      if (!context) return;
+      const selection = this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL;
+      const model = this.modelRegistry.find(selection.provider, selection.id);
+      if (!model || !this.isModelConnectable(model)) return;
+
+      const auth = await this.modelRegistry.getApiKeyAndHeaders(model);
+      if (!auth.ok) return;
+      const explanationLanguage = resolveApprovalExplanationLanguage(
+        this.settings.commandExplanationLanguage,
+        this.settings.language,
+      );
+      const response = await completeSimple(
+        model,
+        {
+          systemPrompt: [
+            "Explain what the requested tool action will do in exactly one concise sentence.",
+            `Write in ${APPROVAL_EXPLANATION_LANGUAGES[explanationLanguage]}.`,
+            "Describe the concrete intent and main effect without recommending whether to approve it.",
+            "Return only the sentence with no markdown, label, or preamble.",
+          ].join(" "),
+          messages: [{ role: "user", content: context, timestamp: Date.now() }],
+        },
+        {
+          apiKey: auth.apiKey,
+          headers: auth.headers,
+          env: auth.env,
+          maxTokens: 140,
+          reasoning: "minimal",
+          signal: explanationAbort.signal,
+        },
+      );
+      if (response.stopReason === "error" || response.stopReason === "aborted") return;
+      explanation = normalizeGeneratedApprovalExplanation(
+        response.content
+          .filter((content) => content.type === "text")
+          .map((content) => content.text)
+          .join("\n"),
+      ) ?? undefined;
+    } catch {
+      // Approval explanations are best-effort and must never block the decision.
+    } finally {
+      this.publishApprovalExplanation(id, explanation);
+    }
   }
 
   private finishApproval(id: string, decision: ToolApprovalDecision): boolean {
     const pending = this.pendingApprovals.get(id);
     if (!pending) return false;
     clearTimeout(pending.timer);
+    pending.explanationAbort.abort();
     this.pendingApprovals.delete(id);
     this.emit({ kind: "approval-resolved", id });
     pending.resolve(decision);
@@ -924,6 +1018,7 @@ export class AgentService {
   getSettingsView(): AppSettingsView {
     return {
       language: this.settings.language,
+      commandExplanationLanguage: this.settings.commandExplanationLanguage,
       workspaceDir: this.settings.workspaceDir,
       skillDirs: [...this.settings.skillDirs],
       disabledSkills: [...this.settings.disabledSkills],
@@ -1021,7 +1116,11 @@ export class AgentService {
     await this.session?.abort();
   }
 
-  async setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
+  setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
+    return this.modelPreferenceUpdates.enqueue(() => this.applyModel(provider, id));
+  }
+
+  private async applyModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
     const session = this.session;
     const model = this.modelRegistry.find(provider, id);
     if (!session || !model) return { ok: false, error: agentMessage(this.settings.language, "modelNotFound") };
@@ -1136,7 +1235,21 @@ export class AgentService {
     this.emitStats();
   }
 
-  async setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void> {
+  setModelEnabled(
+    provider: string,
+    id: string,
+    enabled: boolean,
+  ): Promise<ModelPreferenceUpdate> {
+    return this.modelPreferenceUpdates.enqueue(() =>
+      this.applyModelEnabled(provider, id, enabled),
+    );
+  }
+
+  private async applyModelEnabled(
+    provider: string,
+    id: string,
+    enabled: boolean,
+  ): Promise<ModelPreferenceUpdate> {
     const model = this.modelRegistry.find(provider, id);
     if (enabled && (!model || !this.isModelConnectable(model))) {
       throw new Error(agentMessage(this.settings.language, "modelUnavailable"));
@@ -1146,7 +1259,9 @@ export class AgentService {
     if (enabled) {
       enabledModels.add(key);
     } else {
-      if (!enabledModels.has(key)) return;
+      if (!enabledModels.has(key)) {
+        return { settings: this.getSettingsView(), stats: this.getStats() };
+      }
       const replacements = this.connectableModels().filter(
         (candidate) => {
           const candidateKey = modelSelectionKey(String(candidate.provider), candidate.id);
@@ -1178,6 +1293,7 @@ export class AgentService {
     this.settings.enabledModels = [...enabledModels];
     saveSettings(this.settings);
     this.emitStats();
+    return { settings: this.getSettingsView(), stats: this.getStats() };
   }
 
   setPermissionMode(mode: PermissionMode): AppSettingsView {
@@ -1190,6 +1306,15 @@ export class AgentService {
   setLanguage(language: AppSettingsView["language"]): AppSettingsView {
     if (!isAppLanguage(language)) throw new Error("Invalid application language");
     this.settings.language = language;
+    saveSettings(this.settings);
+    return this.getSettingsView();
+  }
+
+  setCommandExplanationLanguage(language: CommandExplanationLanguage): AppSettingsView {
+    if (!isCommandExplanationLanguage(language)) {
+      throw new Error("Invalid command explanation language");
+    }
+    this.settings.commandExplanationLanguage = language;
     saveSettings(this.settings);
     return this.getSettingsView();
   }

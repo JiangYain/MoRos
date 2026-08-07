@@ -4,10 +4,12 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
   DEFAULT_SUMMARY_MODEL,
   isAppLanguage,
+  isCommandExplanationLanguage,
   isDependencyId,
   isPermissionMode,
   isThinkingLevel,
   type AppLanguage,
+  type CommandExplanationLanguage,
   type DependencyId,
   type ModelSelection,
   type PermissionMode,
@@ -17,6 +19,8 @@ import { normalizeQuickPrompts } from "@shared/quick-prompts";
 
 export interface AppSettings {
   language: AppLanguage;
+  /** Language used by the summary model for command explanations. */
+  commandExplanationLanguage: CommandExplanationLanguage;
   workspaceDir: string;
   /** Extra directories scanned for SKILL.md packages. */
   skillDirs: string[];
@@ -74,6 +78,7 @@ function defaultWorkspaceDir(): string {
 export function loadSettings(): AppSettings {
   const defaults: AppSettings = {
     language: "zh-CN",
+    commandExplanationLanguage: "auto",
     workspaceDir: defaultWorkspaceDir(),
     skillDirs: [],
     disabledSkills: [],
@@ -115,6 +120,9 @@ export function loadSettings(): AppSettings {
     }
     if (!isPermissionMode(merged.permissionMode)) merged.permissionMode = defaults.permissionMode;
     if (!isAppLanguage(merged.language)) merged.language = defaults.language;
+    if (!isCommandExplanationLanguage(merged.commandExplanationLanguage)) {
+      merged.commandExplanationLanguage = defaults.commandExplanationLanguage;
+    }
     if (merged.thinkingLevel !== undefined && !isThinkingLevel(merged.thinkingLevel)) {
       delete merged.thinkingLevel;
     }

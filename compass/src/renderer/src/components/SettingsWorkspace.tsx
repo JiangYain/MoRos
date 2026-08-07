@@ -32,13 +32,19 @@ import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
 import type {
+  CommandExplanationLanguage,
   DependencyCategory,
   DependencyId,
   DependencyInstallProgress,
   DependencyResource,
   UiProviderStatus,
 } from "@shared/types";
-import { APP_LANGUAGES, DEFAULT_SUMMARY_MODEL, modelSelectionKey } from "@shared/types";
+import {
+  APP_LANGUAGES,
+  COMMAND_EXPLANATION_LANGUAGES,
+  DEFAULT_SUMMARY_MODEL,
+  modelSelectionKey,
+} from "@shared/types";
 import { MAX_QUICK_PROMPTS } from "@shared/quick-prompts";
 import {
   ArrowLeft,
@@ -67,7 +73,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../ipc";
 import bashLogo from "../assets/dependency-bash.png";
 import gitLogo from "../assets/dependency-git.svg";
@@ -131,6 +137,7 @@ function buildSettingsSearchTargets(t: ReturnType<typeof useI18n>["t"]): Setting
     { sectionId: "dependencies", targetId: "settings-page-dependencies", title: t("settings.nav.dependencies"), description: t("settings.nav.dependenciesDescription"), keywords: "dependency runtime fitting software driver git bash target connexx compass gps noahlink 驱动 验配软件 依赖" },
     // General
     { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
+    { sectionId: "general", targetId: "settings-command-explanation-language", title: t("settings.commandExplanationLanguage"), description: t("settings.commandExplanationLanguageDescription"), keywords: "command explanation approval summary language 命令 说明 语言" },
     { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
     // Appearance
     { sectionId: "appearance", targetId: "settings-theme", title: t("settings.colorTheme"), description: t("settings.appearanceDescription"), keywords: "theme light dark system" },
@@ -167,7 +174,9 @@ function handleDropdownMenuKeyDown(
   if (event.target instanceof HTMLInputElement && event.key !== "ArrowDown" && event.key !== "ArrowUp") {
     return;
   }
-  const options = Array.from(menu.querySelectorAll<HTMLElement>('[role="option"]:not([aria-disabled="true"])'));
+  const options = Array.from(menu.querySelectorAll<HTMLElement>(
+    '[role="option"]:not([aria-disabled="true"]), [data-settings-dropdown-option]:not([aria-disabled="true"])',
+  ));
   if (options.length === 0) return;
   event.preventDefault();
   const currentIndex = options.findIndex((option) => option === document.activeElement);
@@ -383,11 +392,27 @@ function QuickPromptSettings(): React.JSX.Element {
   );
 }
 
-function GeneralSettings(): React.JSX.Element {
-  const { language, t } = useI18n();
-  const setLanguage = useCompass((state) => state.setLanguage);
+interface SettingsLanguageOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+function SettingsLanguageDropdown<T extends string>({
+  label,
+  listboxId,
+  value,
+  options,
+  onSelect,
+}: {
+  label: string;
+  listboxId: string;
+  value: T;
+  options: readonly SettingsLanguageOption<T>[];
+  onSelect(value: T): void;
+}): React.JSX.Element {
+  const { t } = useI18n();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [langQuery, setLangQuery] = useState("");
+  const [query, setQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const dropdownMenuRef = useRef<HTMLDivElement>(null);
   const dropdownTriggerRef = useRef<HTMLButtonElement>(null);
@@ -407,13 +432,118 @@ function GeneralSettings(): React.JSX.Element {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filteredLanguages = useMemo(() => {
-    const q = langQuery.trim().toLowerCase();
-    return APP_LANGUAGES.filter((option) => {
-      const label = t(`language.${option}` as TranslationKey).toLowerCase();
-      return !q || label.includes(q);
-    });
-  }, [langQuery, t]);
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return options.filter((option) =>
+      !normalizedQuery || option.label.toLowerCase().includes(normalizedQuery));
+  }, [options, query]);
+
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
+
+  return (
+    <div className="settings-language-selector-container" ref={dropdownRef}>
+      <button
+        ref={dropdownTriggerRef}
+        type="button"
+        className={`settings-language-dropdown-btn${dropdownOpen ? " open" : ""}`}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={dropdownOpen}
+        aria-controls={listboxId}
+        onClick={() => {
+          setDropdownOpen((open) => !open);
+          setQuery("");
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          setDropdownOpen(true);
+          setQuery("");
+        }}
+      >
+        <span>{selectedLabel}</span>
+        <ChevronDown size={14} strokeWidth={1.55} />
+      </button>
+      {dropdownOpen && (
+        <div
+          ref={dropdownMenuRef}
+          id={listboxId}
+          className="settings-language-dropdown-menu"
+          role="dialog"
+          aria-label={label}
+          onKeyDown={(event) => handleDropdownMenuKeyDown(
+            event,
+            dropdownMenuRef.current,
+            closeDropdownAndRestoreFocus,
+          )}
+        >
+          <div className="settings-language-dropdown-search">
+            <Search size={13} strokeWidth={1.55} />
+            <input
+              type="text"
+              value={query}
+              placeholder={t("common.search")}
+              autoFocus
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <div className="settings-language-dropdown-list">
+            {filteredOptions.map((option) => {
+              const selected = value === option.value;
+              return (
+                <button
+                  type="button"
+                  data-settings-dropdown-option
+                  aria-pressed={selected}
+                  className={`settings-language-dropdown-item${selected ? " selected" : ""}`}
+                  key={option.value}
+                  onClick={() => {
+                    onSelect(option.value);
+                    closeDropdownAndRestoreFocus();
+                  }}
+                >
+                  <span>{option.label}</span>
+                  {selected && <Check size={13} strokeWidth={1.7} />}
+                </button>
+              );
+            })}
+            {filteredOptions.length === 0 && (
+              <div className="settings-language-dropdown-empty">
+                {t("settings.searchNoResults")}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GeneralSettings(): React.JSX.Element {
+  const { language, t } = useI18n();
+  const commandExplanationLanguage = useCompass(
+    (state) => state.settings?.commandExplanationLanguage ?? "auto",
+  );
+  const setLanguage = useCompass((state) => state.setLanguage);
+  const setCommandExplanationLanguage = useCompass(
+    (state) => state.setCommandExplanationLanguage,
+  );
+  const interfaceLanguageOptions = useMemo(
+    () => APP_LANGUAGES.map((option) => ({
+      value: option,
+      label: t(`language.${option}` as TranslationKey),
+    })),
+    [t],
+  );
+  const commandExplanationLanguageOptions = useMemo(
+    () => COMMAND_EXPLANATION_LANGUAGES.map((option) => ({
+      value: option,
+      label: option === "auto"
+        ? t("settings.commandExplanationLanguageAuto")
+        : t(`language.${option}` as TranslationKey),
+    })),
+    [t],
+  );
 
   return (
     <div className="settings-page" id="settings-page-general">
@@ -424,84 +554,32 @@ function GeneralSettings(): React.JSX.Element {
       </header>
 
       <section className="settings-section-block" id="settings-language">
-        <div className="settings-card settings-language-row">
-          <div className="settings-language-copy">
-            <strong>{t("language.label")}</strong>
+        <div className="settings-card">
+          <div className="settings-language-row">
+            <div className="settings-language-copy">
+              <strong>{t("language.label")}</strong>
+              <span>{t("language.description")}</span>
+            </div>
+            <SettingsLanguageDropdown
+              label={t("language.label")}
+              listboxId="settings-language-listbox"
+              value={language}
+              options={interfaceLanguageOptions}
+              onSelect={(option) => void setLanguage(option)}
+            />
           </div>
-          <div className="settings-language-selector-container" ref={dropdownRef}>
-            <button
-              ref={dropdownTriggerRef}
-              type="button"
-              className={`settings-language-dropdown-btn${dropdownOpen ? " open" : ""}`}
-              aria-label={t("language.label")}
-              aria-haspopup="listbox"
-              aria-expanded={dropdownOpen}
-              aria-controls="settings-language-listbox"
-              onClick={() => {
-                setDropdownOpen((open) => !open);
-                setLangQuery("");
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-                event.preventDefault();
-                setDropdownOpen(true);
-                setLangQuery("");
-              }}
-            >
-              <span>{t(`language.${language}` as TranslationKey)}</span>
-              <ChevronDown size={14} strokeWidth={1.55} />
-            </button>
-            {dropdownOpen && (
-              <div
-                ref={dropdownMenuRef}
-                id="settings-language-listbox"
-                className="settings-language-dropdown-menu"
-                role="listbox"
-                aria-label={t("language.label")}
-                onKeyDown={(event) => handleDropdownMenuKeyDown(
-                  event,
-                  dropdownMenuRef.current,
-                  closeDropdownAndRestoreFocus,
-                )}
-              >
-                <div className="settings-language-dropdown-search">
-                  <Search size={13} strokeWidth={1.55} />
-                  <input
-                    type="text"
-                    value={langQuery}
-                    placeholder={t("common.search")}
-                    autoFocus
-                    onChange={(event) => setLangQuery(event.target.value)}
-                  />
-                </div>
-                <div className="settings-language-dropdown-list">
-                  {filteredLanguages.map((option) => {
-                    const selected = language === option;
-                    return (
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        className={`settings-language-dropdown-item${selected ? " selected" : ""}`}
-                        key={option}
-                        onClick={() => {
-                          void setLanguage(option);
-                          closeDropdownAndRestoreFocus();
-                        }}
-                      >
-                        <span>{t(`language.${option}` as TranslationKey)}</span>
-                        {selected && <Check size={13} strokeWidth={1.7} />}
-                      </button>
-                    );
-                  })}
-                  {filteredLanguages.length === 0 && (
-                    <div className="settings-language-dropdown-empty">
-                      {t("settings.searchNoResults")}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+          <div className="settings-language-row" id="settings-command-explanation-language">
+            <div className="settings-language-copy">
+              <strong>{t("settings.commandExplanationLanguage")}</strong>
+              <span>{t("settings.commandExplanationLanguageDescription")}</span>
+            </div>
+            <SettingsLanguageDropdown<CommandExplanationLanguage>
+              label={t("settings.commandExplanationLanguage")}
+              listboxId="settings-command-explanation-language-listbox"
+              value={commandExplanationLanguage}
+              options={commandExplanationLanguageOptions}
+              onSelect={(option) => void setCommandExplanationLanguage(option)}
+            />
           </div>
         </div>
       </section>
@@ -1152,6 +1230,7 @@ function ModelsSettings(): React.JSX.Element {
                           <button
                             type="button"
                             role="option"
+                            tabIndex={-1}
                             aria-selected={isModelEnabled}
                             aria-disabled={isActiveModel && enabled.size <= 1}
                             className={`settings-summary-model-dropdown-item${isModelEnabled ? " selected" : ""}`}
@@ -1259,6 +1338,7 @@ function ModelsSettings(): React.JSX.Element {
                             <button
                               type="button"
                               role="option"
+                              tabIndex={-1}
                               aria-selected={selected}
                               className={`settings-summary-model-dropdown-item${selected ? " selected" : ""}`}
                               key={key}
@@ -1369,6 +1449,7 @@ function ModelsSettings(): React.JSX.Element {
                             <button
                               type="button"
                               role="option"
+                              tabIndex={-1}
                               aria-selected={selected}
                               className={`settings-summary-model-dropdown-item${selected ? " selected" : ""}`}
                               key={key}
@@ -1540,18 +1621,37 @@ function DependencyProgress({
   );
 }
 
-function TargetExecutableSelector({ item }: { item: DependencyResource }): React.JSX.Element | null {
+function TargetExecutableSelector({
+  item,
+  onClose,
+}: {
+  item: DependencyResource;
+  onClose: () => void;
+}): React.JSX.Element | null {
   const { t } = useI18n();
   const selectDependencyExecutable = useCompass((state) => state.selectDependencyExecutable);
   const resetDependencyExecutable = useCompass((state) => state.resetDependencyExecutable);
   const selection = item.executableSelection;
+  const titleId = useId();
+  const descriptionId = useId();
+  const candidateListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const closeWithEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", closeWithEscape, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", closeWithEscape, { capture: true });
+    };
+  }, [onClose]);
+
   if (!selection) return null;
 
-  const selectedCandidate = selection.selectedPath
-    ? selection.candidates.find((candidate) =>
-        candidate.path === selection.selectedPath,
-      )
-    : undefined;
   const configuredUnavailable = Boolean(selection.configuredPath && !selection.selectedPath);
   const description = configuredUnavailable
     ? t("settings.dependency.targetSelectionUnavailable")
@@ -1562,55 +1662,90 @@ function TargetExecutableSelector({ item }: { item: DependencyResource }): React
         : t("settings.dependency.targetNotDetected");
 
   return (
-    <div className={`settings-target-selector${configuredUnavailable ? " unavailable" : ""}`}>
+    <section
+      className={`settings-target-selector${configuredUnavailable ? " unavailable" : ""}`}
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+    >
       <div className="settings-target-selector-head">
         <div>
-          <strong>{t("settings.dependency.targetExecutableLabel")}</strong>
-          <span>{description}</span>
+          <h2 id={titleId}>{t("settings.dependency.targetExecutableLabel")}</h2>
+          <span id={descriptionId}>{description}</span>
         </div>
-        {selection.source && (
-          <small>{t(selection.source === "user"
-            ? "settings.dependency.targetManual"
-            : "settings.dependency.targetAutomatic")}</small>
-        )}
-      </div>
-      {selection.selectedPath && (
-        <div className="settings-target-selector-path" title={selection.selectedPath}>
-          {selectedCandidate?.version && <span>Target {selectedCandidate.version}</span>}
-          <code>{selection.selectedPath}</code>
-        </div>
-      )}
-      {selection.candidates.length > 1 && (
-        <select
-          className="settings-target-selector-candidates"
-          aria-label={t("settings.dependency.targetDetectedVersions")}
-          value={selection.selectedPath ?? ""}
-          onChange={(event) => void selectDependencyExecutable(item.id, event.target.value)}
+        <button
+          type="button"
+          className="settings-target-selector-close"
+          aria-label={t("common.close")}
+          onClick={onClose}
         >
-          {!selection.selectedPath && <option value="" disabled>{t("common.notSelected")}</option>}
+          <X size={13} strokeWidth={1.65} aria-hidden="true" />
+        </button>
+      </div>
+      {selection.candidates.length > 0 && (
+        <div
+          ref={candidateListRef}
+          className="settings-target-selector-candidates"
+          role="listbox"
+          aria-label={t("settings.dependency.targetDetectedVersions")}
+          onKeyDown={(event) => handleDropdownMenuKeyDown(
+            event,
+            candidateListRef.current,
+            onClose,
+          )}
+        >
           {selection.candidates.map((candidate) => {
             const directoryName = candidate.path.split(/[\\/]/).at(-2) ?? "Target.exe";
-            const label = candidate.version
-              ? `Target ${candidate.version} — ${directoryName}`
-              : directoryName;
-            return <option value={candidate.path} key={candidate.path}>{label}</option>;
+            const selected = candidate.path === selection.selectedPath;
+            return (
+              <button
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={`settings-target-selector-option${selected ? " selected" : ""}`}
+                title={candidate.path}
+                key={candidate.path}
+                onClick={() => {
+                  void selectDependencyExecutable(item.id, candidate.path);
+                  onClose();
+                }}
+              >
+                <span>
+                  <strong>{candidate.version ? `Target ${candidate.version}` : directoryName}</strong>
+                  <small>{directoryName}</small>
+                </span>
+                {selected && <Check size={13} strokeWidth={1.8} aria-hidden="true" />}
+              </button>
+            );
           })}
-        </select>
+        </div>
       )}
       <div className="settings-target-selector-actions">
-        <button type="button" onClick={() => void selectDependencyExecutable(item.id)}>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            void selectDependencyExecutable(item.id);
+          }}
+        >
           <FolderOpen size={12} strokeWidth={1.65} aria-hidden="true" />
-          {t(selection.selectedPath
+          {t(selection.configuredPath
             ? "settings.dependency.targetChangeExecutable"
             : "settings.dependency.targetChooseExecutable")}
         </button>
         {selection.configuredPath && (
-          <button type="button" className="muted" onClick={() => void resetDependencyExecutable(item.id)}>
+          <button
+            type="button"
+            className="muted"
+            onClick={() => {
+              onClose();
+              void resetDependencyExecutable(item.id);
+            }}
+          >
             {t("settings.dependency.targetResetExecutable")}
           </button>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1634,15 +1769,57 @@ function DependencyCard({
   onRefresh: () => void;
 }): React.JSX.Element {
   const { t } = useI18n();
+  const [targetSelectorOpen, setTargetSelectorOpen] = useState(false);
+  const targetSelectorTriggerRef = useRef<HTMLButtonElement>(null);
+  const targetSelectorAreaRef = useRef<HTMLDivElement>(null);
   const presentation = DEPENDENCY_PRESENTATION[item.id];
   const installed = item.availability === "installed" || progress?.phase === "completed";
   const active = progress ? ACTIVE_INSTALL_PHASES.has(progress.phase) : false;
   const unavailable = item.availability === "unsupported";
+  const targetSelection = item.id === "phonak-target" ? item.executableSelection : undefined;
+  const selectedTargetCandidate = targetSelection?.selectedPath
+    ? targetSelection.candidates.find((candidate) => candidate.path === targetSelection.selectedPath)
+    : undefined;
+  const targetVersion = item.installedVersion
+    ?? selectedTargetCandidate?.version
+    ?? selectedTargetCandidate?.fileVersion;
+  const targetVersionCount = targetSelection
+    ? Math.max(targetSelection.candidates.length, installed ? 1 : 0)
+    : 0;
+  const targetSelectorLabel = targetSelection
+    ? installed
+      ? targetVersion
+        ? t("settings.dependency.version", { version: targetVersion })
+        : t("settings.dependency.targetManageVersions")
+      : item.recommendedVersion
+        ? t("settings.dependency.recommended", { version: item.recommendedVersion })
+        : t("settings.dependency.targetChooseExecutable")
+    : undefined;
   const statusKey: TranslationKey = unavailable
     ? "settings.dependency.unsupported"
     : installed
       ? "settings.dependency.installed"
       : "settings.dependency.missing";
+  const closeTargetSelector = useCallback(() => {
+    setTargetSelectorOpen(false);
+    window.requestAnimationFrame(() => {
+      targetSelectorTriggerRef.current?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!targetSelectorOpen) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent): void => {
+      const target = event.target;
+      if (target instanceof Node && !targetSelectorAreaRef.current?.contains(target)) {
+        setTargetSelectorOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [targetSelectorOpen]);
 
   return (
     <article className={`settings-dependency-card${installed ? " installed" : ""}${active ? " active" : ""}`}>
@@ -1663,15 +1840,38 @@ function DependencyCard({
           </span>
         </div>
         <p>{t(presentation.descriptionKey)}</p>
-        <div className="settings-dependency-meta">
-          <span>{t(item.required ? "settings.dependency.required" : "settings.dependency.optional")}</span>
-          {item.installedVersion
-            ? <span>{t("settings.dependency.version", { version: item.installedVersion })}</span>
+        <div
+          ref={targetSelection ? targetSelectorAreaRef : undefined}
+          className="settings-dependency-meta"
+        >
+          <span>{targetSelection && installed
+            ? t("settings.dependency.targetVersionCount", { count: targetVersionCount })
+            : t(item.required ? "settings.dependency.required" : "settings.dependency.optional")}</span>
+          {targetSelection && targetSelectorLabel
+            ? (
+                <div className="settings-target-selector-anchor">
+                  <button
+                    ref={targetSelectorTriggerRef}
+                    type="button"
+                    className="settings-dependency-meta-action"
+                    aria-haspopup="listbox"
+                    aria-expanded={targetSelectorOpen}
+                    aria-label={`${targetSelectorLabel} — ${t("settings.dependency.targetOpenSelector")}`}
+                    onClick={() => setTargetSelectorOpen((open) => !open)}
+                  >
+                    {targetSelectorLabel}
+                  </button>
+                  {targetSelectorOpen && targetSelection && (
+                    <TargetExecutableSelector item={item} onClose={closeTargetSelector} />
+                  )}
+                </div>
+              )
+            : item.installedVersion
+              ? <span>{t("settings.dependency.version", { version: item.installedVersion })}</span>
             : item.recommendedVersion
               ? <span>{t("settings.dependency.recommended", { version: item.recommendedVersion })}</span>
               : null}
         </div>
-        {item.id === "phonak-target" && <TargetExecutableSelector item={item} />}
         {progress && <DependencyProgress progress={progress} />}
         {confirming ? (
           <div className="settings-dependency-confirm">

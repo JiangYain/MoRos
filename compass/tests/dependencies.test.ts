@@ -5,6 +5,8 @@ import {
   matchInstalledProgram,
   parseWindowsInventory,
   resolveDependencyExecutableSelection,
+  resolvePhonakTargetInstallation,
+  shouldRefreshDependencyInventory,
 } from "../src/main/dependency-manager.ts";
 import {
   dependencyPromptKey,
@@ -16,6 +18,25 @@ test("dependency ids are a closed allow-list", () => {
   assert.equal(isDependencyId("phonak-target"), true);
   assert.equal(isDependencyId("../../arbitrary-installer"), false);
   assert.equal(isDependencyId("https://example.test/setup.exe"), false);
+});
+
+test("session changes can reuse a stale dependency inventory without weakening explicit refresh", () => {
+  const cachedAt = 1;
+  const now = 60_001;
+
+  assert.equal(shouldRefreshDependencyInventory(true, cachedAt, now), true);
+  assert.equal(
+    shouldRefreshDependencyInventory(true, cachedAt, now, { allowStale: true }),
+    false,
+  );
+  assert.equal(
+    shouldRefreshDependencyInventory(true, cachedAt, now, { force: true, allowStale: true }),
+    true,
+  );
+  assert.equal(
+    shouldRefreshDependencyInventory(false, cachedAt, now, { allowStale: true }),
+    true,
+  );
 });
 
 test("Windows inventory parsing accepts PowerShell singleton output", () => {
@@ -74,6 +95,23 @@ test("a missing manual Target path is not silently replaced by another version",
   assert.equal(selection.configuredPath, "C:\\Phonak\\Removed Target\\Target.exe");
   assert.equal(selection.selectedPath, undefined);
   assert.equal(selection.source, undefined);
+  assert.equal(resolvePhonakTargetInstallation(selection, [{
+    displayName: "Phonak Target 12.0",
+    displayVersion: "12.0",
+    installLocation: "C:\\Phonak\\Target 12",
+  }]), undefined);
+});
+
+test("automatic Target selection still reports a discovered executable", () => {
+  const target = "C:\\Phonak\\Target 12\\Target.exe";
+  const installation = resolvePhonakTargetInstallation(
+    resolveDependencyExecutableSelection([{ path: target, fileVersion: "12.0.1" }]),
+    [],
+  );
+  assert.deepEqual(installation, {
+    installedVersion: "12.0.1",
+    installedPath: "C:\\Phonak\\Target 12",
+  });
 });
 
 const missingTargetDependencies: DependencySnapshot = {

@@ -3,6 +3,7 @@ import type {
   AgentUiEvent,
   AppLanguage,
   AppSettingsView,
+  CommandExplanationLanguage,
   DependencyId,
   DependencySnapshot,
   InitPayload,
@@ -18,7 +19,7 @@ import type {
   UiSkill,
   UiThreadItem,
 } from "@shared/types";
-import { isAppLanguage } from "@shared/types";
+import { isAppLanguage, modelSelectionKey } from "@shared/types";
 import {
   CLIENT_REGISTRY_STORAGE_KEY,
   emptyClientRegistry,
@@ -27,7 +28,11 @@ import {
 } from "@shared/client-registry";
 import { normalizeProfileHandle, normalizeProfileName } from "@shared/profile";
 import { create } from "zustand";
-import { api } from "./ipc";
+import { api, clearPendingAgentEvents } from "./ipc";
+import {
+  rollbackEnabledModelKeys,
+  updateEnabledModelKeys,
+} from "./model-preference-update";
 import { appendOptimisticUser, upsertActiveSession } from "./optimistic-session";
 
 export type SettingsSection = "general" | "appearance" | "profile" | "models" | "skills" | "dependencies";
@@ -100,6 +105,7 @@ interface CompassState {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   setLanguage(language: AppLanguage): Promise<void>;
+  setCommandExplanationLanguage(language: CommandExplanationLanguage): Promise<void>;
   setQuickPrompts(prompts: string[] | null): Promise<void>;
   setApiKey(provider: string, key: string): Promise<void>;
   loginProvider(provider: string): Promise<void>;
@@ -252,6 +258,7 @@ export const useCompass = create<CompassState>((set, get) => {
   dismissedDependencyPrompts: {},
 
   applyInit: (payload) => {
+    clearPendingAgentEvents();
     set({
       ready: true,
       version: payload.version,
@@ -423,6 +430,17 @@ export const useCompass = create<CompassState>((set, get) => {
           ],
         });
         break;
+      case "approval-explanation":
+        set({
+          approvals: state.approvals.map((request) => request.id === event.id
+            ? {
+                ...request,
+                explanation: event.explanation,
+                explanationPending: false,
+              }
+            : request),
+        });
+        break;
       case "approval-resolved":
         set({ approvals: state.approvals.filter((request) => request.id !== event.id) });
         break;
@@ -557,6 +575,7 @@ export const useCompass = create<CompassState>((set, get) => {
       const result = await api.prompt(text, images, id);
       if (!result.ok) throw new Error(result.error ?? "Compass could not send this message.");
     } catch (error) {
+      clearPendingAgentEvents();
       set((current) => ({
         thread: current.thread.filter((item) => item.id !== id),
         sessions: hadActiveSession
@@ -568,11 +587,15 @@ export const useCompass = create<CompassState>((set, get) => {
     }
   },
 
-  abort: () => runIpc(async () => {
-    await api.abort();
-  }),
+  abort: () => {
+    clearPendingAgentEvents();
+    return runIpc(async () => {
+      await api.abort();
+    });
+  },
 
   newSession: async () => {
+    clearPendingAgentEvents();
     try {
       const payload = await api.newSession();
       set({ mainView: "assistant" });
@@ -585,6 +608,7 @@ export const useCompass = create<CompassState>((set, get) => {
   },
 
   openSession: async (path) => {
+    clearPendingAgentEvents();
     try {
       const payload = await api.openSession(path);
       set({ mainView: "assistant" });
@@ -655,15 +679,46 @@ export const useCompass = create<CompassState>((set, get) => {
     if (!result.ok) set({ lastError: result.error ?? storeMessage("approvalInactive") });
   }),
 
-  setModelEnabled: (provider, id, enabled) => runIpc(async () => {
-    const payload = await api.setModelEnabled(provider, id, enabled);
+  setModelEnabled: async (provider, id, enabled) => {
+    const modelKey = modelSelectionKey(provider, id);
+    const previousSettings = get().settings;
+    if (!previousSettings) return;
+    const previousEnabled = previousSettings.enabledModels.includes(modelKey);
+    if (previousEnabled === enabled) return;
+
     set({
-      settings: payload.settings,
-      models: payload.models,
-      providers: payload.providers,
-      stats: payload.stats,
+      settings: {
+        ...previousSettings,
+        enabledModels: updateEnabledModelKeys(
+          previousSettings.enabledModels,
+          modelKey,
+          enabled,
+        ),
+      },
     });
-  }),
+
+    try {
+      // The backend publishes an authoritative state-refresh before this RPC
+      // resolves. Reapplying the response here could overwrite a newer model
+      // selection delivered on the event channel.
+      await api.setModelEnabled(provider, id, enabled);
+    } catch (error) {
+      set((current) => ({
+        settings: current.settings
+          ? {
+              ...current.settings,
+              enabledModels: rollbackEnabledModelKeys(
+                current.settings.enabledModels,
+                modelKey,
+                enabled,
+                previousEnabled,
+              ),
+            }
+          : current.settings,
+        lastError: sanitizeUnknownError(error),
+      }));
+    }
+  },
 
   setSummaryModel: (provider, id) => runIpc(async () => {
     const settings = await api.setSummaryModel(provider, id);
@@ -683,6 +738,11 @@ export const useCompass = create<CompassState>((set, get) => {
   setLanguage: (language) => runIpc(async () => {
     const settings = await api.setLanguage(language);
     document.documentElement.lang = settings.language;
+    set({ settings });
+  }),
+
+  setCommandExplanationLanguage: (language) => runIpc(async () => {
+    const settings = await api.setCommandExplanationLanguage(language);
     set({ settings });
   }),
 
@@ -787,6 +847,7 @@ export const useCompass = create<CompassState>((set, get) => {
     ) {
       return;
     }
+    clearPendingAgentEvents();
     const payload = await api.setWorkspaceDir();
     if (payload) get().applyInit(payload);
   }),

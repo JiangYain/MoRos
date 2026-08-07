@@ -62,6 +62,12 @@ interface DependencyManagerOptions {
   setExecutablePath: (dependencyId: DependencyId, path?: string) => void;
 }
 
+export interface DependencySnapshotOptions {
+  force?: boolean;
+  /** Reuse an existing inventory after its normal refresh interval has elapsed. */
+  allowStale?: boolean;
+}
+
 const CATALOG: readonly DependencyCatalogItem[] = [
   {
     id: "git",
@@ -142,6 +148,16 @@ const CATALOG: readonly DependencyCatalogItem[] = [
 
 const CATALOG_BY_ID = new Map(CATALOG.map((item) => [item.id, item]));
 const INVENTORY_CACHE_MS = 10_000;
+
+export function shouldRefreshDependencyInventory(
+  hasCachedItems: boolean,
+  cachedAt: number,
+  now: number,
+  options: DependencySnapshotOptions = {},
+): boolean {
+  if (options.force || !hasCachedItems) return true;
+  return !options.allowStale && now - cachedAt > INVENTORY_CACHE_MS;
+}
 
 function abortError(): Error {
   const error = new Error("Installation cancelled.");
@@ -291,6 +307,39 @@ export function matchInstalledProgram(
 ): InstalledProgramRecord | undefined {
   const matchers = CATALOG_BY_ID.get(dependencyId)?.programMatchers ?? [];
   return programs.find((program) => matchers.some((matcher) => matcher.test(program.displayName)));
+}
+
+export function resolvePhonakTargetInstallation(
+  selection: DependencyExecutableSelection,
+  programs: readonly InstalledProgramRecord[],
+): { installedVersion?: string; installedPath?: string } | undefined {
+  const selectedCandidate = selection.selectedPath
+    ? selection.candidates.find((candidate) => samePath(candidate.path, selection.selectedPath!))
+    : undefined;
+  if (!selectedCandidate) {
+    // A configured executable is authoritative. If it disappeared, reporting a
+    // different registry installation as available would make the UI disagree
+    // with the path injected into the agent process.
+    if (selection.configuredPath) return undefined;
+    const selectedProgram = matchInstalledProgram(programs, "phonak-target");
+    return selectedProgram
+      ? {
+          installedVersion: selectedProgram.displayVersion,
+          installedPath: programLocation(selectedProgram),
+        }
+      : undefined;
+  }
+
+  const selectedProgram = programs.find((program) => {
+    const location = programLocation(program);
+    return Boolean(location && resolve(selectedCandidate.path).toLowerCase().startsWith(
+      `${resolve(location).toLowerCase().replace(/[\\/]+$/, "")}${sep}`,
+    ));
+  });
+  return {
+    installedVersion: selectedCandidate.version ?? selectedCandidate.fileVersion ?? selectedProgram?.displayVersion,
+    installedPath: dirname(selectedCandidate.path),
+  };
 }
 
 async function runProcess(
@@ -541,22 +590,12 @@ async function inspectResources(
       return installedResource(item, item.recommendedVersion);
     }
     if (item.id === "phonak-target") {
-      const selectedCandidate = targetSelection.selectedPath
-        ? targetSelection.candidates.find((candidate) => samePath(candidate.path, targetSelection.selectedPath!))
-        : undefined;
-      const selectedProgram = selectedCandidate
-        ? inventory.programs.find((program) => {
-            const location = programLocation(program);
-            return Boolean(location && resolve(selectedCandidate.path).toLowerCase().startsWith(
-              `${resolve(location).toLowerCase().replace(/[\\/]+$/, "")}${sep}`,
-            ));
-          })
-        : matchInstalledProgram(inventory.programs, item.id);
-      const resource = selectedCandidate || selectedProgram
+      const installation = resolvePhonakTargetInstallation(targetSelection, inventory.programs);
+      const resource = installation
         ? installedResource(
             item,
-            selectedCandidate?.version ?? selectedProgram?.displayVersion,
-            selectedCandidate ? dirname(selectedCandidate.path) : programLocation(selectedProgram!),
+            installation.installedVersion,
+            installation.installedPath,
           )
         : unavailableResource(item);
       return { ...resource, executableSelection: targetSelection };
@@ -758,8 +797,11 @@ export class DependencyManager {
     this.cachedAt = 0;
   }
 
-  async snapshot(prerequisites: RuntimePrerequisites, force = false): Promise<DependencySnapshot> {
-    if (force || !this.cachedItems || Date.now() - this.cachedAt > INVENTORY_CACHE_MS) {
+  async snapshot(
+    prerequisites: RuntimePrerequisites,
+    options: DependencySnapshotOptions = {},
+  ): Promise<DependencySnapshot> {
+    if (shouldRefreshDependencyInventory(Boolean(this.cachedItems), this.cachedAt, Date.now(), options)) {
       this.cachedItems = await inspectResources(
         prerequisites,
         this.getExecutablePath("phonak-target"),
@@ -781,8 +823,10 @@ export class DependencyManager {
         }
       }
     }
+    const cachedItems = this.cachedItems;
+    if (!cachedItems) throw new Error("Dependency inventory is unavailable.");
     return {
-      items: this.cachedItems.map((item) => ({
+      items: cachedItems.map((item) => ({
         ...item,
         ...(item.executableSelection
           ? {

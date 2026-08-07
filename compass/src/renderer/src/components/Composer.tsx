@@ -525,11 +525,11 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
             <ActionsMenu open={popover === "actions"} onAddImage={() => imageInputRef.current?.click()} onClose={() => setPopover("none")} onToggle={() => togglePopover("actions")} />
             <PermissionMenu open={popover === "permissions"} onClose={() => setPopover("none")} onToggle={() => togglePopover("permissions")} />
             <div className="composer-spacer" />
-            <ModelMenu open={popover === "model"} onClose={() => setPopover("none")} onOpenSettings={() => openSettings("models")} onToggle={() => togglePopover("model")} />
             <ContextUsageTrigger expanded={contextExpanded} onToggle={() => {
               setPopover("none");
               setContextExpanded((current) => !current);
             }} />
+            <ModelMenu open={popover === "model"} onClose={() => setPopover("none")} onOpenSettings={() => openSettings("models")} onToggle={() => togglePopover("model")} />
             <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={dictationBusy ? dictationLabel : isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} aria-pressed={dictationBusy} title={isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} onClick={startDictation}>
               <Mic size={18} strokeWidth={1.75} />
             </button>

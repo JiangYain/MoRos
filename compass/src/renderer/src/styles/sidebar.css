@@ -851,10 +851,6 @@ body.sidebar-resizing * {
   margin: 0 8px;
 }
 
-.thread-item-shell[draggable="true"] .thread-file-item {
-  cursor: grab;
-}
-
 .thread-item-shell.dragging {
   opacity: 0.38;
 }

@@ -1,6 +1,6 @@
 import type { AppLanguage, UiSessionInfo } from "@shared/types";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive,
@@ -29,10 +29,11 @@ import { useCompass } from "../store";
 import { ClientProfileDialog } from "./ClientProfileDialog";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { SessionSearchOverlay, type SessionSearchEntry } from "./SessionSearchOverlay";
+import { ThreadInlineConfirmation } from "./ThreadInlineConfirmation";
 import {
-  ThreadInlineConfirmation,
-  type ThreadConfirmationAction,
-} from "./ThreadInlineConfirmation";
+  type ThreadConfirmationState,
+  threadConfirmationsReducer,
+} from "./thread-confirmation";
 import {
   clampSidebarWidth,
   parseSidebarWidth,
@@ -60,12 +61,6 @@ interface ContextMenuState {
   y: number;
   alignRight: boolean;
   session: UiSessionInfo;
-}
-
-interface SessionConfirmationState {
-  path: string;
-  action: ThreadConfirmationAction;
-  busy: boolean;
 }
 
 interface SidebarResizeState {
@@ -319,7 +314,7 @@ export function Sidebar(): React.JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
-  const [sessionConfirmation, setSessionConfirmation] = useState<SessionConfirmationState | null>(null);
+  const [sessionConfirmations, dispatchSessionConfirmation] = useReducer(threadConfirmationsReducer, {});
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [sessionOrderByClient, setSessionOrderByClient] = useState<SessionOrderByClient>(readSessionOrder);
@@ -383,10 +378,6 @@ export function Sidebar(): React.JSX.Element {
     }
   }, [clientRegistry, persistSessionClient, sessions]);
 
-  useEffect(() => {
-    setSessionConfirmation((current) => current?.busy ? current : null);
-  }, [activeSessionId]);
-
   useLayoutEffect(() => {
     if (!contextMenu || !contextMenuRef.current) {
       setContextMenuPosition(null);
@@ -416,7 +407,7 @@ export function Sidebar(): React.JSX.Element {
       setContextMenu(null);
       setContextMenuPosition(null);
       setProfileOpen(false);
-      setSessionConfirmation((current) => current?.busy ? current : null);
+      dispatchSessionConfirmation({ type: "clear-idle" });
     };
     document.addEventListener("mousedown", closeMenus);
     document.addEventListener("keydown", closeMenusWithKeyboard);
@@ -581,7 +572,6 @@ export function Sidebar(): React.JSX.Element {
     session: UiSessionInfo,
     alignRight = false,
   ): void => {
-    setSessionConfirmation(null);
     setContextMenuPosition(null);
     setContextMenu({ x, y, session, alignRight });
   };
@@ -641,26 +631,26 @@ export function Sidebar(): React.JSX.Element {
 
   const requestSessionAction = (
     session: UiSessionInfo,
-    action: SessionConfirmationState["action"],
+    action: ThreadConfirmationState["action"],
   ): void => {
     closeThreadMenu();
-    setSessionConfirmation({ path: session.path, action, busy: false });
+    dispatchSessionConfirmation({ type: "request", path: session.path, action });
   };
 
-  const confirmSessionAction = async (confirmation: SessionConfirmationState): Promise<void> => {
+  const confirmSessionAction = async (confirmation: ThreadConfirmationState): Promise<void> => {
     if (confirmation.busy) return;
-    setSessionConfirmation((current) => {
-      if (
-        !current
-        || current.path !== confirmation.path
-        || current.action !== confirmation.action
-        || current.busy
-      ) return current;
-      return { ...current, busy: true };
+    dispatchSessionConfirmation({
+      type: "start",
+      path: confirmation.path,
+      action: confirmation.action,
     });
     if (confirmation.action === "delete") await deleteSession(confirmation.path);
     else await archiveSession(confirmation.path);
-    setSessionConfirmation((current) => current?.path === confirmation.path ? null : current);
+    dispatchSessionConfirmation({
+      type: "clear",
+      path: confirmation.path,
+      action: confirmation.action,
+    });
   };
 
   const availableClientNames = clientGroups
@@ -891,9 +881,7 @@ export function Sidebar(): React.JSX.Element {
                           {visibleSessions.map((session) => {
                             const active = activeSessionId === session.id;
                             const renaming = renamingPath === session.path;
-                            const confirmation = sessionConfirmation?.path === session.path
-                              ? sessionConfirmation
-                              : null;
+                            const confirmation = sessionConfirmations[session.path] ?? null;
                             const relativeAge = sessionRelativeAge(session, t("common.now"));
                             return (
                               <div
@@ -1000,7 +988,11 @@ export function Sidebar(): React.JSX.Element {
                                       action={confirmation.action}
                                       busy={confirmation.busy}
                                       sessionTitle={sessionTitle(session, t("common.untitledSession"))}
-                                      onCancel={() => setSessionConfirmation(null)}
+                                      onCancel={() => dispatchSessionConfirmation({
+                                        type: "clear",
+                                        path: confirmation.path,
+                                        action: confirmation.action,
+                                      })}
                                       onConfirm={() => confirmSessionAction(confirmation)}
                                     />
                                   )}

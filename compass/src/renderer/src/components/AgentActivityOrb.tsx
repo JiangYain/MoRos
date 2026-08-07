@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 import { type TranslationKey, useI18n } from "../i18n";
 import type { ThreadActivityState } from "./threadActivity";
@@ -14,59 +14,14 @@ export function AgentActivityOrb({
   state,
   decorative = false,
   className,
-  fallback,
 }: {
-  state?: ThreadActivityState | null;
+  state: ThreadActivityState;
   decorative?: boolean;
   className?: string;
-  fallback?: React.ReactNode;
-}): React.JSX.Element | null {
+}): React.JSX.Element {
   const { t } = useI18n();
   const accentFilterId = `agent-activity-orb-accent-${useId().replace(/:/g, "")}`;
-
-  const [displayState, setDisplayState] = useState<ThreadActivityState | undefined>(
-    state ?? undefined,
-  );
-  const startTimeRef = useRef<number>(state ? Date.now() : 0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (state) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      setDisplayState(state);
-      startTimeRef.current = Date.now();
-    } else {
-      const elapsed = Date.now() - startTimeRef.current;
-      const minHold = 600;
-      if (elapsed < minHold) {
-        const remaining = minHold - elapsed;
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => {
-          setDisplayState(undefined);
-          timerRef.current = null;
-        }, remaining);
-      } else {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        setDisplayState(undefined);
-      }
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [state]);
-
-  if (!displayState) {
-    return <>{fallback ?? null}</>;
-  }
-
-  const activeState = displayState;
+  const activeState = state;
   const classes = ["agent-activity-orb", className].filter(Boolean).join(" ");
   const orb = (
     <>

@@ -45,21 +45,14 @@ try {
     }));
   }, { key: "compass.clients.v1", name: migratedClientName });
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForFunction(async ({ key, name }) => {
-    const migrated = async () => {
-      const payload = await window.compass.init();
-      const profile = Object.values(payload.clientRegistry.profiles)
-        .find((entry) => entry.displayName === name);
-      return localStorage.getItem(key) === null
-        && payload.clientRegistry.clients.includes(name)
-        && profile?.hearingAidBrands.includes("unitron")
-        && profile.hearingAidBrands.includes("oticon")
-        && profile.hearingAidBrands.includes("other");
-    };
-    if (!await migrated()) return false;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    return migrated();
-  }, { key: "compass.clients.v1", name: migratedClientName });
+  // The renderer removes the legacy key only after the database import
+  // commits. Wait for that synchronous signal before starting another init
+  // request, otherwise an init begun before the import can return a stale
+  // (but internally consistent) pre-migration snapshot.
+  await page.waitForFunction(
+    (key) => localStorage.getItem(key) === null,
+    "compass.clients.v1",
+  );
   const migratedBrands = await page.evaluate(async (name) => {
     const payload = await window.compass.init();
     return Object.values(payload.clientRegistry.profiles)
@@ -201,12 +194,42 @@ try {
   const languageSearch = page.locator("#settings-language-listbox input");
   await languageSearch.waitFor();
   await languageSearch.press("ArrowDown");
-  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "option");
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-settings-dropdown-option"));
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => {
     const trigger = document.querySelector('.settings-language-dropdown-btn');
     return document.activeElement === trigger && trigger?.getAttribute("aria-expanded") === "false";
   });
+
+  const commandLanguageTrigger = page.getByRole("button", {
+    name: "Command explanation language",
+    exact: true,
+  });
+  const initialCommandLanguage = await page.evaluate(async () =>
+    (await window.compass.init()).settings.commandExplanationLanguage,
+  );
+  if (initialCommandLanguage !== "auto") {
+    throw new Error(`Command explanation language did not default to auto: ${initialCommandLanguage}`);
+  }
+  await commandLanguageTrigger.click();
+  const commandLanguageDialog = page.getByRole("dialog", {
+    name: "Command explanation language",
+    exact: true,
+  });
+  await commandLanguageDialog.waitFor();
+  await shot("03a-command-explanation-language");
+  await commandLanguageDialog.getByRole("button", { name: "简体中文", exact: true }).click();
+  await page.waitForFunction(async () =>
+    (await window.compass.init()).settings.commandExplanationLanguage === "zh-CN",
+  );
+  await commandLanguageTrigger.click();
+  await commandLanguageDialog.getByRole("button", {
+    name: "Follow interface language",
+    exact: true,
+  }).click();
+  await page.waitForFunction(async () =>
+    (await window.compass.init()).settings.commandExplanationLanguage === "auto",
+  );
 
   await page
     .getByRole("navigation", { name: "Settings navigation" })
@@ -431,7 +454,12 @@ try {
   await selectedSkillChip.getByRole("button", { name: /Remove skill/ }).click();
   await textarea.fill("");
 
-  const modelButton = page.locator(".model-pill");
+  const modelButton = page.locator(".model-pill:not(.model-ring-trigger)");
+  const collapsedModelButton = page.locator(".model-ring-trigger");
+  if (await collapsedModelButton.count()) {
+    await collapsedModelButton.click();
+    await page.locator(".model-pill:not(.model-ring-trigger)").waitFor();
+  }
   await modelButton.click();
   await page.locator(".model-popover").waitFor();
   await textarea.click();
@@ -574,6 +602,44 @@ try {
     if ((await enabledModelOptions.count()) !== initPayload.models.length) {
       throw new Error("Enabled models dropdown did not render the complete model registry");
     }
+    if ((await enabledModelOptions.evaluateAll((options) => options.some((option) => option.tabIndex !== -1)))) {
+      throw new Error("Enabled model options introduced one Tab stop per model");
+    }
+    const enabledModelKeys = new Set(initPayload.settings.enabledModels);
+    const activeModelKey = initPayload.stats.model
+      ? `${initPayload.stats.model.provider}::${initPayload.stats.model.id}`
+      : undefined;
+    const modelToggleProbe = initPayload.models.find((model) =>
+      !enabledModelKeys.has(`${model.provider}::${model.id}`),
+    ) ?? (enabledModelKeys.size > 1
+      ? initPayload.models.find((model) => {
+          const key = `${model.provider}::${model.id}`;
+          return key !== activeModelKey && enabledModelKeys.has(key);
+        })
+      : undefined);
+    if (modelToggleProbe) {
+      const probeKey = `${modelToggleProbe.provider}::${modelToggleProbe.id}`;
+      const probeWasEnabled = enabledModelKeys.has(probeKey);
+      const probeGroup = page.locator(".settings-summary-model-dropdown-group").filter({
+        hasText: modelToggleProbe.providerName,
+      });
+      const probeOption = probeGroup.getByRole("option").filter({
+        hasText: modelToggleProbe.name,
+      });
+      if ((await probeOption.count()) !== 1) {
+        throw new Error(`Could not uniquely identify enabled-model probe ${probeKey}`);
+      }
+      const toggleStartedAt = performance.now();
+      await probeOption.click();
+      const toggleClickMs = performance.now() - toggleStartedAt;
+      const immediateSelection = await probeOption.getAttribute("aria-selected");
+      if (immediateSelection !== String(!probeWasEnabled)) {
+        throw new Error(
+          `Enabled-model selection did not update immediately: ${probeKey}, click=${toggleClickMs.toFixed(1)}ms`,
+        );
+      }
+      console.log("ENABLED_MODEL_SELECTION", JSON.stringify({ probeKey, toggleClickMs }));
+    }
     await enabledModelsSearch.press("ArrowDown");
     await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "option");
     await page.keyboard.press("Escape");
@@ -600,8 +666,8 @@ try {
   const contextRingWidth = await page.locator(".context-trigger circle").first().evaluate((circle) =>
     Number.parseFloat(getComputedStyle(circle).strokeWidth),
   );
-  if (Math.abs(contextRingWidth - 3.4) > 0.05) {
-    throw new Error(`Context ring must be 3.4px: ${contextRingWidth}px`);
+  if (Math.abs(contextRingWidth - 3) > 0.05) {
+    throw new Error(`Context ring must be 3px: ${contextRingWidth}px`);
   }
   await page.getByRole("region", { name: "Context usage" }).waitFor();
   await page.locator(".context-usage-list").waitFor();
@@ -717,15 +783,46 @@ try {
         message: "Allow Compass to run a shell command?",
         detail: "bash\\necho smoke",
         args: { command: "echo smoke" },
+        explanationPending: true,
         ts: Date.now(),
       },
     });
   });
   await page.locator(".approval-request").waitFor();
+  const pendingApprovalOrb = page.locator(
+    ".approval-request-explanation.pending canvas.agent-activity-orb-canvas[data-agent-activity-state='solving']",
+  );
+  if ((await pendingApprovalOrb.count()) !== 1) {
+    throw new Error("Pending approval explanation must use the Thinking Orb");
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "approval-explanation",
+      id: "smoke-approval",
+      explanation: "Runs a harmless smoke-test command and prints its result.",
+    });
+  });
+  await page.getByText("Runs a harmless smoke-test command and prints its result.", { exact: true }).waitFor();
+  if ((await page.locator(".approval-request-explanation canvas.agent-activity-orb-canvas").count()) !== 0) {
+    throw new Error("Approval explanation Orb must disappear when the explanation is ready");
+  }
   await page.waitForTimeout(650);
   const approvalActionCount = await page.locator(".approval-request-actions button").count();
   if (approvalActionCount !== 2) {
     throw new Error(`Inline approval must expose Allow and Deny actions; found ${approvalActionCount}`);
+  }
+  const approvalCommandStyle = await page.locator(".approval-request-command").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { backgroundColor: style.backgroundColor, borderTopStyle: style.borderTopStyle };
+  });
+  if (approvalCommandStyle.borderTopStyle !== "none" || approvalCommandStyle.backgroundColor !== "rgba(0, 0, 0, 0)") {
+    throw new Error(`Approval command must render without a nested frame: ${JSON.stringify(approvalCommandStyle)}`);
+  }
+  const approvalExplanationBorder = await page.locator(".approval-request-explanation").evaluate(
+    (element) => getComputedStyle(element).borderTopStyle,
+  );
+  if (approvalExplanationBorder !== "dashed") {
+    throw new Error(`Approval explanation divider is not dashed: ${approvalExplanationBorder}`);
   }
   await shot("12b-inline-approval");
   await app.evaluate(({ BrowserWindow }) => {
@@ -1070,6 +1167,55 @@ try {
 
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "tool-start",
+      id: "smoke-owner-switch-tool",
+      callId: "smoke-owner-switch-tool-call",
+      name: "custom_dynamic_tool",
+      args: { task: "verify one activity owner" },
+      ts: Date.now(),
+    });
+  });
+  const ownerSwitchTool = page.locator('[data-tool-call-id="smoke-owner-switch-tool-call"]');
+  await ownerSwitchTool.waitFor();
+  await assertActivityOrb("working", ownerSwitchTool);
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    contents?.send("agent:event", {
+      kind: "tool-end",
+      callId: "smoke-owner-switch-tool-call",
+      output: "Owner switch complete",
+      isError: false,
+    });
+    contents?.send("agent:event", {
+      kind: "assistant-start",
+      id: "smoke-owner-switch-answer",
+      ts: Date.now(),
+    });
+  });
+  const ownerSwitchAnswer = page.locator('[data-assistant-message-id="smoke-owner-switch-answer"]');
+  await ownerSwitchAnswer.locator(activityCanvasSelector).waitFor();
+  const ownerSwitchOrbCount = await page.locator(activityCanvasSelector).count();
+  if (ownerSwitchOrbCount !== 1) {
+    const owners = await page.locator(activityCanvasSelector).evaluateAll((canvases) => canvases.map((canvas) => ({
+      state: canvas.getAttribute("data-agent-activity-state"),
+      messageId: canvas.closest("[data-assistant-message-id]")?.getAttribute("data-assistant-message-id"),
+      toolCallId: canvas.closest("[data-tool-call-id]")?.getAttribute("data-tool-call-id"),
+      approvalId: canvas.closest("[data-approval-id]")?.getAttribute("data-approval-id"),
+    })));
+    throw new Error(`Activity owner switch briefly mounted ${ownerSwitchOrbCount} Orbs: ${JSON.stringify(owners)}`);
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-end",
+      id: "smoke-owner-switch-answer",
+      blocks: [],
+      stopReason: "stop",
+    });
+  });
+  await assertNoActivityOrb();
+
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
       kind: "assistant-start",
       id: "smoke-final-answer",
       ts: Date.now(),
@@ -1079,11 +1225,36 @@ try {
   await finalMessage.waitFor();
   await assertActivityOrb("working", finalMessage, "Agent is working");
 
-  const longSmokeAnswer = [
-    "The final answer is ready. Compass kept the activity indicator aligned with the live response without changing the message rhythm.",
+  const incompleteBoldDelta = "The final answer is **ready";
+  const incompleteFenceDelta = [
+    "**. Compass renders the latest received text without a fixed-rate queue.",
+    "",
+    "- The first streamed list item remains readable.",
+    "- The second streamed list item keeps its structure.",
+    "",
+    "```ts",
+    'const phase = "live";',
+  ].join("\n");
+  const completedTail = [
+    "",
+    "console.log(phase);",
+    "```",
+    "",
+    "| Mode | Result |",
+    "| --- | --- |",
+    "| streaming | ready |",
+    "",
+    "[Streamdown reference](https://streamdown.ai)",
+    "",
+    "<button data-smoke-raw-html>Raw HTML stays text</button>",
+    "",
     "The completed reasoning remains readable above the tool exploration, and the tool details can still be collapsed or expanded independently.",
-    "This longer paragraph verifies that the composing Orb stays attached to the current answer while wrapped text grows naturally in a narrow message column.",
-  ].join("\n\n");
+    "",
+    "This longer paragraph verifies that the composing Orb remains aligned while wrapped text grows naturally in a narrow message column. Burst complete.",
+  ].join("\n");
+  const highFrequencyDeltas = completedTail.match(/[\s\S]{1,9}/g) ?? [completedTail];
+  const longSmokeAnswer = incompleteBoldDelta + incompleteFenceDelta + highFrequencyDeltas.join("");
+
   await app.evaluate(({ BrowserWindow }, answer) => {
     BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
       kind: "assistant-delta",
@@ -1092,35 +1263,114 @@ try {
       contentIndex: 0,
       delta: answer,
     });
-  }, longSmokeAnswer);
-  await finalMessage.getByText("The final answer is ready.").waitFor();
+  }, incompleteBoldDelta);
+  await page.waitForFunction(() => (
+    document.querySelector('[data-assistant-message-id="smoke-final-answer"] .md')?.textContent?.includes("The final answer is ready")
+  ));
+  await finalMessage.locator("[data-sd-animate]").first().waitFor();
   await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
-  await page.waitForTimeout(650);
+  if (await page.locator(".thinking-content-text [data-sd-animate], .tool-exploration-body [data-sd-animate]").count()) {
+    throw new Error("Thinking or tool Markdown received streaming word animation");
+  }
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForFunction(() => (
+    document.querySelectorAll('[data-assistant-message-id="smoke-final-answer"] [data-sd-animate]').length === 0
+  ), undefined, { timeout: 2_000 });
+  await app.evaluate(({ BrowserWindow }, answer) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "assistant-delta",
+      id: "smoke-final-answer",
+      blockType: "text",
+      contentIndex: 0,
+      delta: answer,
+    });
+  }, incompleteFenceDelta);
+  await finalMessage.locator(".md-code-block").waitFor();
+  if ((await finalMessage.locator(".md-code-lang").textContent())?.trim() !== "ts") {
+    throw new Error("Reduced-motion streaming syntax repair lost an incomplete code fence language tag");
+  }
+  if (await finalMessage.locator("[data-sd-animate]").count()) {
+    throw new Error("Reduced motion enabled streaming word animation");
+  }
+  const reducedMotionText = await finalMessage.locator(".md").textContent();
+  const reducedMotionVisible = await finalMessage.locator(".md").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0;
+  });
+  if (!reducedMotionVisible
+    || !reducedMotionText?.includes("The final answer is")
+    || !reducedMotionText.includes("ready")) {
+    throw new Error("Reduced motion hid active Markdown text");
+  }
+  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  await finalMessage.locator(".md").evaluate((root) => {
+    const state = { mutationBatches: 0, mutationRecords: 0, startedAt: performance.now() };
+    const observer = new MutationObserver((records) => {
+      state.mutationBatches += 1;
+      state.mutationRecords += records.length;
+    });
+    observer.observe(root, { childList: true, characterData: true, subtree: true });
+    window.__compassStreamdownSmoke = { observer, state };
+  });
+  await app.evaluate(({ BrowserWindow }, deltas) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    for (const delta of deltas) {
+      contents?.send("agent:event", {
+        kind: "assistant-delta",
+        id: "smoke-final-answer",
+        blockType: "text",
+        contentIndex: 0,
+        delta,
+      });
+    }
+  }, highFrequencyDeltas);
+  await page.waitForFunction(() => (
+    document.querySelector('[data-assistant-message-id="smoke-final-answer"] .md')?.textContent?.includes("Burst complete.")
+  ), undefined, { timeout: 2_000 });
+  const streamdownDomMetrics = await page.evaluate(() => {
+    const diagnostics = window.__compassStreamdownSmoke;
+    diagnostics?.observer.disconnect();
+    return diagnostics ? {
+      ...diagnostics.state,
+      stableMs: performance.now() - diagnostics.state.startedAt,
+    } : undefined;
+  });
+  if (!streamdownDomMetrics || streamdownDomMetrics.mutationBatches >= highFrequencyDeltas.length) {
+    throw new Error("High-frequency Markdown updates were not batched: " + JSON.stringify(streamdownDomMetrics));
+  }
+  console.log("STREAMDOWN_DOM_BURST", JSON.stringify({
+    inputDeltaEvents: highFrequencyDeltas.length,
+    ...streamdownDomMetrics,
+  }));
+  await finalMessage.locator("[data-sd-animate]").first().waitFor();
+  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
   await shot("12h-activity-composing-long-reply");
   await page.setViewportSize({ width: 560, height: 780 });
   await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
-  const narrowReplyPlacement = await finalMessage.locator(activityCanvasSelector).evaluate((canvas) => {
-    const orb = canvas.getBoundingClientRect();
-    const thread = document.querySelector(".thread-scroll")?.getBoundingClientRect();
-    return {
-      orbLeft: orb.left,
-      orbRight: orb.right,
-      threadLeft: thread?.left,
-      threadRight: thread?.right,
-    };
-  });
+  const narrowMarkdown = await finalMessage.evaluate((message) => ({
+    clientWidth: message.clientWidth,
+    scrollWidth: message.scrollWidth,
+    threadClientWidth: document.querySelector(".thread-scroll")?.clientWidth,
+    threadScrollWidth: document.querySelector(".thread-scroll")?.scrollWidth,
+  }));
   if (
-    typeof narrowReplyPlacement.threadLeft !== "number"
-    || typeof narrowReplyPlacement.threadRight !== "number"
-    || narrowReplyPlacement.orbLeft < narrowReplyPlacement.threadLeft
-    || narrowReplyPlacement.orbRight > narrowReplyPlacement.threadRight
+    narrowMarkdown.scrollWidth > narrowMarkdown.clientWidth + 1
+    || typeof narrowMarkdown.threadClientWidth !== "number"
+    || typeof narrowMarkdown.threadScrollWidth !== "number"
+    || narrowMarkdown.threadScrollWidth > narrowMarkdown.threadClientWidth + 1
   ) {
-    throw new Error("Narrow composing Orb overflowed: " + JSON.stringify(narrowReplyPlacement));
+    throw new Error("Narrow streamed Markdown overflowed horizontally: " + JSON.stringify(narrowMarkdown));
   }
   await shot("12i-activity-composing-long-reply-narrow");
   await page.setViewportSize({ width: 1320, height: 880 });
   await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
 
+  await page.evaluate(() => {
+    window.__compassAssistantEndStartedAt = performance.now();
+  });
   await app.evaluate(({ BrowserWindow }, answer) => {
     const contents = BrowserWindow.getAllWindows()[0]?.webContents;
     contents?.send("agent:event", {
@@ -1132,6 +1382,45 @@ try {
     contents?.send("agent:event", { kind: "agent-end" });
   }, longSmokeAnswer);
   await assertNoActivityOrb();
+  await page.waitForFunction(() => (
+    document.querySelectorAll('[data-assistant-message-id="smoke-final-answer"] [data-sd-animate]').length === 0
+  ), undefined, { timeout: 2_000 });
+  const assistantEndStableMs = await page.evaluate(() => (
+    performance.now() - window.__compassAssistantEndStartedAt
+  ));
+  console.log("STREAMDOWN_ASSISTANT_END", JSON.stringify({ assistantEndStableMs }));
+  if (await finalMessage.locator('[data-streamdown="code-block-actions"]').count()) {
+    throw new Error("Streamdown rendered a second set of code controls");
+  }
+  if ((await finalMessage.locator(".md-copy-button-icon").count()) !== 1) {
+    throw new Error("Compass code copy control was not preserved exactly once");
+  }
+  if ((await finalMessage.locator("table").count()) !== 1) {
+    throw new Error("Markdown table rendering was not preserved");
+  }
+  const smokeLink = finalMessage.getByRole("link", { name: "Streamdown reference" });
+  const smokeLinkState = {
+    href: await smokeLink.getAttribute("href"),
+    rel: await smokeLink.getAttribute("rel"),
+    target: await smokeLink.getAttribute("target"),
+  };
+  if (!smokeLinkState.href
+    || new URL(smokeLinkState.href).href !== "https://streamdown.ai/"
+    || smokeLinkState.target !== "_blank"
+    || !smokeLinkState.rel?.split(/\s+/).includes("noreferrer")) {
+    throw new Error("Markdown link behavior changed: " + JSON.stringify(smokeLinkState));
+  }
+  if (await finalMessage.locator("button[data-smoke-raw-html]").count()
+    || !(await finalMessage.locator(".md").textContent())?.includes("Raw HTML stays text")) {
+    throw new Error("Raw HTML execution semantics expanded");
+  }
+  const caretState = await finalMessage.locator(".md").evaluate((root) => ({
+    caretVariable: getComputedStyle(root).getPropertyValue("--streamdown-caret").trim(),
+    legacyCaret: Boolean(root.querySelector(".stream-caret")),
+  }));
+  if (caretState.caretVariable || caretState.legacyCaret) {
+    throw new Error("A stream caret was reintroduced: " + JSON.stringify(caretState));
+  }
   await setActivityTheme(previousTheme);
   await reasoningMessage.waitFor({ state: "detached" });
   const completedSummary = page.locator(".execution-summary-container").last();
@@ -1150,6 +1439,13 @@ try {
   if (!(await completedThinking.textContent())?.includes("Reasoning remains readable")) {
     throw new Error("Completed Thinking content is no longer readable");
   }
+  const codeCopyButton = finalMessage.getByRole("button", { name: "Copy code" });
+  await codeCopyButton.click();
+  await finalMessage.locator(".md-copy-button-icon.copied").waitFor();
+  const copiedCode = await app.evaluate(({ clipboard }) => clipboard.readText());
+  if (copiedCode.replaceAll("\r\n", "\n") !== 'const phase = "live";\nconsole.log(phase);') {
+    throw new Error("Code copy content changed: " + JSON.stringify(copiedCode));
+  }
   const assistantCopyButton = finalMessage.getByRole("button", { name: "Copy response" });
   if ((await assistantCopyButton.locator("span").count()) !== 0) {
     throw new Error("Assistant copy action must remain icon-only");
@@ -1165,7 +1461,68 @@ try {
   }, await assistantCopyButton.elementHandle());
   await assistantCopyButton.click();
   await finalMessage.locator(".assistant-copy-button.copied").waitFor();
+  const copiedReply = await app.evaluate(({ clipboard }) => clipboard.readText());
+  if (copiedReply.replaceAll("\r\n", "\n") !== longSmokeAnswer) {
+    throw new Error("Reply copy no longer uses canonical Markdown text");
+  }
   await shot("12d-reasoning-copy");
+
+  const backendPayload = await page.evaluate(() => window.compass.init());
+  const historyPayload = {
+    ...backendPayload,
+    approvals: [],
+    stats: {
+      ...backendPayload.stats,
+      sessionId: "smoke-streamdown-history",
+      sessionName: "Streamdown history",
+      sessionPath: undefined,
+      isStreaming: false,
+    },
+    thread: [{
+      kind: "assistant",
+      id: "smoke-final-answer",
+      blocks: [{ type: "text", text: longSmokeAnswer }],
+      streaming: false,
+      stopReason: "stop",
+      ts: Date.now(),
+    }],
+  };
+  const otherSessionPayload = {
+    ...backendPayload,
+    approvals: [],
+    stats: {
+      ...backendPayload.stats,
+      sessionId: "smoke-streamdown-other",
+      sessionName: "Other session",
+      sessionPath: undefined,
+      isStreaming: false,
+    },
+    thread: [],
+  };
+  await app.evaluate(({ BrowserWindow }, payload) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "state-refresh",
+      payload,
+    });
+  }, otherSessionPayload);
+  await finalMessage.waitFor({ state: "detached" });
+  await app.evaluate(({ BrowserWindow }, payload) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "state-refresh",
+      payload,
+    });
+  }, historyPayload);
+  await finalMessage.waitFor();
+  if (await finalMessage.locator("[data-sd-animate]").count()) {
+    throw new Error("Historical Markdown replayed streaming animation after a session switch");
+  }
+  await app.evaluate(({ BrowserWindow }, payload) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("agent:event", {
+      kind: "state-refresh",
+      payload,
+    });
+  }, backendPayload);
+  await finalMessage.waitFor({ state: "detached" });
 
   const firstSession = page.locator(".thread-item-shell").first();
   if (await firstSession.count()) {
@@ -1230,8 +1587,26 @@ try {
         throw new Error("Inline confirmation countdown did not advance from 5 to 4");
       }
       await shot("13a-inline-confirmation");
+      const sessionRows = page.locator(".thread-item-shell");
+      if (await sessionRows.count() > 1) {
+        await sessionRows.nth(1).click({ button: "right" });
+        const parallelSessionMenu = page.locator(".sidebar-context-menu");
+        await parallelSessionMenu.waitFor();
+        if (!(await inlineConfirmation.isVisible())) {
+          throw new Error("Opening another session menu dismissed an active delete countdown");
+        }
+        await page.locator(".sidebar-brand-name").click();
+        await parallelSessionMenu.waitFor({ state: "detached" });
+      }
       await inlineConfirmation.getByRole("button", { name: "Undo" }).click();
       await inlineConfirmation.waitFor({ state: "detached" });
+
+      const idleSessionCursor = await firstSession
+        .locator(".thread-file-item")
+        .evaluate((row) => getComputedStyle(row).cursor);
+      if (idleSessionCursor !== "pointer") {
+        throw new Error(`Idle session row uses the wrong cursor: ${idleSessionCursor}`);
+      }
 
       const assignmentsBeforeDrag = await page.evaluate(async () => (await window.compass.init()).clientRegistry.assignments);
       const draggedSessionTitle = (await firstSession.locator(".file-name").textContent())?.trim();

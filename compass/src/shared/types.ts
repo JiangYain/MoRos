@@ -29,6 +29,17 @@ export function isAppLanguage(value: unknown): value is AppLanguage {
   return typeof value === "string" && (APP_LANGUAGES as readonly string[]).includes(value);
 }
 
+export const COMMAND_EXPLANATION_LANGUAGES = ["auto", ...APP_LANGUAGES] as const;
+
+export type CommandExplanationLanguage = (typeof COMMAND_EXPLANATION_LANGUAGES)[number];
+
+export function isCommandExplanationLanguage(
+  value: unknown,
+): value is CommandExplanationLanguage {
+  return typeof value === "string"
+    && (COMMAND_EXPLANATION_LANGUAGES as readonly string[]).includes(value);
+}
+
 export interface UiImageAttachment {
   /** Base64 payload without a data URL prefix. */
   data: string;
@@ -140,6 +151,8 @@ export interface UiApprovalRequest {
   message: string;
   detail: string;
   args?: unknown;
+  explanation?: string;
+  explanationPending?: boolean;
   ts: number;
 }
 
@@ -222,6 +235,7 @@ export type AgentUiEvent =
   | { kind: "tool-update"; callId: string; output: string }
   | { kind: "tool-end"; callId: string; output: string; isError: boolean }
   | { kind: "approval-request"; request: UiApprovalRequest }
+  | { kind: "approval-explanation"; id: string; explanation?: string }
   | { kind: "approval-resolved"; id: string }
   | { kind: "queue-update"; steering: string[]; followUp: string[] }
   | { kind: "notice"; tone: "info" | "warn"; text: string; ts: number }
@@ -234,6 +248,7 @@ export type AgentUiEvent =
 
 export interface AppSettingsView {
   language: AppLanguage;
+  commandExplanationLanguage: CommandExplanationLanguage;
   workspaceDir: string;
   skillDirs: string[];
   disabledSkills: string[];
@@ -241,6 +256,11 @@ export interface AppSettingsView {
   enabledModels: string[];
   summaryModel: ModelSelection;
   quickPrompts?: string[];
+}
+
+export interface ModelPreferenceUpdate {
+  settings: AppSettingsView;
+  stats: AgentStats;
 }
 
 interface RuntimePrerequisiteActionBase {
@@ -396,11 +416,12 @@ export interface CompassApi {
   assignSessionClient(sessionId: string, clientName: string): Promise<ClientRegistry>;
   unassignSessionClient(sessionId: string): Promise<ClientRegistry>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
-  setModelEnabled(provider: string, id: string, enabled: boolean): Promise<InitPayload>;
+  setModelEnabled(provider: string, id: string, enabled: boolean): Promise<ModelPreferenceUpdate>;
   setSummaryModel(provider: string, id: string): Promise<AppSettingsView>;
   setThinkingLevel(level: ThinkingLevel): Promise<AgentStats>;
   setPermissionMode(mode: PermissionMode): Promise<AppSettingsView>;
   setLanguage(language: AppLanguage): Promise<AppSettingsView>;
+  setCommandExplanationLanguage(language: CommandExplanationLanguage): Promise<AppSettingsView>;
   setQuickPrompts(prompts: string[] | null): Promise<AppSettingsView>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
   loginProvider(provider: string): Promise<InitPayload>;

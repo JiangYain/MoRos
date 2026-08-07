@@ -11,13 +11,13 @@ import {
   FilePlus2,
   RotateCw,
   Search,
-  SquareTerminal,
   Terminal,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCompass } from "../store";
 import { type TranslationKey, useI18n } from "../i18n";
+import { usePrefersReducedMotion } from "../use-prefers-reduced-motion";
 import phonakTargetAppIcon from "../assets/phonak-target-app.png";
 import {
   dependencyPromptKey,
@@ -42,7 +42,17 @@ import {
 } from "./threadCommands";
 import { shouldStickToLatest } from "./thread-scroll";
 import { AgentActivityOrb } from "./AgentActivityOrb";
-import { resolveThreadActivity, type ThreadActivity } from "./threadActivity";
+import {
+  resolveActiveApprovalExplanationId,
+  resolveThreadActivity,
+  type ThreadActivity,
+} from "./threadActivity";
+import {
+  parseSkillBlock,
+  resolveActiveMarkdownTarget,
+  type ActiveMarkdownTarget,
+  type MarkdownPresentation,
+} from "./threadMarkdown";
 
 /* ------------------------------------------------------------- helpers */
 
@@ -75,32 +85,6 @@ const dependencyEntrance = {
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const },
 };
-
-interface ParsedSkillBlock {
-  name: string;
-  body: string;
-  preview: string;
-  lineCount: number;
-}
-
-function parseSkillBlock(text: string): ParsedSkillBlock | undefined {
-  const match = text.match(/^\s*<skill\b([^>]*)>([\s\S]*?)(?:<\/skill>\s*)?$/i);
-  if (!match) return undefined;
-
-  const attrs = match[1] ?? "";
-  const nameMatch = attrs.match(/\bname=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
-  const name = nameMatch?.[1] ?? nameMatch?.[2] ?? nameMatch?.[3] ?? "skill";
-  const body = (match[2] ?? "").trim();
-  const lines = body.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  const preview = lines.find((line) => !line.trim().startsWith("```"))?.trim() ?? "";
-
-  return {
-    name,
-    body,
-    preview,
-    lineCount: lines.length,
-  };
-}
 
 /* ------------------------------------------------------------- thinking */
 
@@ -158,7 +142,15 @@ function ThinkingBlock({
 
 /* ------------------------------------------------------------- skill block */
 
-function SkillBlock({ text }: { text: string }): React.JSX.Element {
+function SkillBlock({
+  animate = false,
+  text,
+  presentation = "static",
+}: {
+  animate?: boolean;
+  text: string;
+  presentation?: MarkdownPresentation;
+}): React.JSX.Element {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const skill = parseSkillBlock(text);
@@ -166,7 +158,11 @@ function SkillBlock({ text }: { text: string }): React.JSX.Element {
   if (!skill) {
     return (
       <div className="assistant-body">
-        <Markdown text={text} />
+        <Markdown
+          animate={animate}
+          presentation={presentation}
+          text={text}
+        />
       </div>
     );
   }
@@ -232,11 +228,15 @@ function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }
 }
 
 function AssistantMessage({
+  animateMarkdown,
   item,
   activity,
+  markdownTarget,
 }: {
+  animateMarkdown: boolean;
   item: Extract<UiThreadItem, { kind: "assistant" }>;
   activity?: ThreadActivity;
+  markdownTarget?: ActiveMarkdownTarget;
 }): React.JSX.Element {
   const { t } = useI18n();
   // Fast Refresh can briefly retain a pre-migration assistant item while the
@@ -282,7 +282,17 @@ function AssistantMessage({
               : undefined}
           />
         ) : (
-          <SkillBlock key={sourceIndex} text={block.text} />
+          <SkillBlock
+            animate={animateMarkdown
+              && markdownTarget?.itemId === item.id
+              && markdownTarget.blockIndex === sourceIndex}
+            key={sourceIndex}
+            presentation={markdownTarget?.itemId === item.id
+              && markdownTarget.blockIndex === sourceIndex
+              ? "streaming"
+              : "static"}
+            text={block.text}
+          />
         ),
       )}
       {streamActivity && (
@@ -396,16 +406,13 @@ function StandardToolCard({
       {...entrance}
     >
       <button type="button" className="tool-head" aria-expanded={open} onClick={() => setManual(!open)}>
-        <AgentActivityOrb
-          state={active?.state}
-          decorative
-          className="tool-card-activity-orb"
-          fallback={
-            <span
-              className={`tool-dot${item.running ? " running" : ""}${item.isError ? " failed" : ""}`}
-            />
-          }
-        />
+        {active
+          ? <AgentActivityOrb state={active.state} decorative className="tool-card-activity-orb" />
+          : (
+              <span
+                className={`tool-dot${item.running ? " running" : ""}${item.isError ? " failed" : ""}`}
+              />
+            )}
         <span className="tool-name">{label}</span>
         <span className="tool-summary">{summary}</span>
         <span className={`tool-status${item.isError ? " error" : ""}`}>
@@ -723,26 +730,83 @@ function ToolExplorationGroup({
   );
 }
 
-function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX.Element {
+function ApprovalRequest({
+  request,
+  shortcutActive,
+  showExplanationOrb,
+}: {
+  request: UiApprovalRequest;
+  shortcutActive: boolean;
+  showExplanationOrb: boolean;
+}): React.JSX.Element {
   const { t } = useI18n();
   const resolveApproval = useCompass((state) => state.resolveApproval);
   const [responding, setResponding] = useState<"allow" | "deny" | null>(null);
-  const summary = summarizeArgs(request.args) || request.detail.split(/\r?\n/).slice(1).join(" ");
+  const commandText = summarizeArgs(request.args) || request.detail.split(/\r?\n/).slice(1).join(" ");
+  const explanation = request.explanation?.trim();
+  const explanationState = explanation
+    ? "ready"
+    : request.explanationPending === false
+      ? "unavailable"
+      : "pending";
+  const explanationText = explanation ?? t("thread.commandExplanationUnavailable");
 
-  const respond = (allowed: boolean): void => {
-    if (responding) return;
+  const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const metaKeyLabel = isMac ? "⌘↵" : "Ctrl+↵";
+
+  const respond = useCallback((allowed: boolean): void => {
+    if (responding !== null) return;
     setResponding(allowed ? "allow" : "deny");
     void resolveApproval(request.id, allowed).finally(() => setResponding(null));
-  };
+  }, [responding, request.id, resolveApproval]);
+
+  useEffect(() => {
+    if (!shortcutActive) return undefined;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (responding !== null) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement
+        && (target.isContentEditable || target.matches("input, textarea, select"))
+      ) {
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        respond(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        respond(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [responding, respond, shortcutActive]);
 
   return (
-    <motion.section className="approval-request" aria-label={t("thread.commandApproval")} {...entrance}>
-      <div className="approval-request-main">
-        <SquareTerminal size={15} strokeWidth={1.65} aria-hidden />
-        <div className="approval-request-copy">
-          <strong>{request.message}</strong>
-          <code title={summary}>{summary || request.toolName}</code>
+    <motion.section className="approval-request" aria-label={t("thread.actionApproval")} {...entrance}>
+      <div className="approval-request-header">
+        <div className="approval-request-badge">
+          <Terminal size={11} strokeWidth={2.2} aria-hidden />
+          <span>{t("thread.actionApproval")}</span>
         </div>
+        <strong>{request.message}</strong>
+      </div>
+      <pre className="approval-request-command">{commandText || request.toolName}</pre>
+      <div
+        className={`approval-request-explanation ${explanationState}`}
+        aria-live="polite"
+        aria-busy={explanationState === "pending"}
+      >
+        {explanationState === "pending"
+          ? showExplanationOrb
+            ? <AgentActivityOrb state="solving" className="approval-request-explanation-orb" />
+            : <span>{t("common.loading")}</span>
+          : explanationText}
       </div>
       <div className="approval-request-actions">
         <button
@@ -751,7 +815,8 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
           disabled={responding !== null}
           onClick={() => respond(false)}
         >
-          {responding === "deny" ? t("thread.denying") : t("thread.deny")}
+          <span>{responding === "deny" ? t("thread.denying") : t("thread.deny")}</span>
+          {shortcutActive && <kbd className="approval-kbd">Esc</kbd>}
         </button>
         <button
           type="button"
@@ -759,7 +824,8 @@ function ApprovalRequest({ request }: { request: UiApprovalRequest }): React.JSX
           disabled={responding !== null}
           onClick={() => respond(true)}
         >
-          {responding === "allow" ? t("thread.allowing") : t("thread.allowOnce")}
+          <span>{responding === "allow" ? t("thread.allowing") : t("thread.allowOnce")}</span>
+          {shortcutActive && <kbd className="approval-kbd">{metaKeyLabel}</kbd>}
         </button>
       </div>
     </motion.section>
@@ -915,6 +981,7 @@ export function Thread(): React.JSX.Element {
   const clientRegistry = useCompass((s) => s.clientRegistry);
   const dependencies = useCompass((s) => s.dependencies);
   const dismissedDependencyPrompts = useCompass((s) => s.dismissedDependencyPrompts);
+  const reduced = usePrefersReducedMotion();
   const targetResource = dependencies.items.find((item) => item.id === "phonak-target");
   const targetInstall = sessionDependencyInstall(sessionId, dependencies, "phonak-target");
   const targetPromptDismissed = sessionId
@@ -932,6 +999,15 @@ export function Thread(): React.JSX.Element {
     ? targetInstall
     : undefined;
   const activity = useMemo(() => resolveThreadActivity(thread), [thread]);
+  const activeApprovalExplanationId = useMemo(
+    () => resolveActiveApprovalExplanationId(approvals, activity),
+    [activity, approvals],
+  );
+  const activeApprovalShortcutId = approvals.at(-1)?.id;
+  const markdownTarget = useMemo(
+    () => resolveActiveMarkdownTarget(thread),
+    [thread],
+  );
   const renderItems = useMemo(
     () => placeAssistantIdentities(
       summarizeExecutionTurns(groupToolActivities(thread), agentStreaming),
@@ -942,7 +1018,6 @@ export function Thread(): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const reduced = useReducedMotion();
 
   useLayoutEffect(() => {
     stickRef.current = true;
@@ -982,7 +1057,15 @@ export function Thread(): React.JSX.Element {
               case "user":
                 return <UserMessage key={item.id} item={item} />;
               case "assistant":
-                return <AssistantMessage key={item.id} item={item} activity={activity} />;
+                return (
+                  <AssistantMessage
+                    animateMarkdown={!reduced}
+                    key={item.id}
+                    item={item}
+                    activity={activity}
+                    markdownTarget={markdownTarget}
+                  />
+                );
               case "assistant-identity":
                 return <AssistantIdentity key={item.id} />;
               case "execution-summary":
@@ -1004,7 +1087,14 @@ export function Thread(): React.JSX.Element {
           {sessionId && (needsTarget || visibleTargetInstall) && (
             <SessionDependencyCard sessionId={sessionId} progress={visibleTargetInstall} />
           )}
-          {approvals.map((request) => <ApprovalRequest key={request.id} request={request} />)}
+          {approvals.map((request) => (
+            <ApprovalRequest
+              key={request.id}
+              request={request}
+              shortcutActive={request.id === activeApprovalShortcutId}
+              showExplanationOrb={request.id === activeApprovalExplanationId}
+            />
+          ))}
         </div>
       </div>
       <AnimatePresence>

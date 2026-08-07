@@ -1,5 +1,6 @@
 import type {
   AgentUiEvent,
+  CommandExplanationLanguage,
   CompassBackendApi,
   DependencyId,
   PermissionMode,
@@ -209,6 +210,11 @@ function registerIpc(api: CompassBackendApi): void {
     api.setPermissionMode(mode),
   );
   ipcMain.handle("settings:set-language", (_event, language) => api.setLanguage(language));
+  ipcMain.handle(
+    "settings:set-command-explanation-language",
+    (_event, language: CommandExplanationLanguage) =>
+      api.setCommandExplanationLanguage(language),
+  );
   ipcMain.handle("settings:set-quick-prompts", (_event, prompts) =>
     api.setQuickPrompts(prompts),
   );
