@@ -33,7 +33,12 @@ test("static provider audit loads the current Pi model runtime", () => {
   assert.ok(report.totals.providers > 0);
   assert.ok(report.totals.models > 0);
   assert.equal(report.totals.staticFailures, 0);
-  for (const provider of ["baseten", "qwen-token-plan", "qwen-token-plan-cn"]) {
+  for (const provider of [
+    "baseten",
+    "qwen-token-plan",
+    "qwen-token-plan-individual",
+    "qwen-token-plan-cn",
+  ]) {
     const providerResult = report.results.find((entry) => entry.provider === provider);
     assert.ok(providerResult, `${provider} must be present in the Pi provider registry`);
     assert.equal(providerResult.auth.missingHint, false, `${provider} must have a Compass auth hint`);
