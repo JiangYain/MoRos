@@ -47,6 +47,31 @@ export interface UiImageAttachment {
   name?: string;
 }
 
+export const CONTEXT_USAGE_CATEGORY_KEYS = [
+  "systemPrompt",
+  "toolDefinitions",
+  "rules",
+  "skills",
+  "mcpTools",
+  "subagents",
+  "conversation",
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "otherTools",
+] as const;
+
+export type ContextUsageCategoryKey = (typeof CONTEXT_USAGE_CATEGORY_KEYS)[number];
+
+export interface ContextUsageDetailItem {
+  id: string;
+  label: string;
+  tokens: number;
+}
+
+export type ContextUsageDetails = Record<ContextUsageCategoryKey, ContextUsageDetailItem[]>;
+
 export interface ContextUsageBreakdown {
   systemPrompt: number;
   toolDefinitions: number;
@@ -55,6 +80,13 @@ export interface ContextUsageBreakdown {
   mcpTools: number;
   subagents: number;
   conversation: number;
+  read: number;
+  write: number;
+  edit: number;
+  bash: number;
+  otherTools: number;
+  /** Optional so older persisted/test snapshots remain compatible. */
+  details?: ContextUsageDetails;
   estimated: boolean;
 }
 
@@ -305,7 +337,7 @@ export function isDependencyId(value: unknown): value is DependencyId {
 
 export type DependencyCategory = "runtime" | "fitting-software" | "driver";
 export type DependencyAvailability = "installed" | "missing" | "unsupported";
-export type DependencyInstallKind = "winget" | "archive" | "executable";
+export type DependencyInstallKind = "winget" | "archive" | "executable" | "external";
 
 export interface DependencyExecutableCandidate {
   path: string;
@@ -455,6 +487,3 @@ export type CompassBackendApi = Omit<
   CompassApi,
   "onAgentEvent" | "windowControl" | "onMaximizeChange"
 >;
-
-/** Backend operations transported over the browser RPC bridge. */
-export type WebRpcMethod = Exclude<keyof CompassBackendApi, "startDictation">;

@@ -4,7 +4,7 @@ import { SerialMutationQueue } from "./serial-mutation-queue.ts";
 export interface ModelMutationBackend {
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<ModelPreferenceUpdate>;
-  publish(): Promise<InitPayload>;
+  publish(allowStaleDependencies: boolean): Promise<InitPayload>;
 }
 
 /**
@@ -23,7 +23,7 @@ export class ModelMutationCoordinator {
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
     return this.queue.enqueue(async () => {
       const result = await this.backend.setModel(provider, id);
-      if (result.ok) await this.backend.publish();
+      if (result.ok) await this.backend.publish(true);
       return result;
     });
   }
@@ -31,8 +31,18 @@ export class ModelMutationCoordinator {
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<ModelPreferenceUpdate> {
     return this.queue.enqueue(async () => {
       await this.backend.setModelEnabled(provider, id, enabled);
-      const payload = await this.backend.publish();
+      const payload = await this.backend.publish(true);
       return { settings: payload.settings, stats: payload.stats };
+    });
+  }
+
+  mutateAndPublish(
+    mutation: () => Promise<void>,
+    options: { allowStaleDependencies?: boolean } = {},
+  ): Promise<InitPayload> {
+    return this.queue.enqueue(async () => {
+      await mutation();
+      return this.backend.publish(options.allowStaleDependencies ?? false);
     });
   }
 }

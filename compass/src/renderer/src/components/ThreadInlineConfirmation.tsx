@@ -13,7 +13,7 @@ interface ThreadInlineConfirmationProps {
   busy: boolean;
   sessionTitle: string;
   onCancel(): void;
-  onConfirm(): void | Promise<void>;
+  onConfirm(): void;
 }
 
 const COUNTDOWN_TICK_MS = 100;
@@ -51,7 +51,7 @@ export function ThreadInlineConfirmation({
     if (settledRef.current || busy) return;
     settledRef.current = true;
     clearTimers();
-    void onConfirmRef.current();
+    onConfirmRef.current();
   }, [busy, clearTimers]);
 
   const cancel = useCallback((): void => {

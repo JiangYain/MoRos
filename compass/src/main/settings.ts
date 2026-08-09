@@ -1,6 +1,6 @@
 import { app } from "electron";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import {
   DEFAULT_SUMMARY_MODEL,
   isAppLanguage,
@@ -16,6 +16,11 @@ import {
   type ThinkingLevel,
 } from "@shared/types";
 import { normalizeQuickPrompts } from "@shared/quick-prompts";
+import {
+  loadJsonFile,
+  saveJsonFileAtomic,
+  type JsonFileLoadResult,
+} from "./settings-persistence";
 
 export interface AppSettings {
   language: AppLanguage;
@@ -86,9 +91,23 @@ export function loadSettings(): AppSettings {
     enabledModels: [],
     summaryModel: { ...DEFAULT_SUMMARY_MODEL },
   };
+  const file = settingsPath();
+  const result = loadJsonFile<Partial<AppSettings>>(file, {
+    parse: (raw) => {
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new TypeError("The settings document must be a JSON object");
+      }
+      return parsed as Partial<AppSettings>;
+    },
+  });
+  if (result.kind !== "loaded") {
+    reportSettingsLoadFailure(file, result);
+    return defaults;
+  }
+
   try {
-    const raw = readFileSync(settingsPath(), "utf8");
-    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    const parsed = result.value;
     const merged = { ...defaults, ...parsed };
     if (!merged.workspaceDir || !existsSync(merged.workspaceDir)) {
       merged.workspaceDir = defaults.workspaceDir;
@@ -127,13 +146,46 @@ export function loadSettings(): AppSettings {
       delete merged.thinkingLevel;
     }
     return merged;
-  } catch {
+  } catch (error) {
+    console.error(
+      `[settings] Failed to normalize ${file}; using defaults without modifying the settings file.`,
+      error,
+    );
     return defaults;
   }
 }
 
 export function saveSettings(settings: AppSettings): void {
   const file = settingsPath();
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(settings, null, 2), "utf8");
+  saveJsonFileAtomic(file, settings);
+}
+
+function reportSettingsLoadFailure(
+  file: string,
+  result: Exclude<JsonFileLoadResult<Partial<AppSettings>>, { kind: "loaded" }>,
+): void {
+  if (result.kind === "missing") return;
+  if (result.kind === "read-error") {
+    console.error(
+      `[settings] Failed to read ${file}; using defaults and leaving the existing file untouched.`,
+      result.error,
+    );
+    return;
+  }
+
+  if (result.quarantinePath) {
+    console.error(
+      `[settings] Invalid settings JSON in ${file}; using defaults. `
+        + `The original contents were preserved at ${result.quarantinePath}.`,
+      result.error,
+    );
+    return;
+  }
+
+  console.error(
+    `[settings] Invalid settings JSON in ${file}; using defaults. `
+      + "The original file was left untouched, but a recovery copy could not be created.",
+    result.error,
+    result.quarantineError,
+  );
 }

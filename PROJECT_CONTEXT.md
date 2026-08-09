@@ -2,8 +2,8 @@
 
 > - **定位**：本文件是新会话的项目上下文入口和当前实现索引，不是宣传材料、需求承诺或安全认证。
 > - **适用范围**：仓库根目录、`compass/` 应用、两个外部验配软件 Skill、调查资产、测试、CI 与宣传站点部署文件。
-> - **最后核验日期**：2026-08-07
-> - **核验基线**：本轮改动开始前的 `origin/main` 完整提交 `ed9e055b6dae0a87cd281fd6ab793074aa4f8598`
+> - **最后核验日期**：2026-08-10
+> - **核验基线**：本轮改动开始前的 `origin/main` 完整提交 `d498cc14e8ad3abdad33af7a823e792ba48a1eb5`
 > - **维护责任**：凡修改架构、契约、持久化、命令、环境变量、语言、Provider、Skill、Pi pin、CI、部署或打包流程的提交，其作者与评审者应同步更新本文件并刷新核验 SHA。
 > - **事实规则**：当前代码、[`compass/package.json`](compass/package.json)、锁文件、[`.gitmodules`](.gitmodules)、子模块 gitlink 和 [CI](.github/workflows/ci.yml) 优先；测试与脚本其次；技术文档再次；[`Compass提案.md`](Compass提案.md)、`Compass_intro*.html` 与部署页面只说明历史背景或产品愿景。冲突时以当前代码为准。
 
@@ -56,7 +56,7 @@ npm run audit:providers:static
 npm run build
 ```
 
-工作流内阻断的 `check` job 运行 `npm ci`、`typecheck`、静态 Provider audit 和 `build`；它**没有**运行 unit tests。`smoke` job 会构建并驱动真实 Electron，但当前 `continue-on-error: true`，自身失败不会让 workflow 失败。仓库 YAML 不能证明 GitHub 分支保护是否把该 workflow 设为 required check。默认 Provider audit 会访问外部端点；`--live` 和 `strict-live` 会发真实模型请求并可能消耗额度，未经明确授权不要运行。
+工作流内阻断的 `check` job 运行 `npm ci`、`typecheck`、全部 unit/behavior tests、静态 Provider audit 和 `build`；`smoke` job 会构建并驱动真实 Electron，当前同样是阻断检查。仓库 YAML 不能证明 GitHub 分支保护是否把这些 job 设为 required check。静态 Provider audit 不访问外部端点；默认 audit 会探测外部端点，`--live` 和 `strict-live` 会发真实模型请求并可能消耗额度，未经明确授权不要运行。
 
 如果任务涉及 Setup：先报告“当前仓库没有可复现流程”，不要从本机临时文件或历史聊天发明命令。
 如果任务涉及外部验配软件、live audit、发布/上传、合并或用户数据删除：先取得明确授权。
@@ -275,20 +275,22 @@ sequenceDiagram
 | 模块 / symbol | 输入 → 输出 | 持久化或副作用 | 容易出错的边界 |
 | --- | --- | --- | --- |
 | [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、依赖可执行文件环境变量、真实模型请求 | 恢复旧会话时沿用会话模型；自动标题与审批说明会另发请求；审批结束会取消尚未完成的说明请求；切换工作区会创建新会话 |
-| [`SessionManager.create/open`](compass/src/main/agent.ts) | workspace 或 session path → 活动 Pi session | JSONL append、rename/archive/delete | 客户归属使用 session ID；`openSession` 当前不像 rename/archive/delete 那样先验证 path 属于已列出会话 |
+| [`SessionManager.create/open`](compass/src/main/agent.ts) + [`session-library.ts`](compass/src/main/agent/session-library.ts) | workspace 或 session path → 活动 Pi session | JSONL append、rename/archive/delete | 打开、归档、删除都先按当前 workspace 已列出会话做 canonical allow-list 校验；活动会话移除先转移生命周期所有权，失败时恢复；成功后以内部 session ID 清理客户归属但不向 renderer 泄露该 ID |
 | [`projectThread`](compass/src/main/thread-projector.ts) | Pi messages/tool results → `UiThreadItem[]` | 无独立存储 | UI thread 是投影，不是第二份会话数据库 |
 | [`generateMissingSessionTitle`](compass/src/main/agent.ts) | 已完成线程 + summary model → session name | 写 Pi session info；网络/费用 | best-effort；失败不会阻断对话，不应假设每个会话都有标题 |
 | [`normalizeImages`](compass/src/main/image-attachments.ts) | UI base64 图片 → Pi attachment | 请求体/内存、模型请求与 Pi session 内容 | 最多 8 张、单张 10 MiB、解码后总计 24 MiB；Web 的 26 MB JSON 上限会被 base64 膨胀提前触发 |
 | [`startWindowsDictation`](compass/src/main/compass-api.ts) / [`focusWindowForDictation`](compass/src/main/dictation-window.ts) | 桌面请求 → Windows dictation | 聚焦窗口、触发系统输入 | 桌面专属；Web 使用浏览器 `SpeechRecognition`，不是同一实现 |
 | [`permissionExtension`](compass/src/main/agent.ts) / [`evaluateToolApproval`](compass/src/main/permission-policy.ts) | Pi `tool_call` → allow/block/审批事件 | 可触发文件、shell、网络或外部工具 | 只是工具名、少量参数字段与正则策略，不是 OS 沙箱 |
-| [`DependencyManager`](compass/src/main/dependency-manager.ts) | inventory、catalog、用户安装/可执行文件选择 → snapshot/progress | 下载、解压、启动安装器、写 userData/Compass settings | 真实系统变更；Windows 专属项；并行 Target 安装必须保持选择与 Skill 环境一致；取消不保证撤销已启动的外部安装器 |
+| [`DependencyManager`](compass/src/main/dependency-manager.ts) + [`dependencies/`](compass/src/main/dependencies/) | inventory、catalog、用户安装/可执行文件选择 → snapshot/progress | 校验下载、受限解压、启动安装器或打开厂商官网、写 userData/Compass settings | 只有带精确字节数与 SHA-256 的 artifact 可自动下载；不可独立核验的厂商包显式为 external；取消只存在于可逆阶段，安装器/官网启动后属于不可逆外部阶段 |
 | [`getRuntimePrerequisites`](compass/src/main/prerequisites.ts) | workspace/平台 → Git Bash 前置状态 | 检测进程；操作动作可启动 winget/网页 | 检测与安装是两步；Web 页面仍依赖桌面主进程执行 |
 | [`ModelRuntime`](compass/vendor/pi/packages/coding-agent/src/core/model-runtime.ts) + [`AuthLoginController`](compass/src/main/auth-login-controller.ts) | Provider、key/OAuth → models/auth status | Pi auth 文件、浏览器登录、网络 | 已存凭据会“拥有”该 Provider；失败时不会静默退回环境变量 |
-| [`loadSettings` / `saveSettings`](compass/src/main/settings.ts) | JSON ↔ `AppSettings` | 覆写 `compass-settings.json` | 不存在的 workspace 回退默认；不存在的额外 Skill 目录会被过滤 |
+| [`loadSettings` / `saveSettings`](compass/src/main/settings.ts) + [`settings-persistence.ts`](compass/src/main/settings-persistence.ts) | JSON ↔ `AppSettings` | 同目录临时文件 flush/close 后原子替换 `compass-settings.json`；损坏 JSON 隔离为恢复证据 | 不存在的 workspace 回退默认；不存在的额外 Skill 目录会被过滤；写入、flush、close、replace、cleanup 的失败原因不会互相覆盖 |
 | [`ClientDatabase`](compass/src/main/client-database.ts) | client/profile/assignment RPC → `ClientRegistry` | SQLite 事务/WAL | schema 迁移、隐私、备份时机；不要由 renderer 直接访问 DB |
 | [`startCompassWebServer`](compass/src/main/web-server.ts) | loopback HTTP → static/RPC/SSE | 本机端口、长连接 | 无用户认证；安全依赖 loopback、Host/Origin 和本机信任 |
 
 `CompassBackendApi` 是业务组合层；IPC 和 Web 只应做参数校验、传输和事件桥接。新增行为时避免在两个传输适配中复制业务逻辑。
+
+会话 owner 由 [`LifecycleCoordinator`](compass/src/main/agent/lifecycle-coordinator.ts) 串行管理并采用 create-before-swap：候选创建失败时旧 session 保持可用，成功切换后才屏蔽旧回调并清理旧 owner。每个 owner 绑定独立 runtime settings；workspace、Skill 目录与禁用 Skill 先以 staged config 创建候选，候选 ready 后通过同步 `beforePublish` 在同一事件循环提交 settings 文件、发布内存设置并立即 swap owner，因此旧 Prompt/Approval 不会在候选期提前读到新 workspace。非模型设置通过 [`SettingsMutationTransaction`](compass/src/main/agent/settings-mutation-transaction.ts) 以字段级快照串行提交，统一协调内存、原子 settings 文件和 live-session/environment 副作用；任何阶段失败会补偿恢复，并保留主错误与所有补偿错误。
 
 ## 7. 渲染层、状态与双入口
 
@@ -308,6 +310,8 @@ sequenceDiagram
 其中包括界面语言、Command 说明语言、Quick Prompts、主题、操作员资料、Provider 认证、启用模型、标题 summary model、Skill 目录/开关、依赖项状态/安装。Command 说明语言默认跟随界面语言，也可独立指定为简体中文、繁体中文、英语或德语。工作区和权限模式都不在 Settings 页面：工作区从 [`Composer`](compass/src/renderer/src/components/Composer.tsx) 的 workspace 操作入口更换，权限模式由同一区域的 [`PermissionMenu`](compass/src/renderer/src/components/composer/PermissionMenu.tsx) 修改；两者都会持久化。
 
 [`Thread`](compass/src/renderer/src/components/Thread.tsx) 使用 [`Streamdown`](compass/src/renderer/src/components/Markdown.tsx) 渲染 Markdown。只有最新的普通流式正文启用新词淡入，历史、Thinking、工具与 Skill 保持静态；reduced-motion 只关闭动画，不关闭不完整 Markdown 修复。[`agent-event-batcher.ts`](compass/src/renderer/src/agent-event-batcher.ts) 按 animation frame 合并兼容 delta，并在 `assistant-end`、切换会话、取消和完整状态刷新等生命周期屏障前同步冲刷或丢弃。工具、Thinking、正文和审批说明通过 [`threadActivity.ts`](compass/src/renderer/src/components/threadActivity.ts) 竞争唯一活动 Orb。
+
+[`ContextUsageSurface`](compass/src/renderer/src/components/composer/ContextUsage.tsx) 展示 [`context-usage.ts`](compass/src/main/context-usage.ts) 生成的估算明细。Pi 提供总上下文 Token 与窗口大小，Compass 用文本长度近似各部分成本，再用最大余数法把 12 类结果缩放到该权威总数；因此分类值用于定位占用来源，不是 Provider tokenizer 的逐块精确计费。六类固定上下文是 System Prompt、Rules、Skills、Tool Definitions、MCP & dynamic tools、Subagent definitions；六类运行上下文是 Conversation、Read、Write、Edit、Bash、Other tools。工具 schema 仍计入对应固定定义，assistant `toolCall` 参数与 `toolResult` 内容按工具名计入运行分类；Grep/Find/LS、MCP、子 Agent 与未知工具的运行内容进入 Other tools，普通用户/助手文本与 Thinking 留在 Conversation。`ContextUsageBreakdown.details` 进一步保留每个分类的来源项：Skill/工具定义使用名称，Conversation 按消息拆分，Read/Write/Edit 按文件路径、Bash 按命令、Other tools 按工具调用拆分；第二轮最大余数缩放保证任一分类的来源项之和严格等于该分类值。`details` 保持可选，以兼容升级前的 stats 快照，renderer 会为缺少细则的非零分类生成单项回退。明细在宽屏为两个各六行的分组，760px 以下叠成单栏；12 个分类行和总览环段均可点击进入该分类的来源占比环，环心按钮返回总览。环图为每个非零分段提供可悬停、可聚焦的 Token/占比 Tooltip，并在空间允许时只为占比最大的两个非零分段绘制细折线类别标签；560px 以下隐藏折线以避免挤压，但分类明细和分段焦点信息仍保留。鼠标按下环段不会把焦点留在 SVG 上，避免原生矩形聚焦框；键盘聚焦和 Enter/Space 钻取路径仍完整保留。总览的 12 个分段节点始终稳定挂载，首次展示、分类切换和后续统计变化都使用 720ms 弹性三次贝塞尔过渡。Context Usage surface 参与正常布局，不再绝对定位覆盖 Thread；[`Thread`](compass/src/renderer/src/components/Thread.tsx) 监听可视区高度变化，只在用户原本贴底时持续显示最新内容，阅读历史时保留原滚动位置。
 
 ### 7.2 Zustand store
 
@@ -628,15 +632,16 @@ Compass UI 的 `setApiKey` 和 OAuth login 最终写入 Pi credential store（�
 
 1. `snapshot()` 并行查找 Git/Bash 命令、读取 Windows uninstall inventory、递归枚举 Phonak `Target.exe`，并检查 Noahlink PnP device；结果缓存 10 秒。
 2. Settings Dependencies 通过 `refreshDependencies` 请求强制刷新。
-3. `startInstall` 为一个 dependency 建立 `AbortController`，发出 queued/downloading/extracting/installing/launching/awaiting-user/completed/failed/cancelled 进度。
-4. 下载只允许 HTTPS，最多 8 次 redirect；archive 解压前检查 traversal，再选择 `.exe/.msi` installer。
-5. winget 项调用系统 winget；archive/executable 项从 userData dependency 目录启动安装器，最终安装仍可能等待用户 UI。
-6. `cancelInstall` 中止当前下载/子进程等待；已由外部安装器完成的变更不会自动回滚。
-7. 主进程把进度转为 `dependency-install-progress`，store 和 Settings/Thread 更新 UI。
+3. `startInstall` 为一个 dependency 建立带 generation 的任务所有权，发出 queued/downloading/extracting/installing/launching/awaiting-user/completed/failed/cancelled 进度；shutdown 或新 generation 会屏蔽旧任务的迟到事件。
+4. 自动下载只允许 HTTPS，最多 8 次 redirect，并要求 catalog 提供精确字节数、SHA-256 和最大下载体积；内容流写入同目录独占 `.part`，边写边校验，`fsync` 后才原子 rename，失败/中止会清理自身临时文件且不会发布目标文件。
+5. archive 在解压前同时校验 central/local header、路径穿越、重复路径、符号链接、ZIP64、条目数与总展开体积，再选择位于解压根目录内的 `.exe/.msi` installer。
+6. winget 项调用系统 winget；目前只有已核验的 Noahlink 精确版本 artifact 可由 Compass 自动下载。Phonak Target、Signia Connexx 与 Widex Compass GPS 因没有可独立核验的发布物 hash，显式标记为 `external`，按钮只打开各自官网。
+7. `cancelInstall` 只在下载、解压和可证明可取消的子进程阶段提供；winget 在 spawn 前即切到 irreversible，`launching` 也属于不可逆阶段。shutdown 只 abort cancelable task，不会把可能仍在运行的系统安装伪报为已取消。
+8. 主进程把进度转为 `dependency-install-progress`，store 和 Settings/Thread 更新 UI。
 
 Phonak Target 可以并行安装多个版本。Dependencies 卡片展示候选并允许用户手动选择 `Target.exe`；选择保存在 `compass-settings.json` 的 `dependencyExecutablePaths`，由 `AgentService` 注入 `COMPASS_PHONAK_TARGET_PATH`。Pi bash 每次执行都读取当前 `process.env`，因此 Skill 无需改写脚本文件即可取得最新选择。`open-target.ps1` 的优先级为显式参数、Compass 环境设置、按文件版本排序的自动发现，并在一次调用中始终用同一路径匹配进程、启动和等待窗口。
 
-下载流程没有固定 SHA-256、代码签名或 publisher 校验；installer 又由文件名/token 启发式选择。HTTPS 和 zip traversal 防护不能替代发布物完整性验证。重新安装会清理该 dependency 自己的 userData item 目录，但完成/失败/取消后的 artifact 可能保留。
+当前自动下载信任边界是 catalog 中精确 pin 的字节数与 SHA-256；这不等同于 Authenticode/publisher 验证，因此新增或升级 artifact 时必须重新从独立可信来源核验 hash。无法取得可复核 manifest 的资源必须继续使用 `external`，不能以 `PENDING`、仅 HTTPS 或文件名启发式代替完整性证据。
 
 非 Windows：
 
@@ -698,33 +703,34 @@ Phonak Target 可以并行安装多个版本。Dependencies 卡片展示候选�
 
 ## 17. 测试与 CI 版图
 
-当前 [`compass/tests/`](compass/tests/) 有 28 个 `*.test.ts` 文件；在页首锁定的基线提交上，`npm run test:unit` 报告 101/101 通过。它们覆盖：
+当前 [`compass/tests/`](compass/tests/) 有 55 个 `*.test.ts` 文件；2026-08-10 整库验收时，`npm run test:unit` 报告 252/252 通过。它们覆盖：
 
 | 类别 | 代表测试 |
 | --- | --- |
 | 语言与 persona/context | `app-language`、`compass-context` |
 | SQLite、迁移、客户注册表 | `client-database`、`client-registry` |
 | 权限 | `permission-policy` |
-| 依赖项与听写窗口 | `dependencies`、`dictation-window` |
+| 依赖项、下载/ZIP 安全与听写窗口 | `dependencies`、`dependency-installer`、`dependency-manager`、`zip-validator`、`dictation-window` |
 | 模型与 Provider audit | `model-list`、`provider-audit` |
 | Quick Prompts 与滚轮 | `quick-prompts`、`quick-prompts-wheel` |
 | Settings 搜索/下拉 | `settings-search`、`settings-dropdown` |
 | 键盘无障碍 | `keyboard-radiogroup`、`list-keyboard-navigation` |
 | 操作员资料/主题 | `profile-persistence`、`theme` |
-| 会话 | `session-list`、`session-title`、`optimistic-session` |
+| 会话、生命周期与模型事务 | `session-list`、`session-title`、`optimistic-session`、`agent-lifecycle-coordinator`、`agent-runtime-generation`、`agent-session-library`、`agent-model-coordinator` |
 | Skill / slash token | `skill-display`、`slash-token` |
-| 侧栏与工作区 | `sidebar-width`、`workspace-path-copy` |
+| 侧栏、store 与工作区 | `sidebar-width`、`sidebar-session-tree-controller`、`store-command`、`store-profile-persistence`、`workspace-path-copy` |
 | Thread | command groups、confirmation、scroll |
+| 设置事务/持久化、传输与语言契约 | `agent-settings-mutation`、`settings-persistence`、`transport-contract`、`i18n-completeness` |
+| Context Usage | `context-usage`、`context-usage-ring` 的 12 类分流、细则守恒与两项标注布局 |
 | Web 事件 | `web-agent-events` 的缓冲、重连和 resync |
 
 [`scripts/smoke.mjs`](compass/scripts/smoke.mjs) 使用隔离 userData 和随机 Web 端口，驱动真实 Electron，检查旧客户迁移、语言、开发者上下文、资料、Skill/Settings、六类依赖卡、Quick Prompts、主题、模型/Provider UI、上下文、权限、图片、会话搜索、`hearing-health` 导航、审批和 Thread 滚动/响应式布局。它不连接真实助听器，不验证所有厂商软件，也不发真实 Provider 请求。
 
 CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 
-- `check`：recursive submodule checkout → Node 24 → `npm ci` → `typecheck` → `audit:providers:static` → `build`；这是 workflow 内没有 `continue-on-error` 的阻断 job，也是注释建议的分支保护候选。
-- `smoke`：Node 24、Electron cache、Xvfb/CJK 字体、`npm ci`、下载 Electron、build、smoke；失败上传截图 7 天。
-- `test:unit` **不在 CI**。
-- `smoke` 设置 `continue-on-error: true`，自身失败不会让 workflow 失败。分支保护是否另外要求某个 check 属于仓库外状态，不能只从 YAML 断言。
+- `check`：recursive submodule checkout → Node 24 → `npm ci` → `typecheck` → `test:unit` → `audit:providers:static` → `build`；这是 workflow 内没有 `continue-on-error` 的阻断 job，也是注释建议的分支保护候选。
+- `smoke`：Node 24、Electron cache、Xvfb/CJK 字体、`npm ci`、下载 Electron、build、分场景 smoke；失败上传截图 7 天。该 job 没有 `continue-on-error`，因此 workflow 内同样阻断。
+- 分支保护是否把某个 workflow/job 配成 required check 属于仓库外状态，不能只从 YAML 断言。
 
 “仓库有测试”不等于“CI 强制执行该测试”；修改风险高于 CI 覆盖时应本地补跑。
 
@@ -796,19 +802,16 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 ### 21.1 已确认问题 / 技术债
 
 1. **打包缺口**：没有已提交的、可复现的 Windows Setup/签名/自动更新流程。
-2. **CI 覆盖缺口**：unit tests 不在 `check`；smoke 是 non-blocking。
-3. **占位功能**：`HearingHealthWorkspace` 只有准备中界面。
-4. **设计文档漂移**：`UI_COLOR_SYSTEM.md` 的至少一个 light token 与当前 `global.css` 不一致。
-5. **历史文档漂移（本分支已修正文案）**：任务基线的 README/Provider audit 使用过期 Pi identifiers 或旧认证说明；本分支已把这两份 Markdown 最小更正为当前 gitlink/package 与 credential ownership 规则。后续 Pi 更新仍需防止再次漂移。
-6. **可移植性**：Phonak Skill 的部分命令示例仍带机器特定绝对路径；新增或整理示例时应改为仓库相对/环境变量写法。
-7. **会话路径与关联清理**：`openSession` 后端未先限制为当前 workspace 已列出的 session；archive/delete 也不清理 SQLite 的旧 session assignment。
-8. **多入口一致性**：若干设置 mutation 不广播完整状态，桌面与 Web 同时打开时 UI 可能暂时陈旧。
-9. **外部安装完整性**：依赖下载无固定 hash/signature 校验，且“安装器已启动/awaiting-user”不等于安装完成。
-10. **客户数据生命周期**：SQLite 与 Pi JSONL/图片是本地明文数据；仓库没有客户删除、自动备份、保留或应用层加密流程。
-11. **audit 提示路径**：`audit-providers.mjs` 当前部分“下一步配置”控制台提示仍写旧的 Pi auth 路径；真实默认位置以 `getAgentDir()/auth.json`，即 `~/.pi/agent/auth.json` 为准。
-12. **设置文件写入**：`saveSettings` 直接同步覆写无 schema version 的 JSON，没有临时文件原子替换；读取/解析失败会静默回退默认值。
-13. **Pi build cache**：`prepare-pi-source` marker 基于 Pi revision 与 recipe，但未包含 Node 版本、平台和完整工具链；跨环境复用已有 `dist` 时应主动重建验证。
-14. **Target 版本边界**：Dependency catalog 推荐 Target 11.1，而当前 Phonak Skill 的调查/校准证据针对内部 Target 12 构建；兼容性不能互相推导。
+2. **设计文档漂移**：`UI_COLOR_SYSTEM.md` 的至少一个 light token 与当前 `global.css` 不一致。
+3. **历史文档漂移（本分支已修正文案）**：任务基线的 README/Provider audit 使用过期 Pi identifiers 或旧认证说明；本分支已把这两份 Markdown 最小更正为当前 gitlink/package 与 credential ownership 规则。后续 Pi 更新仍需防止再次漂移。
+4. **可移植性**：Phonak Skill 的部分命令示例仍带机器特定绝对路径；新增或整理示例时应改为仓库相对/环境变量写法。
+5. **多入口一致性**：若干设置 mutation 不广播完整状态，桌面与 Web 同时打开时 UI 可能暂时陈旧。
+6. **客户数据生命周期**：SQLite 与 Pi JSONL/图片是本地明文数据；仓库没有客户删除、自动备份、保留或应用层加密流程。
+7. **audit 提示路径**：`audit-providers.mjs` 当前部分“下一步配置”控制台提示仍写旧的 Pi auth 路径；真实默认位置以 `getAgentDir()/auth.json`，即 `~/.pi/agent/auth.json` 为准。
+8. **Pi build cache**：`prepare-pi-source` marker 基于 Pi revision 与 recipe，但未包含 Node 版本、平台和完整工具链；跨环境复用已有 `dist` 时应主动重建验证。
+9. **Target 版本边界**：Dependency catalog 推荐 Target 11.1，而当前 Phonak Skill 的调查/校准证据针对内部 Target 12 构建；兼容性不能互相推导。
+
+本轮已关闭的旧问题：unit tests 与 smoke 已进入 workflow 阻断检查；Hearing Health 已实现可编辑的双耳听力图与 SII/历史控制；session path allow-list、create-before-swap、活动会话移除恢复和 assignment 清理已落地；自动下载完整性、ZIP 边界与不可逆安装状态已加固，无法核验的厂商包改为只开官网；settings 已改为可恢复的原子持久化，非模型设置 mutation 也具备内存/磁盘/live effect 补偿。
 
 ### 21.2 已知设计取舍 / 风险边界
 
@@ -873,6 +876,7 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`src/main/settings.ts`](compass/src/main/settings.ts) | settings default/load/save | 新设置、workspace、权限 |
 | [`src/main/permission-policy.ts`](compass/src/main/permission-policy.ts) | tool approval policy | 权限语义 |
 | [`src/main/approval-explanation.ts`](compass/src/main/approval-explanation.ts) | 审批说明的脱敏上下文与输出规整 | 审批隐私、summary model |
+| [`src/main/context-usage.ts`](compass/src/main/context-usage.ts) | 12 类上下文 Token 估算、工具运行内容分流与总数缩放 | Context Usage 分类或统计契约 |
 | [`src/main/dependency-manager.ts`](compass/src/main/dependency-manager.ts) | 检测、下载、安装、进度 | 依赖项/Windows |
 | [`src/main/skills.ts`](compass/src/main/skills.ts) | Skill discovery | Skill 找不到/新增 |
 | [`src/shared/types.ts`](compass/src/shared/types.ts) | IPC/RPC/event/domain 契约 | 跨 main/renderer 变更 |

@@ -2,7 +2,7 @@ import { modelSelectionKey, type ThinkingLevel } from "@shared/types";
 import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useCompass } from "../../store";
+import { ignoreCommandFailure, useCompass } from "../../store";
 import { useI18n } from "../../i18n";
 
 type ModelMenuView = "root" | "model" | "effort";
@@ -256,7 +256,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                             type="button"
                             key={`${model.provider}/${model.id}`}
                             onClick={() => {
-                              void setModel(model.provider, model.id);
+                              ignoreCommandFailure(setModel(model.provider, model.id));
                               onClose();
                             }}
                           >
@@ -275,7 +275,7 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                           data-thinking-level={option.level}
                           key={option.level}
                           onClick={() => {
-                            void setThinkingLevel(option.level);
+                            ignoreCommandFailure(setThinkingLevel(option.level));
                             onClose();
                           }}
                         >

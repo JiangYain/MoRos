@@ -21,11 +21,11 @@ defaults:
     working-directory: compass
 
 jobs:
-  # 必跑检查：安装、类型检查、构建。分支保护建议以这个 job 为准。
+  # 必跑检查：安装、类型检查、单元/行为测试、Provider 审计和构建。
   # typecheck/build 不需要 Electron 二进制（Electron 43 起安装时不再下载），
   # 因此这个 job 只依赖 npm 缓存，速度最快。
   check:
-    name: Typecheck & Build
+    name: Validate & Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -49,20 +49,21 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit and behavior tests
+        run: npm run test:unit
+
       - name: Provider registry audit
         run: npm run audit:providers:static
 
       - name: Build
         run: npm run build
 
-  # UI 冒烟测试：构建后用 Playwright 驱动真实 Electron 应用截图走查。
-  # 目前处于观察模式（continue-on-error: true），失败不会挡 PR；
-  # 在 CI 上连续跑稳定几次后，删除下面的 continue-on-error 行即可升级为必查项。
+  # UI 冒烟测试：构建后驱动真实 Electron 应用完成分场景截图走查。
+  # 这是 PR 的阻断检查，失败截图会上传供定位。
   smoke:
     name: UI Smoke Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v7

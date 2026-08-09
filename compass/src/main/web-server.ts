@@ -1,16 +1,9 @@
+import type { AgentUiEvent, CompassBackendApi } from "@shared/types";
 import {
-  isAppLanguage,
-  isCommandExplanationLanguage,
-  isDependencyId,
-  isPermissionMode,
-  isThinkingLevel,
-  type AgentUiEvent,
-  type CompassBackendApi,
-  type UiImageAttachment,
-  type WebRpcMethod,
-} from "@shared/types";
-import { isQuickPromptList } from "@shared/quick-prompts";
-import type { ClientProfileDraft } from "@shared/client-registry";
+  createWebRpcHandlers as createContractRpcHandlers,
+  isWebRpcMethod,
+  type WebRpcHandlers,
+} from "@shared/transport-contract";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
@@ -34,8 +27,6 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 type AgentEventListener = (event: AgentUiEvent) => void;
-type RpcHandler = (args: unknown[]) => unknown | Promise<unknown>;
-type RpcHandlers = { [K in WebRpcMethod]: RpcHandler };
 
 export interface CompassWebServer {
   readonly port: number;
@@ -49,168 +40,6 @@ interface CompassWebServerOptions {
   rendererDir?: string;
   publicUrl?: string;
   subscribe(listener: AgentEventListener): () => void;
-}
-
-function stringArg(args: unknown[], index: number, label: string): string {
-  const value = args[index];
-  if (typeof value !== "string") throw new Error(`${label} must be a string.`);
-  return value;
-}
-
-function booleanArg(args: unknown[], index: number, label: string): boolean {
-  const value = args[index];
-  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean.`);
-  return value;
-}
-
-function clientProfileArg(args: unknown[], index: number): ClientProfileDraft {
-  const value = args[index];
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("profile must be an object.");
-  }
-  return value as ClientProfileDraft;
-}
-
-function optionalStringArg(args: unknown[], index: number, label: string): string | undefined {
-  const value = args[index];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") throw new Error(`${label} must be a string.`);
-  return value;
-}
-
-function dependencyIdArg(args: unknown[], index: number): Parameters<CompassBackendApi["installDependency"]>[0] {
-  const value = args[index];
-  if (!isDependencyId(value)) throw new Error("Invalid dependency id.");
-  return value;
-}
-
-function imageAttachmentsArg(args: unknown[], index: number): UiImageAttachment[] | undefined {
-  const value = args[index];
-  if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || value.length > 8) throw new Error("images must be an array of up to 8 items.");
-  return value.map((candidate) => {
-    if (!candidate || typeof candidate !== "object") throw new Error("Invalid image attachment.");
-    const image = candidate as Record<string, unknown>;
-    if (
-      typeof image.data !== "string" ||
-      !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(String(image.mimeType))
-    ) {
-      throw new Error("Invalid image attachment.");
-    }
-    return {
-      data: image.data,
-      mimeType: image.mimeType as UiImageAttachment["mimeType"],
-      ...(typeof image.name === "string" ? { name: image.name } : {}),
-    };
-  });
-}
-
-function createRpcHandlers(api: CompassBackendApi): RpcHandlers {
-  return {
-    init: () => api.init(),
-    getDeveloperContext: () => api.getDeveloperContext(),
-    prompt: (args) =>
-      api.prompt(
-        stringArg(args, 0, "text"),
-        imageAttachmentsArg(args, 1),
-        optionalStringArg(args, 2, "clientMessageId"),
-      ),
-    abort: () => api.abort(),
-    resolveApproval: (args) =>
-      api.resolveApproval(
-        stringArg(args, 0, "id"),
-        booleanArg(args, 1, "allowed"),
-      ),
-    newSession: () => api.newSession(),
-    openSession: (args) => api.openSession(stringArg(args, 0, "path")),
-    listSessions: () => api.listSessions(),
-    renameSession: (args) =>
-      api.renameSession(stringArg(args, 0, "path"), stringArg(args, 1, "name")),
-    deleteSession: (args) => api.deleteSession(stringArg(args, 0, "path")),
-    archiveSession: (args) => api.archiveSession(stringArg(args, 0, "path")),
-    importLegacyClientRegistry: (args) =>
-      api.importLegacyClientRegistry(stringArg(args, 0, "serializedRegistry")),
-    saveClientProfile: (args) => api.saveClientProfile(clientProfileArg(args, 0)),
-    assignSessionClient: (args) =>
-      api.assignSessionClient(
-        stringArg(args, 0, "sessionId"),
-        stringArg(args, 1, "clientName"),
-      ),
-    unassignSessionClient: (args) =>
-      api.unassignSessionClient(stringArg(args, 0, "sessionId")),
-    setModel: (args) =>
-      api.setModel(stringArg(args, 0, "provider"), stringArg(args, 1, "id")),
-    setModelEnabled: (args) =>
-      api.setModelEnabled(
-        stringArg(args, 0, "provider"),
-        stringArg(args, 1, "id"),
-        booleanArg(args, 2, "enabled"),
-      ),
-    setSummaryModel: (args) =>
-      api.setSummaryModel(stringArg(args, 0, "provider"), stringArg(args, 1, "id")),
-    setThinkingLevel: (args) => {
-      const level = args[0];
-      if (!isThinkingLevel(level)) throw new Error("Invalid thinking level.");
-      return api.setThinkingLevel(level);
-    },
-    setPermissionMode: (args) => {
-      const mode = args[0];
-      if (!isPermissionMode(mode)) throw new Error("Invalid permission mode.");
-      return api.setPermissionMode(mode);
-    },
-    setLanguage: (args) => {
-      const language = args[0];
-      if (!isAppLanguage(language)) throw new Error("Invalid application language.");
-      return api.setLanguage(language);
-    },
-    setCommandExplanationLanguage: (args) => {
-      const language = args[0];
-      if (!isCommandExplanationLanguage(language)) {
-        throw new Error("Invalid command explanation language.");
-      }
-      return api.setCommandExplanationLanguage(language);
-    },
-    setQuickPrompts: (args) => {
-      const prompts = args[0];
-      if (prompts !== null && !isQuickPromptList(prompts)) {
-        throw new Error("Quick prompts must contain between 1 and 5 non-empty items.");
-      }
-      return api.setQuickPrompts(prompts);
-    },
-    setApiKey: (args) =>
-      api.setApiKey(stringArg(args, 0, "provider"), stringArg(args, 1, "key")),
-    loginProvider: (args) => api.loginProvider(stringArg(args, 0, "provider")),
-    removeApiKey: (args) => api.removeApiKey(stringArg(args, 0, "provider")),
-    runPrerequisiteAction: (args) =>
-      api.runPrerequisiteAction(stringArg(args, 0, "actionId")),
-    refreshDependencies: () => api.refreshDependencies(),
-    installDependency: (args) =>
-      api.installDependency(
-        dependencyIdArg(args, 0),
-        optionalStringArg(args, 1, "sessionId"),
-      ),
-    cancelDependencyInstall: (args) =>
-      api.cancelDependencyInstall(dependencyIdArg(args, 0)),
-    openDependencySource: (args) =>
-      api.openDependencySource(dependencyIdArg(args, 0)),
-    selectDependencyExecutable: (args) =>
-      api.selectDependencyExecutable(
-        dependencyIdArg(args, 0),
-        optionalStringArg(args, 1, "path"),
-      ),
-    resetDependencyExecutable: (args) =>
-      api.resetDependencyExecutable(dependencyIdArg(args, 0)),
-    setSkillEnabled: (args) =>
-      api.setSkillEnabled(stringArg(args, 0, "name"), booleanArg(args, 1, "enabled")),
-    addSkillDir: () => api.addSkillDir(),
-    removeSkillDir: (args) => api.removeSkillDir(stringArg(args, 0, "dir")),
-    setWorkspaceDir: () => api.setWorkspaceDir(),
-    openPath: (args) => api.openPath(stringArg(args, 0, "path")),
-  };
-}
-
-function isRpcMethod(method: string, handlers: RpcHandlers): method is WebRpcMethod {
-  return Object.prototype.hasOwnProperty.call(handlers, method);
 }
 
 function setSecurityHeaders(response: ServerResponse): void {
@@ -278,7 +107,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 async function handleRpc(
   request: IncomingMessage,
   response: ServerResponse,
-  handlers: RpcHandlers,
+  handlers: WebRpcHandlers,
 ): Promise<void> {
   if (request.method !== "POST") {
     sendJson(response, 405, { ok: false, error: "Method not allowed." });
@@ -289,7 +118,7 @@ async function handleRpc(
   if (typeof input.method !== "string" || !Array.isArray(input.args)) {
     throw new Error("RPC requests require a method and args array.");
   }
-  if (!isRpcMethod(input.method, handlers)) {
+  if (!isWebRpcMethod(input.method)) {
     throw new Error(`Unknown RPC method: ${input.method}`);
   }
   const handler = handlers[input.method];
@@ -376,7 +205,7 @@ async function serveRenderer(
 export async function startCompassWebServer(
   options: CompassWebServerOptions,
 ): Promise<CompassWebServer> {
-  const handlers = createRpcHandlers(options.api);
+  const handlers = createContractRpcHandlers(options.api);
   const clients = new Set<ServerResponse>();
   let resolvedPublicUrl = options.publicUrl;
 

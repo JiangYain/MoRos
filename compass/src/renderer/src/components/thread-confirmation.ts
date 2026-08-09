@@ -13,6 +13,7 @@ export type ThreadConfirmations = Record<string, ThreadConfirmationState>;
 export type ThreadConfirmationEvent =
   | { type: "request"; path: string; action: ThreadConfirmationAction }
   | { type: "start"; path: string; action: ThreadConfirmationAction }
+  | { type: "fail"; path: string; action: ThreadConfirmationAction }
   | { type: "clear"; path: string; action?: ThreadConfirmationAction }
   | { type: "clear-idle" };
 
@@ -31,6 +32,12 @@ export function threadConfirmationsReducer(
     const current = confirmations[event.path];
     if (!current || current.action !== event.action || current.busy) return confirmations;
     return { ...confirmations, [event.path]: { ...current, busy: true } };
+  }
+
+  if (event.type === "fail") {
+    const current = confirmations[event.path];
+    if (!current || current.action !== event.action || !current.busy) return confirmations;
+    return { ...confirmations, [event.path]: { ...current, busy: false } };
   }
 
   if (event.type === "clear") {

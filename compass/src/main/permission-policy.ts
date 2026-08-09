@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { posix, win32 } from "node:path";
 import type { PermissionMode } from "@shared/types";
 
 export interface ToolApprovalRequest {
@@ -24,10 +24,42 @@ function commandPreview(command: string): string {
   return singleLine.length > 240 ? `${singleLine.slice(0, 237)}…` : singleLine;
 }
 
+type PathFlavor = "posix" | "win32";
+
+const nativePathFlavor: PathFlavor = process.platform === "win32" ? "win32" : "posix";
+
+function explicitPathFlavor(value: string): PathFlavor | undefined {
+  if (/^[A-Za-z]:/.test(value) || value.startsWith("\\")) return "win32";
+  if (value.startsWith("/")) return "posix";
+  return undefined;
+}
+
+function workspacePathFlavor(workspaceDir: string): PathFlavor {
+  return explicitPathFlavor(workspaceDir) ?? nativePathFlavor;
+}
+
+function resolveWorkspacePath(path: string, workspaceDir: string): string {
+  const workspaceFlavor = workspacePathFlavor(workspaceDir);
+  const pathFlavor = explicitPathFlavor(path);
+  if (pathFlavor && pathFlavor !== workspaceFlavor) return path;
+
+  const pathApi = workspaceFlavor === "win32" ? win32 : posix;
+  return pathApi.resolve(workspaceDir, path);
+}
+
 function pathIsInsideWorkspace(path: string, workspaceDir: string): boolean {
-  const target = resolve(workspaceDir, path);
-  const offset = relative(resolve(workspaceDir), target);
-  return offset === "" || (!offset.startsWith(`..${sep}`) && offset !== ".." && !isAbsolute(offset));
+  const workspaceFlavor = workspacePathFlavor(workspaceDir);
+  const pathFlavor = explicitPathFlavor(path);
+  if (pathFlavor && pathFlavor !== workspaceFlavor) return false;
+
+  const pathApi = workspaceFlavor === "win32" ? win32 : posix;
+  const workspace = pathApi.resolve(workspaceDir);
+  const target = pathApi.resolve(workspace, path);
+  const offset = pathApi.relative(workspace, target);
+  return (
+    offset === "" ||
+    (!offset.startsWith(`..${pathApi.sep}`) && offset !== ".." && !pathApi.isAbsolute(offset))
+  );
 }
 
 function inputPaths(input: Record<string, unknown>): string[] {
@@ -63,7 +95,7 @@ export function evaluateToolApproval(
   const detail = command
     ? commandPreview(command)
     : paths.length > 0
-      ? paths.map((path) => resolve(workspaceDir, path)).join("\n")
+      ? paths.map((path) => resolveWorkspacePath(path, workspaceDir)).join("\n")
       : commandPreview(JSON.stringify(input));
 
   if (FILE_WRITE_TOOLS.has(toolName)) {

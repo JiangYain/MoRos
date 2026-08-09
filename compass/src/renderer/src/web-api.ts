@@ -1,18 +1,19 @@
 import type {
-  AgentStats,
   AgentUiEvent,
   CompassApi,
   InitPayload,
-  ModelPreferenceUpdate,
-  PermissionMode,
-  ThinkingLevel,
-  UiImageAttachment,
-  UiSessionInfo,
   VoiceInputResult,
   VoiceInputUpdate,
-  WebRpcMethod,
 } from "@shared/types";
 import { isAppLanguage, type AppLanguage } from "@shared/types";
+import {
+  type BackendMethod,
+  type BackendOperationResult,
+  type BackendTransportInvoker,
+  type WebRpcMethod,
+  createBackendTransportClient,
+  isWebRpcMethod,
+} from "@shared/transport-contract";
 import { createWebAgentEvents } from "./web-agent-events";
 
 type WebMessageKey = "apiUnavailable" | "speechUnsupported" | "speechEmpty" | "microphoneDenied" | "speechFailed";
@@ -89,7 +90,10 @@ interface SpeechRecognitionInstance {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
 
-async function rpc<T>(method: WebRpcMethod, args: unknown[] = []): Promise<T> {
+async function rpc<Method extends WebRpcMethod>(
+  method: Method,
+  args: readonly unknown[] = [],
+): Promise<BackendOperationResult<Method>> {
   const response = await fetch("/api/rpc", {
     method: "POST",
     cache: "no-store",
@@ -98,16 +102,16 @@ async function rpc<T>(method: WebRpcMethod, args: unknown[] = []): Promise<T> {
     body: JSON.stringify({ method, args }),
   });
 
-  let payload: RpcEnvelope<T>;
+  let payload: RpcEnvelope<BackendOperationResult<Method>>;
   try {
-    payload = (await response.json()) as RpcEnvelope<T>;
+    payload = (await response.json()) as RpcEnvelope<BackendOperationResult<Method>>;
   } catch {
     throw new Error(`Compass Web API returned ${response.status}.`);
   }
   if (!response.ok || !payload.ok) {
     throw new Error(payload.error ?? `Compass Web API returned ${response.status}.`);
   }
-  return payload.result as T;
+  return payload.result as BackendOperationResult<Method>;
 }
 
 async function initializeWebApi(): Promise<InitPayload> {
@@ -117,7 +121,7 @@ async function initializeWebApi(): Promise<InitPayload> {
 
   while (Date.now() < deadline) {
     try {
-      return await rpc<InitPayload>("init");
+      return await rpc("init");
     } catch (error) {
       lastError = error;
       await new Promise<void>((resolveRetry) => window.setTimeout(resolveRetry, delay));
@@ -200,63 +204,25 @@ export function createWebApi(): CompassApi {
         eventSource.onopen = () => listener();
       },
     },
-    () => rpc<InitPayload>("init"),
+    () => rpc("init"),
   );
+  const invokeWebBackend: BackendTransportInvoker = <Method extends BackendMethod>(
+    method: Method,
+    args: readonly unknown[],
+  ): Promise<BackendOperationResult<Method>> => {
+    if (!isWebRpcMethod(method)) {
+      return Promise.reject(new Error(`Backend method ${method} is not available over browser RPC.`));
+    }
+    return rpc(method, args);
+  };
+  const backend = createBackendTransportClient(invokeWebBackend);
 
   return {
+    ...backend,
     init: async () => {
       const [payload] = await Promise.all([initializeWebApi(), agentEvents.ready]);
       return payload;
     },
-    getDeveloperContext: () => rpc("getDeveloperContext"),
-    prompt: (text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
-      rpc("prompt", [text, images, clientMessageId]),
-    abort: () => rpc<void>("abort"),
-    resolveApproval: (id, allowed) => rpc("resolveApproval", [id, allowed]),
-    newSession: () => rpc<InitPayload>("newSession"),
-    openSession: (path) => rpc<InitPayload>("openSession", [path]),
-    listSessions: () => rpc<UiSessionInfo[]>("listSessions"),
-    renameSession: (path, name) => rpc("renameSession", [path, name]),
-    deleteSession: (path) => rpc("deleteSession", [path]),
-    archiveSession: (path) => rpc("archiveSession", [path]),
-    importLegacyClientRegistry: (serializedRegistry) =>
-      rpc("importLegacyClientRegistry", [serializedRegistry]),
-    saveClientProfile: (profile) => rpc("saveClientProfile", [profile]),
-    assignSessionClient: (sessionId, clientName) =>
-      rpc("assignSessionClient", [sessionId, clientName]),
-    unassignSessionClient: (sessionId) => rpc("unassignSessionClient", [sessionId]),
-    setModel: (provider, id) => rpc("setModel", [provider, id]),
-    setModelEnabled: (provider, id, enabled) =>
-      rpc<ModelPreferenceUpdate>("setModelEnabled", [provider, id, enabled]),
-    setSummaryModel: (provider, id) => rpc("setSummaryModel", [provider, id]),
-    setThinkingLevel: (level: ThinkingLevel) => rpc<AgentStats>("setThinkingLevel", [level]),
-    setPermissionMode: (mode: PermissionMode) => rpc("setPermissionMode", [mode]),
-    setLanguage: (language) => rpc("setLanguage", [language]),
-    setCommandExplanationLanguage: (language) =>
-      rpc("setCommandExplanationLanguage", [language]),
-    setQuickPrompts: (prompts) => rpc("setQuickPrompts", [prompts]),
-    setApiKey: (provider, key) => rpc<InitPayload>("setApiKey", [provider, key]),
-    loginProvider: (provider) => rpc<InitPayload>("loginProvider", [provider]),
-    removeApiKey: (provider) => rpc<InitPayload>("removeApiKey", [provider]),
-    runPrerequisiteAction: (actionId) =>
-      rpc<InitPayload>("runPrerequisiteAction", [actionId]),
-    refreshDependencies: () => rpc("refreshDependencies"),
-    installDependency: (dependencyId, sessionId) =>
-      rpc("installDependency", [dependencyId, sessionId]),
-    cancelDependencyInstall: (dependencyId) =>
-      rpc("cancelDependencyInstall", [dependencyId]),
-    openDependencySource: (dependencyId) =>
-      rpc<void>("openDependencySource", [dependencyId]),
-    selectDependencyExecutable: (dependencyId, path) =>
-      rpc("selectDependencyExecutable", [dependencyId, path]),
-    resetDependencyExecutable: (dependencyId) =>
-      rpc("resetDependencyExecutable", [dependencyId]),
-    setSkillEnabled: (name, enabled) =>
-      rpc<InitPayload>("setSkillEnabled", [name, enabled]),
-    addSkillDir: () => rpc<InitPayload | null>("addSkillDir"),
-    removeSkillDir: (dir) => rpc<InitPayload>("removeSkillDir", [dir]),
-    setWorkspaceDir: () => rpc<InitPayload | null>("setWorkspaceDir"),
-    openPath: (path) => rpc<void>("openPath", [path]),
     startDictation: startBrowserDictation,
     onAgentEvent: (listener: (event: AgentUiEvent) => void) => agentEvents.subscribe(listener),
     windowControl: () => undefined,

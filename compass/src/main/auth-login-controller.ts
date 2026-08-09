@@ -1,5 +1,5 @@
 import { shell } from "electron";
-import type { AgentUiEvent, AppLanguage, InitPayload } from "@shared/types";
+import type { AgentUiEvent, AppLanguage } from "@shared/types";
 import type { AgentService } from "./agent";
 
 const AUTH_COPY: Record<AppLanguage, {
@@ -40,8 +40,12 @@ export class AuthLoginController {
     this.activeLogins.clear();
   }
 
-  async loginProvider(provider: string): Promise<InitPayload> {
+  cancelProviderLogin(provider: string): void {
     this.abortProvider(provider);
+  }
+
+  async loginProvider(provider: string): Promise<void> {
+    this.cancelProviderLogin(provider);
     const authController = new AbortController();
     this.activeLogins.set(provider, authController);
 
@@ -72,10 +76,10 @@ export class AuthLoginController {
           if (event.type === "auth_url") {
             const message = [event.instructions, event.url].filter(Boolean).join("\n");
             this.emitNotice("info", message || authMessage(language, "opening", { provider }));
-            void shell.openExternal(event.url);
+            this.openExternal(event.url);
           } else if (event.type === "device_code") {
             this.emitNotice("info", `Open ${event.verificationUri}\nCode: ${event.userCode}`);
-            void shell.openExternal(event.verificationUri);
+            this.openExternal(event.verificationUri);
           } else if (event.type === "info") {
             const message = [event.message, ...(event.links ?? []).map((link) => link.url)].join("\n");
             this.emitNotice("info", message);
@@ -84,7 +88,6 @@ export class AuthLoginController {
           }
         },
       });
-      return this.service.buildInitPayload();
     } finally {
       if (!authController.signal.aborted) {
         authController.abort();
@@ -119,6 +122,13 @@ export class AuthLoginController {
       tone,
       text,
       ts: Date.now(),
+    });
+  }
+
+  private openExternal(url: string): void {
+    void shell.openExternal(url).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitNotice("warn", message);
     });
   }
 }

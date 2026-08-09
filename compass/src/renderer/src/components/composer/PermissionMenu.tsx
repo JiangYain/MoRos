@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCompass } from "../../store";
+import { ignoreCommandFailure, useCompass } from "../../store";
 import { type TranslationKey, useI18n } from "../../i18n";
 import { PERMISSION_OPTIONS } from "../permissions";
 
@@ -48,7 +48,7 @@ export function PermissionMenu({ open, onClose, onToggle }: PermissionMenuProps)
                   key={option.id}
                   onClick={() => {
                     onClose();
-                    void setPermissionMode(option.id);
+                    ignoreCommandFailure(setPermissionMode(option.id));
                   }}
                 >
                   <Icon size={16} strokeWidth={1.55} />

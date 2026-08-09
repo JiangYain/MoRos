@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { join, resolve } from "node:path";
 import test from "node:test";
-import { isDependencyId, type DependencySnapshot } from "../src/shared/types.ts";
+import { DEPENDENCY_IDS, isDependencyId, type DependencySnapshot } from "../src/shared/types.ts";
 import {
   matchInstalledProgram,
   parseWindowsInventory,
@@ -8,6 +9,9 @@ import {
   resolvePhonakTargetInstallation,
   shouldRefreshDependencyInventory,
 } from "../src/main/dependency-manager.ts";
+import { DEPENDENCY_CATALOG } from "../src/main/dependencies/catalog.ts";
+import { selectInstallerCandidate } from "../src/main/dependencies/installer.ts";
+import { runProcess } from "../src/main/dependencies/process.ts";
 import {
   dependencyPromptKey,
   sessionDependencyInstall,
@@ -18,6 +22,67 @@ test("dependency ids are a closed allow-list", () => {
   assert.equal(isDependencyId("phonak-target"), true);
   assert.equal(isDependencyId("../../arbitrary-installer"), false);
   assert.equal(isDependencyId("https://example.test/setup.exe"), false);
+});
+
+test("the dependency catalog covers the closed allow-list with secure download metadata", () => {
+  assert.deepEqual(DEPENDENCY_CATALOG.map((item) => item.id), [...DEPENDENCY_IDS]);
+  const externalIds: string[] = [];
+  for (const item of DEPENDENCY_CATALOG) {
+    assert.match(item.sourceUrl, /^https:\/\//);
+    if (item.installKind === "winget" || item.installKind === "external") {
+      assert.equal(item.artifact, undefined);
+      if (item.installKind === "external") {
+        externalIds.push(item.id);
+        assert.equal(item.sourceUrl, item.documentationUrl);
+      }
+      continue;
+    }
+    assert.ok(item.artifact);
+    assert.match(item.artifact.sha256, /^[a-f0-9]{64}$/);
+    assert.ok(item.artifact.byteLength > 0);
+    assert.ok(item.artifact.maxDownloadBytes >= item.artifact.byteLength);
+    if (item.installKind === "archive") {
+      assert.ok(item.artifact.archive);
+      assert.ok(item.artifact.archive.maxEntries > 0);
+      assert.ok(item.artifact.archive.maxExtractedBytes > item.artifact.byteLength);
+    }
+  }
+  assert.deepEqual(externalIds, ["phonak-target", "signia-connexx", "widex-compass-gps"]);
+});
+
+test("archive installer selection prefers setup payloads and rejects paths outside extraction", () => {
+  const extractionRoot = resolve("dependency-installer-test");
+  const setup = join(extractionRoot, "payload", "setup.exe");
+  const selected = selectInstallerCandidate(extractionRoot, [
+    join(extractionRoot, "payload", "update-only.exe"),
+    join(extractionRoot, "payload", "connexx-installer.exe"),
+    setup,
+  ], ["connexx"]);
+
+  assert.equal(selected, setup);
+  assert.throws(
+    () => selectInstallerCandidate(
+      extractionRoot,
+      [resolve(extractionRoot, "..", "outside-setup.exe")],
+      [],
+    ),
+    /outside the extracted download directory/,
+  );
+  assert.throws(
+    () => selectInstallerCandidate(extractionRoot, [], []),
+    /No Windows installer/,
+  );
+});
+
+test("dependency processes preserve the cancellation contract before spawning", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    runProcess(process.execPath, ["--version"], { signal: controller.signal }),
+    (error: unknown) => error instanceof Error
+      && error.name === "AbortError"
+      && error.message === "Installation cancelled.",
+  );
 });
 
 test("session changes can reuse a stale dependency inventory without weakening explicit refresh", () => {
@@ -114,6 +179,19 @@ test("automatic Target selection still reports a discovered executable", () => {
   });
 });
 
+test("Target installation matching always uses Windows path semantics", () => {
+  const target = "C:\\Phonak\\Target 12\\Target.exe";
+  const selection = resolveDependencyExecutableSelection([{ path: target }]);
+  assert.deepEqual(resolvePhonakTargetInstallation(selection, [{
+    displayName: "Phonak Target 12.0",
+    displayVersion: "12.0.9",
+    installLocation: "c:/phonak/target 12/",
+  }]), {
+    installedVersion: "12.0.9",
+    installedPath: "C:\\Phonak\\Target 12",
+  });
+});
+
 const missingTargetDependencies: DependencySnapshot = {
   checkedAt: 1,
   items: [{
@@ -122,7 +200,7 @@ const missingTargetDependencies: DependencySnapshot = {
     name: "Phonak Target",
     vendor: "Phonak",
     availability: "missing",
-    installKind: "archive",
+    installKind: "external",
     required: false,
     sourceUrl: "https://example.test/target.zip",
     documentationUrl: "https://example.test/target",

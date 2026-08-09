@@ -20,6 +20,43 @@ test("ask mode protects external edits across common path fields", () => {
   assert.ok(evaluateToolApproval("ask", workspace, "write", { file_path: "D:\\outside.txt" }));
 });
 
+test("path containment is independent of the host operating system", () => {
+  assert.equal(
+    evaluateToolApproval("ask", "C:\\workspace", "write", {
+      file_path: "C:\\workspace\\notes\\inside.txt",
+    }),
+    undefined,
+  );
+  assert.ok(
+    evaluateToolApproval("ask", "C:\\workspace", "write", {
+      file_path: "C:\\workspace-sibling\\outside.txt",
+    }),
+  );
+
+  assert.equal(
+    evaluateToolApproval("ask", "/workspace", "write", {
+      file_path: "/workspace/notes/inside.txt",
+    }),
+    undefined,
+  );
+  assert.ok(
+    evaluateToolApproval("ask", "/workspace", "write", {
+      file_path: "/workspace-sibling/outside.txt",
+    }),
+  );
+
+  assert.ok(
+    evaluateToolApproval("ask", "C:\\workspace", "write", {
+      file_path: "/workspace/foreign-posix-path.txt",
+    }),
+  );
+  assert.ok(
+    evaluateToolApproval("ask", "/workspace", "write", {
+      file_path: "C:\\workspace\\foreign-windows-path.txt",
+    }),
+  );
+});
+
 test("ask mode requests approval for every shell command", () => {
   assert.ok(evaluateToolApproval("ask", workspace, "bash", { command: "git status" }));
   assert.ok(

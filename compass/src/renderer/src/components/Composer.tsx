@@ -1,67 +1,28 @@
-import type { UiImageAttachment, UiSkill, VoiceInputUpdate } from "@shared/types";
+import type { UiSkill } from "@shared/types";
 import { parseSkillInvocation } from "@shared/skill-display";
-import { ArrowUp, Box, Mic, Square, X } from "lucide-react";
+import { ArrowUp, Mic, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, isDesktop } from "../ipc";
+import { isDesktop } from "../ipc";
 import { useI18n } from "../i18n";
-import { useCompass } from "../store";
+import { ignoreCommandFailure, useCompass } from "../store";
 import { ActionsMenu } from "./composer/ActionsMenu";
 import { ContextUsageSurface, ContextUsageTrigger } from "./composer/ContextUsage";
 import { ModelMenu } from "./composer/ModelMenu";
 import { PermissionMenu } from "./composer/PermissionMenu";
+import {
+  ComposerAttachments,
+  DictationStatus,
+  QueueChips,
+  SelectedSkill,
+  SlashCommandPopover,
+  type SlashCommandItem,
+} from "./composer/ComposerParts";
+import { readComposerImage, type ComposerAttachment } from "./composer/composer-attachments";
 import { findSlashToken } from "./composer/slash-token";
+import { useComposerDictation } from "./composer/useComposerDictation";
 
 type PopoverKind = "none" | "actions" | "permissions" | "model";
-
-interface ComposerAttachment extends UiImageAttachment {
-  id: string;
-}
-
-type DictationPhase = "idle" | "starting" | "listening" | "processing" | "complete";
-
-interface DictationState {
-  phase: DictationPhase;
-  preview: string;
-}
-
-function attachmentId(): string {
-  return typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function readImageFile(file: File, t: ReturnType<typeof useI18n>["t"]): Promise<ComposerAttachment> {
-  const supported = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
-  if (!supported.includes(file.type as (typeof supported)[number])) {
-    return Promise.reject(new Error(t("composer.imageOnly")));
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    return Promise.reject(new Error(t("composer.imageTooLarge")));
-  }
-  return new Promise((resolveImage, rejectImage) => {
-    const reader = new FileReader();
-    reader.onerror = () => rejectImage(new Error(t("composer.imageReadFailed", { name: file.name || "clipboard image" })));
-    reader.onload = () => {
-      if (typeof reader.result !== "string") {
-        rejectImage(new Error(t("composer.imageInvalid")));
-        return;
-      }
-      const comma = reader.result.indexOf(",");
-      if (comma < 0) {
-        rejectImage(new Error(t("composer.imageInvalid")));
-        return;
-      }
-      resolveImage({
-        id: attachmentId(),
-        data: reader.result.slice(comma + 1),
-        mimeType: file.type as UiImageAttachment["mimeType"],
-        name: file.name || "Pasted image",
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: boolean }): React.JSX.Element {
   const { t } = useI18n();
@@ -71,8 +32,6 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const queue = useCompass((state) => state.queue);
   const composerSeed = useCompass((state) => state.composerSeed);
   const clearComposerSeed = useCompass((state) => state.clearComposerSeed);
-  const lastError = useCompass((state) => state.lastError);
-  const setError = useCompass((state) => state.setError);
   const send = useCompass((state) => state.send);
   const abort = useCompass((state) => state.abort);
   const openSettings = useCompass((state) => state.openSettings);
@@ -84,14 +43,12 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const [contextExpanded, setContextExpanded] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
-  const [dictation, setDictation] = useState<DictationState>({ phase: "idle", preview: "" });
   const [dragActive, setDragActive] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
-  const dictationResetRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (composerSeed === null) return;
@@ -116,10 +73,6 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     node.style.height = "auto";
     node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
   }, [text]);
-
-  useEffect(() => () => {
-    if (dictationResetRef.current !== null) window.clearTimeout(dictationResetRef.current);
-  }, []);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent): void => {
@@ -173,22 +126,22 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const addImageFiles = async (files: File[]): Promise<void> => {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) {
-      setError(t("composer.selectImageFile"));
+      useCompass.getState().setError(t("composer.selectImageFile"));
       return;
     }
     const available = Math.max(0, 8 - attachments.length);
     if (available === 0) {
-      setError(t("composer.maxImages"));
+      useCompass.getState().setError(t("composer.maxImages"));
       return;
     }
     try {
-      const next = await Promise.all(imageFiles.slice(0, available).map((file) => readImageFile(file, t)));
+      const next = await Promise.all(imageFiles.slice(0, available).map((file) => readComposerImage(file, t)));
       setAttachments((current) => [...current, ...next].slice(0, 8));
-      setError(imageFiles.length > available ? t("composer.maxImages") : null);
+      useCompass.getState().setError(imageFiles.length > available ? t("composer.maxImages") : null);
       setPopover("none");
       requestAnimationFrame(() => textareaRef.current?.focus());
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      useCompass.getState().setError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -229,7 +182,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     if (files.length > 0) void addImageFiles(files);
   };
 
-  const applySlash = (item: (typeof slashItems)[number]): void => {
+  const applySlash = (item: SlashCommandItem): void => {
     if (!slashToken) return;
     const nextText = `${text.slice(0, slashToken.start)}${text.slice(slashToken.end)}`
       .replace(/[ \t]{2,}/g, " ");
@@ -250,11 +203,11 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0 && !selectedSkill) return;
     if (noModel) {
-      setError(t("composer.configureModel"));
+      useCompass.getState().setError(t("composer.configureModel"));
       return;
     }
     if (attachments.length > 0 && stats?.model && !stats.model.supportsImages) {
-      setError(t("composer.imageUnsupported"));
+      useCompass.getState().setError(t("composer.imageUnsupported"));
       return;
     }
 
@@ -262,7 +215,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     const draftSkill = selectedSkill;
     const draftAttachments = attachments;
     const images = attachments.map(({ data, mimeType, name }) => ({ data, mimeType, name }));
-    setError(null);
+    useCompass.getState().setError(null);
     setPopover("none");
     setText("");
     setSelectedSkill(null);
@@ -275,52 +228,6 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
       setSelectedSkill((current) => current ?? draftSkill);
       setAttachments((current) => current.length > 0 ? current : draftAttachments);
     });
-  };
-
-  const resetDictationAfter = (delay: number): void => {
-    if (dictationResetRef.current !== null) window.clearTimeout(dictationResetRef.current);
-    dictationResetRef.current = window.setTimeout(() => {
-      dictationResetRef.current = null;
-      setDictation({ phase: "idle", preview: "" });
-    }, delay);
-  };
-
-  const startDictation = (): void => {
-    if (dictation.phase !== "idle") return;
-    setPopover("none");
-    textareaRef.current?.focus();
-    setDictation({ phase: "starting", preview: isDesktop ? t("composer.voiceOpening") : t("composer.micConnecting") });
-    window.setTimeout(() => {
-      const onUpdate = isDesktop
-        ? undefined
-        : (update: VoiceInputUpdate): void => {
-            setDictation({
-              phase: update.phase,
-              preview: update.interimText || (update.phase === "listening" ? t("composer.voiceListening") : t("composer.voiceProcessingPreview")),
-            });
-          };
-      void api.startDictation(onUpdate)
-        .then((result) => {
-          if (!result.ok) {
-            setError(result.error ?? t("composer.voiceStartFailed"));
-            setDictation({ phase: "idle", preview: "" });
-            return;
-          }
-          if (result.text) {
-            setText((current) => `${current.trimEnd()}${current.trim() ? " " : ""}${result.text}`);
-            requestAnimationFrame(() => textareaRef.current?.focus());
-          }
-          setDictation({
-            phase: "complete",
-            preview: isDesktop ? t("composer.voiceOpened") : result.text || t("composer.voiceRecognized"),
-          });
-          resetDictationAfter(isDesktop ? 1600 : 900);
-        })
-        .catch((error: unknown) => {
-          setError(error instanceof Error ? error.message : String(error));
-          setDictation({ phase: "idle", preview: "" });
-        });
-    }, 120);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -359,43 +266,20 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     }
     if (event.key === "Escape" && streaming) {
       event.preventDefault();
-      void abort();
+      ignoreCommandFailure(abort());
     }
   };
 
-  const dictationBusy = dictation.phase !== "idle";
-  const dictationLabel = dictation.phase === "starting"
-    ? t("composer.voiceStart")
-    : dictation.phase === "listening"
-      ? t("composer.voiceListening")
-      : dictation.phase === "processing"
-        ? t("composer.voiceProcessing")
-        : t("composer.voiceReady");
+  const dictation = useComposerDictation(
+    textareaRef,
+    (result) => setText((current) => `${current.trimEnd()}${current.trim() ? " " : ""}${result}`),
+    () => setPopover("none"),
+  );
 
   return (
     <div className="composer-zone">
-      <AnimatePresence>
-        {lastError && (
-          <motion.div className="model-banner" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <div className="model-banner-inner error">
-              <span>{lastError}</span>
-              <button type="button" className="go" onClick={() => setError(null)}>{t("common.close")}</button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <div className="composer-wrap" ref={rootRef}>
-        {(queue.steering.length > 0 || queue.followUp.length > 0) && (
-          <div className="queue-chips">
-            {queue.steering.map((message, index) => (
-              <span className="queue-chip" key={`s-${index}`}><span className="tag">{t("composer.steer")}</span><span className="txt">{message}</span></span>
-            ))}
-            {queue.followUp.map((message, index) => (
-              <span className="queue-chip" key={`f-${index}`}><span className="tag">{t("composer.followUp")}</span><span className="txt">{message}</span></span>
-            ))}
-          </div>
-        )}
+        <QueueChips steering={queue.steering} followUp={queue.followUp} />
 
         <ContextUsageSurface expanded={contextExpanded} onClose={() => setContextExpanded(false)} showQuickPrompts={showQuickPrompts} />
 
@@ -420,29 +304,13 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
               </motion.div>
             )}
           </AnimatePresence>
-          <AnimatePresence>
-            {popover === "none" && slashMenuOpen && (
-              <motion.div className="popover slash-popover" initial={{ opacity: 0, y: 5, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.99 }}>
-                <div className="slash-popover-list" role="listbox" aria-label={t("composer.skillCommands")}>
-                  {slashItems.map((item, index) => (
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={index === slashIndex}
-                      key={item.command}
-                      className={`popover-item${index === slashIndex ? " hl" : ""}`}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setSlashIndex(index)}
-                      onClick={() => applySlash(item)}
-                    >
-                      <span className="name">{item.command}</span>
-                      <span className="desc">{item.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <SlashCommandPopover
+            items={slashItems}
+            open={popover === "none" && slashMenuOpen}
+            selectedIndex={slashIndex}
+            onApply={applySlash}
+            onHighlight={setSlashIndex}
+          />
 
           <input ref={imageInputRef} className="composer-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => {
             const files = Array.from(event.target.files ?? []);
@@ -450,38 +318,15 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
             if (files.length > 0) void addImageFiles(files);
           }} />
 
-          {selectedSkill && (
-            <div className="composer-skill-selection" role="group" aria-label={t("composer.selectedSkill")}>
-              <span className="composer-skill-chip">
-                <Box size={16} strokeWidth={1.75} aria-hidden="true" />
-                <span>{selectedSkill.name}</span>
-              </span>
-              <button
-                type="button"
-                aria-label={t("composer.removeSkill", { name: selectedSkill.name })}
-                title={t("composer.removeSkill", { name: selectedSkill.name })}
-                onClick={() => {
-                  setSelectedSkill(null);
-                  requestAnimationFrame(() => textareaRef.current?.focus());
-                }}
-              >
-                <X size={13} strokeWidth={2} aria-hidden="true" />
-              </button>
-            </div>
-          )}
+          <SelectedSkill skill={selectedSkill} onRemove={() => {
+            setSelectedSkill(null);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }} />
 
-          {attachments.length > 0 && (
-            <div className="composer-attachments">
-              {attachments.map((image, index) => (
-                <div className="composer-attachment" key={image.id}>
-                  <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name ?? t("composer.attachment", { number: index + 1 })} />
-                  <button type="button" aria-label={t("composer.removeImage", { number: index + 1 })} onClick={() => setAttachments((current) => current.filter((item) => item.id !== image.id))}>
-                    <X size={12} strokeWidth={2} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <ComposerAttachments
+            attachments={attachments}
+            onRemove={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
+          />
 
           <textarea
             ref={textareaRef}
@@ -500,26 +345,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
             spellCheck={false}
           />
 
-          <AnimatePresence initial={false}>
-            {dictationBusy && (
-              <motion.div
-                className={`dictation-status ${dictation.phase}`}
-                role="status"
-                aria-live="polite"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-              >
-                <span className="dictation-wave" aria-hidden="true">
-                  {Array.from({ length: 5 }, (_, index) => <i key={index} />)}
-                </span>
-                <span className="dictation-copy">
-                  <strong>{dictationLabel}</strong>
-                  <small title={dictation.preview}>{dictation.preview}</small>
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <DictationStatus busy={dictation.busy} label={dictation.label} phase={dictation.state.phase} preview={dictation.state.preview} />
 
           <div className="composer-toolbar">
             <ActionsMenu open={popover === "actions"} onAddImage={() => imageInputRef.current?.click()} onClose={() => setPopover("none")} onToggle={() => togglePopover("actions")} />
@@ -530,11 +356,11 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
               setContextExpanded((current) => !current);
             }} />
             <ModelMenu open={popover === "model"} onClose={() => setPopover("none")} onOpenSettings={() => openSettings("models")} onToggle={() => togglePopover("model")} />
-            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictationBusy ? " active launching" : ""}`} aria-label={dictationBusy ? dictationLabel : isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} aria-pressed={dictationBusy} title={isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} onClick={startDictation}>
+            <button type="button" className={`composer-icon-btn composer-round-btn voice-btn${dictation.busy ? " active launching" : ""}`} aria-label={dictation.busy ? dictation.label : isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} aria-pressed={dictation.busy} title={isDesktop ? t("composer.startDesktopVoice") : t("composer.startBrowserVoice")} onClick={dictation.start}>
               <Mic size={18} strokeWidth={1.75} />
             </button>
             {streaming && !text.trim() && attachments.length === 0 && !selectedSkill ? (
-              <button type="button" className="send-btn stop" aria-label={t("composer.stop")} onClick={() => void abort()}><Square size={13} fill="currentColor" strokeWidth={0} /></button>
+              <button type="button" className="send-btn stop" aria-label={t("composer.stop")} onClick={() => ignoreCommandFailure(abort())}><Square size={13} fill="currentColor" strokeWidth={0} /></button>
             ) : (
               <button type="button" className="send-btn" aria-label={t("composer.send")} title={noModel ? t("composer.configureFirst") : t("composer.send")} disabled={(!text.trim() && attachments.length === 0 && !selectedSkill) || noModel} onClick={doSend}>
                 <ArrowUp size={19} strokeWidth={1.8} />

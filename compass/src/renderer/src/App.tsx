@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./components/Composer";
+import { CommandErrorBanner } from "./components/CommandErrorBanner";
 import { HearingHealthWorkspace } from "./components/HearingHealthWorkspace";
 import { Hero } from "./components/Hero";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
@@ -8,7 +9,7 @@ import { Thread } from "./components/Thread";
 import { TitleBar } from "./components/TitleBar";
 import { api, isDesktop } from "./ipc";
 import { useI18n } from "./i18n";
-import { type SettingsSection, useCompass } from "./store";
+import { ignoreCommandFailure, type SettingsSection, useCompass } from "./store";
 import { useThemePreference } from "./theme";
 import {
   dependencyPromptKey,
@@ -49,6 +50,8 @@ export default function App(): React.JSX.Element {
   const setSidebarOpen = useCompass((s) => s.setSidebarOpen);
   const mainView = useCompass((s) => s.mainView);
   const setMainView = useCompass((s) => s.setMainView);
+  const lastError = useCompass((s) => s.lastError);
+  const setError = useCompass((s) => s.setError);
   const historyRef = useRef<NavigationTarget[]>([]);
   const historyIndexRef = useRef(-1);
   const pendingNavigationKeyRef = useRef<NavigationTarget["key"] | null>(null);
@@ -150,15 +153,15 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     if (isDesktop) {
-      void boot();
+      ignoreCommandFailure(boot());
       return api.onAgentEvent(applyEvent);
     }
 
     let disposed = false;
     let unsubscribe = (): void => undefined;
-    void boot().then(() => {
+    ignoreCommandFailure(boot().then(() => {
       if (!disposed) unsubscribe = api.onAgentEvent(applyEvent);
-    });
+    }));
     return () => {
       disposed = true;
       unsubscribe();
@@ -211,7 +214,7 @@ export default function App(): React.JSX.Element {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
         closeSettings();
-        void newSession();
+        ignoreCommandFailure(newSession());
         return;
       }
       if (
@@ -247,6 +250,7 @@ export default function App(): React.JSX.Element {
         onNavigateBack={() => navigateHistory(-1)}
         onNavigateForward={() => navigateHistory(1)}
       />
+      <CommandErrorBanner message={lastError} onClose={() => setError(null)} />
       <div className={`app-body${settingsSection ? " settings-open" : ""}`}>
         {settingsSection ? (
           <SettingsWorkspace />

@@ -91,3 +91,46 @@ test("model mutations stay ordered through publication and RPC completion", asyn
     "publish:model-c:end",
   ]);
 });
+
+test("credential mutations share the model publication queue", async () => {
+  let currentModel = "model-a";
+  let releaseCredential!: () => void;
+  const credentialCanFinish = new Promise<void>((resolve) => {
+    releaseCredential = resolve;
+  });
+  const order: string[] = [];
+  const coordinator = new ModelMutationCoordinator({
+    setModel: async (_provider, id) => {
+      order.push(`select:${id}`);
+      currentModel = id;
+      return { ok: true };
+    },
+    setModelEnabled: async () => {
+      throw new Error("not used");
+    },
+    publish: async () => {
+      order.push(`publish:${currentModel}`);
+      return payload(currentModel);
+    },
+  });
+
+  const credential = coordinator.mutateAndPublish(async () => {
+    order.push("credential:start");
+    await credentialCanFinish;
+    order.push("credential:end");
+  });
+  const selection = coordinator.setModel("provider", "model-b");
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(order, ["credential:start"]);
+
+  releaseCredential();
+  await Promise.all([credential, selection]);
+  assert.deepEqual(order, [
+    "credential:start",
+    "credential:end",
+    "publish:model-a",
+    "select:model-b",
+    "publish:model-b",
+  ]);
+});

@@ -1,13 +1,9 @@
-import type {
-  AgentUiEvent,
-  CommandExplanationLanguage,
-  CompassBackendApi,
-  DependencyId,
-  PermissionMode,
-  ThinkingLevel,
-  UiImageAttachment,
-} from "@shared/types";
-import type { ClientProfileDraft } from "@shared/client-registry";
+import type { AgentUiEvent, CompassBackendApi } from "@shared/types";
+import {
+  BACKEND_OPERATION_METHODS,
+  invokeBackendOperation,
+  ipcChannelForBackendMethod,
+} from "@shared/transport-contract";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -16,6 +12,10 @@ import { AuthLoginController } from "./auth-login-controller";
 import { ClientDatabase } from "./client-database";
 import { createCompassBackendApi } from "./compass-api";
 import { DependencyManager } from "./dependency-manager";
+import {
+  observeInitialNavigation,
+  shouldShowStartupErrorDialog,
+} from "./startup-navigation";
 import { startCompassWebServer, type CompassWebServer } from "./web-server";
 
 const DEFAULT_WEB_PORT = 5173;
@@ -84,6 +84,12 @@ function getAppIconPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+function openExternal(url: string): void {
+  void shell.openExternal(url).catch((error: unknown) => {
+    console.error("Failed to open an external URL:", error);
+  });
+}
+
 function createWindow(rendererUrl: string): BrowserWindow {
   const icon = getAppIconPath();
   const window = new BrowserWindow({
@@ -111,11 +117,17 @@ function createWindow(rendererUrl: string): BrowserWindow {
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternal(url);
     return { action: "deny" };
   });
 
-  void window.loadURL(rendererUrl);
+  // Do not gate backend startup on the first navigation. The renderer may
+  // legitimately reload before loadURL settles (the smoke migration does),
+  // which Electron reports as ERR_ABORTED even though the window is healthy.
+  void observeInitialNavigation(window.loadURL(rendererUrl), (error) => {
+    console.error(`Failed to load the Compass renderer at ${rendererUrl}:`, error);
+    if (!window.isDestroyed()) window.destroy();
+  });
 
   // Temporary visual verification hook: capture the renderer at a few settled moments.
   if (process.env.COMPASS_CAPTURE) {
@@ -140,100 +152,11 @@ function createWindow(rendererUrl: string): BrowserWindow {
 }
 
 function registerIpc(api: CompassBackendApi): void {
-  ipcMain.handle("app:init", () => api.init());
-  ipcMain.handle("developer:context", () => api.getDeveloperContext());
-  ipcMain.handle("runtime:prerequisite-action", (_event, actionId: string) =>
-    api.runPrerequisiteAction(actionId),
-  );
-  ipcMain.handle("dependencies:refresh", () => api.refreshDependencies());
-  ipcMain.handle(
-    "dependencies:install",
-    (_event, dependencyId: DependencyId, sessionId?: string) =>
-      api.installDependency(dependencyId, sessionId),
-  );
-  ipcMain.handle("dependencies:cancel", (_event, dependencyId: DependencyId) =>
-    api.cancelDependencyInstall(dependencyId),
-  );
-  ipcMain.handle("dependencies:open-source", (_event, dependencyId: DependencyId) =>
-    api.openDependencySource(dependencyId),
-  );
-  ipcMain.handle("dependencies:select-executable", (_event, dependencyId: DependencyId, path?: string) =>
-    api.selectDependencyExecutable(dependencyId, path),
-  );
-  ipcMain.handle("dependencies:reset-executable", (_event, dependencyId: DependencyId) =>
-    api.resetDependencyExecutable(dependencyId),
-  );
-  ipcMain.handle(
-    "agent:prompt",
-    (_event, text: string, images?: UiImageAttachment[], clientMessageId?: string) =>
-      api.prompt(text, images, clientMessageId),
-  );
-  ipcMain.handle("agent:abort", () => api.abort());
-  ipcMain.handle("agent:resolve-approval", (_event, id: string, allowed: boolean) =>
-    api.resolveApproval(id, allowed),
-  );
-  ipcMain.handle("agent:new-session", () => api.newSession());
-  ipcMain.handle("agent:open-session", (_event, path: string) => api.openSession(path));
-  ipcMain.handle("sessions:list", () => api.listSessions());
-  ipcMain.handle("sessions:rename", (_event, path: string, name: string) =>
-    api.renameSession(path, name),
-  );
-  ipcMain.handle("sessions:delete", (_event, path: string) => api.deleteSession(path));
-  ipcMain.handle("sessions:archive", (_event, path: string) => api.archiveSession(path));
-  ipcMain.handle("clients:import-legacy", (_event, serializedRegistry: string) =>
-    api.importLegacyClientRegistry(serializedRegistry),
-  );
-  ipcMain.handle("clients:save-profile", (_event, profile: ClientProfileDraft) =>
-    api.saveClientProfile(profile),
-  );
-  ipcMain.handle("clients:assign-session", (_event, sessionId: string, clientName: string) =>
-    api.assignSessionClient(sessionId, clientName),
-  );
-  ipcMain.handle("clients:unassign-session", (_event, sessionId: string) =>
-    api.unassignSessionClient(sessionId),
-  );
-  ipcMain.handle("models:set", (_event, provider: string, id: string) =>
-    api.setModel(provider, id),
-  );
-  ipcMain.handle(
-    "models:set-enabled",
-    (_event, provider: string, id: string, enabled: boolean) =>
-      api.setModelEnabled(provider, id, enabled),
-  );
-  ipcMain.handle("models:set-summary", (_event, provider: string, id: string) =>
-    api.setSummaryModel(provider, id),
-  );
-  ipcMain.handle("thinking:set", (_event, level: ThinkingLevel) =>
-    api.setThinkingLevel(level),
-  );
-  ipcMain.handle("permissions:set", (_event, mode: PermissionMode) =>
-    api.setPermissionMode(mode),
-  );
-  ipcMain.handle("settings:set-language", (_event, language) => api.setLanguage(language));
-  ipcMain.handle(
-    "settings:set-command-explanation-language",
-    (_event, language: CommandExplanationLanguage) =>
-      api.setCommandExplanationLanguage(language),
-  );
-  ipcMain.handle("settings:set-quick-prompts", (_event, prompts) =>
-    api.setQuickPrompts(prompts),
-  );
-  ipcMain.handle("auth:set-key", (_event, provider: string, key: string) =>
-    api.setApiKey(provider, key),
-  );
-  ipcMain.handle("auth:login-provider", (_event, provider: string) =>
-    api.loginProvider(provider),
-  );
-  ipcMain.handle("auth:remove", (_event, provider: string) => api.removeApiKey(provider));
-  ipcMain.handle("skills:set-enabled", (_event, name: string, enabled: boolean) =>
-    api.setSkillEnabled(name, enabled),
-  );
-  ipcMain.handle("skills:add-dir", () => api.addSkillDir());
-  ipcMain.handle("skills:remove-dir", (_event, dir: string) => api.removeSkillDir(dir));
-  ipcMain.handle("settings:set-workspace", () => api.setWorkspaceDir());
-  ipcMain.handle("shell:open-path", (_event, path: string) => api.openPath(path));
-  ipcMain.handle("voice:start-dictation", () => api.startDictation());
-
+  for (const method of BACKEND_OPERATION_METHODS) {
+    ipcMain.handle(ipcChannelForBackendMethod(method), (_event, ...args: unknown[]) =>
+      invokeBackendOperation(api, method, args),
+    );
+  }
   ipcMain.on("win:control", (_event, action: "minimize" | "maximize" | "close") => {
     if (!mainWindow) return;
     if (action === "minimize") mainWindow.minimize();
@@ -322,12 +245,21 @@ void app
     const message = error instanceof Error ? error.message : String(error);
     console.error("Failed to start Compass:", error);
     await shutdown();
-    dialog.showErrorBox("Compass 启动失败", message);
-    app.quit();
+    if (shouldShowStartupErrorDialog(process.env)) {
+      dialog.showErrorBox("Compass 启动失败", message);
+      app.quit();
+    } else {
+      // Native dialogs are invisible and blocking on headless CI runners.
+      app.exit(1);
+    }
   });
 
 app.on("before-quit", () => authLoginController?.abortAll());
 
 app.on("window-all-closed", () => {
-  void shutdown().finally(() => app.quit());
+  void shutdown()
+    .catch((error: unknown) => {
+      console.error("Failed to shut down Compass cleanly:", error);
+    })
+    .finally(() => app.quit());
 });

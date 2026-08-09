@@ -1,6 +1,6 @@
 import { Folder, ImagePlus, Plus, Settings, Sparkles, SquarePen } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCompass } from "../../store";
+import { ignoreCommandFailure, useCompass } from "../../store";
 import { useI18n } from "../../i18n";
 
 interface ActionsMenuProps {
@@ -44,7 +44,7 @@ export function ActionsMenu({ open, onAddImage, onClose, onToggle }: ActionsMenu
               <ImagePlus size={16} strokeWidth={1.6} />
               {t("composer.addImage")}
             </button>
-            <button type="button" className="menu-action" onClick={() => run(() => void newSession())}>
+            <button type="button" className="menu-action" onClick={() => run(() => ignoreCommandFailure(newSession()))}>
               <SquarePen size={16} strokeWidth={1.6} />
               {t("composer.newConversation")}
             </button>
@@ -52,7 +52,7 @@ export function ActionsMenu({ open, onAddImage, onClose, onToggle }: ActionsMenu
               <Sparkles size={16} strokeWidth={1.6} />
               {t("sidebar.skillLibrary")}
             </button>
-            <button type="button" className="menu-action" onClick={() => run(() => void setWorkspaceDir())}>
+            <button type="button" className="menu-action" onClick={() => run(() => ignoreCommandFailure(setWorkspaceDir()))}>
               <Folder size={16} strokeWidth={1.6} />
               {t("composer.changeWorkspace")}
             </button>

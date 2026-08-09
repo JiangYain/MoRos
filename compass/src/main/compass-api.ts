@@ -14,6 +14,7 @@ import type { DependencyManager, DependencySnapshotOptions } from "./dependency-
 import { focusWindowForDictation } from "./dictation-window";
 import { ModelMutationCoordinator } from "./model-mutation-coordinator";
 import { runPrerequisiteAction } from "./prerequisite-actions";
+import { completeSessionRemoval } from "./session-removal-completion";
 
 interface CompassBackendOptions {
   service: AgentService;
@@ -181,11 +182,19 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
   const modelMutations = new ModelMutationCoordinator({
     setModel: (provider, id) => service.setModel(provider, id),
     setModelEnabled: (provider, id, enabled) => service.setModelEnabled(provider, id, enabled),
-    publish: () => buildAndPublish({ allowStale: true }),
+    publish: (allowStaleDependencies) => buildAndPublish(
+      allowStaleDependencies ? { allowStale: true } : undefined,
+    ),
   });
   const publishClientRegistry = <Registry extends InitPayload["clientRegistry"]>(registry: Registry): Registry => {
     emitEvent({ kind: "client-registry-changed", registry });
     return registry;
+  };
+  const sessionRemovalCompletion = {
+    clearAssignment: (sessionId: string) => {
+      publishClientRegistry(clientDatabase.unassignSession(sessionId));
+    },
+    publish: () => buildAndPublish(),
   };
 
   return {
@@ -205,14 +214,16 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     listSessions: () => service.listSessions(),
     renameSession: (path, name) => service.renameSession(path, name),
     deleteSession: async (path) => {
-      const result = await service.deleteSession(path);
-      if (result.ok) await buildAndPublish();
-      return result;
+      return completeSessionRemoval(
+        await service.deleteSession(path),
+        sessionRemovalCompletion,
+      );
     },
     archiveSession: async (path) => {
-      const result = await service.archiveSession(path);
-      if (result.ok) await buildAndPublish();
-      return result;
+      return completeSessionRemoval(
+        await service.archiveSession(path),
+        sessionRemovalCompletion,
+      );
     },
     importLegacyClientRegistry: async (serializedRegistry) =>
       publishClientRegistry(clientDatabase.importLegacyRegistry(serializedRegistry)),
@@ -227,7 +238,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       modelMutations.setModelEnabled(provider, id, enabled),
     setSummaryModel: async (provider, id) => service.setSummaryModel(provider, id),
     setThinkingLevel: async (level) => {
-      const stats = service.setThinkingLevel(level);
+      const stats = await service.setThinkingLevel(level);
       emitEvent({ kind: "stats", stats });
       return stats;
     },
@@ -236,16 +247,16 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     setCommandExplanationLanguage: async (language) =>
       service.setCommandExplanationLanguage(language),
     setQuickPrompts: async (prompts) => service.setQuickPrompts(prompts),
-    setApiKey: async (provider, key) => {
-      await service.setApiKey(provider, key);
-      return buildAndPublish();
+    setApiKey: (provider, key) =>
+      modelMutations.mutateAndPublish(() => service.setApiKey(provider, key)),
+    loginProvider: (provider) => {
+      // Cancellation must happen before enqueueing so retrying a long-running
+      // OAuth flow can release the transaction currently holding the queue.
+      authController.cancelProviderLogin(provider);
+      return modelMutations.mutateAndPublish(() => authController.loginProvider(provider));
     },
-    loginProvider: async (provider) =>
-      publish(await withDependencies(await authController.loginProvider(provider))),
-    removeApiKey: async (provider) => {
-      await service.removeApiKey(provider);
-      return buildAndPublish();
-    },
+    removeApiKey: (provider) =>
+      modelMutations.mutateAndPublish(() => service.removeApiKey(provider)),
     runPrerequisiteAction: async (actionId) => {
       await runPrerequisiteAction(actionId, getWindow(), service.getSettingsView().language);
       return buildAndPublish();

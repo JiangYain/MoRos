@@ -3,7 +3,7 @@ import type { DeveloperContextSnapshot } from "@shared/types";
 import { useEffect, useRef, useState } from "react";
 import { api, isDesktop } from "../ipc";
 import { useI18n } from "../i18n";
-import { useCompass } from "../store";
+import { ignoreCommandFailure, useCompass } from "../store";
 import { CompassLogo } from "./CompassLogo";
 import { DeveloperContextDialog } from "./DeveloperContextDialog";
 
@@ -32,6 +32,7 @@ export function TitleBar({
   const menuBarRef = useRef<HTMLElement>(null);
   const settings = useCompass((state) => state.settings);
   const newSession = useCompass((state) => state.newSession);
+  const openPath = useCompass((state) => state.openPath);
   const openSettings = useCompass((state) => state.openSettings);
   const closeSettings = useCompass((state) => state.closeSettings);
   const sidebarOpen = useCompass((state) => state.sidebarOpen);
@@ -63,7 +64,7 @@ export function TitleBar({
 
   const startNewSession = (): void => {
     closeSettings();
-    void newSession();
+    ignoreCommandFailure(newSession());
   };
 
   const focusComposer = (): void => {
@@ -157,7 +158,9 @@ export function TitleBar({
                 role="menuitem"
                 disabled={!settings?.workspaceDir}
                 onClick={() => runMenuAction(() => {
-                  if (settings?.workspaceDir) void api.openPath(settings.workspaceDir);
+                  if (settings?.workspaceDir) {
+                    ignoreCommandFailure(openPath(settings.workspaceDir));
+                  }
                 })}
               >
                 <span>{t("titlebar.openWorkspace")}</span>
