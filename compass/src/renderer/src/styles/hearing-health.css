@@ -143,17 +143,9 @@
   border-color: var(--color-border-focus);
 }
 
-.hearing-health-client-edit-btn.active {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
-}
-
-.hearing-health-client-select {
-  position: relative;
-}
-
-.hearing-health-client-btn {
+/* Static badge naming the client bound to the workspace; picking happens in
+   the sidebar client list. */
+.hearing-health-client-name {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -167,226 +159,14 @@
   color: var(--color-text-primary);
   font-size: 11.5px;
   font-weight: 500;
-  cursor: pointer;
   box-shadow: var(--shadow-precise);
-  transition: background 0.12s var(--ease-out-power3), border-color 0.12s var(--ease-out-power3);
 }
 
-.hearing-health-client-btn:hover {
-  background: var(--color-surface);
-}
-
-.hearing-health-client-btn:focus-visible {
-  outline: none;
-  border-color: var(--color-border-focus);
-}
-
-.hearing-health-client-btn-name {
+.hearing-health-client-name-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.hearing-health-client-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 20;
-  margin-top: 4px;
-  min-width: 180px;
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 3px;
-  background: var(--color-bg);
-  border: 0.5px solid var(--color-border-strong);
-  border-radius: var(--border-radius-sm);
-  corner-shape: var(--corner-shape-continuous);
-  box-shadow: var(--shadow-popover);
-}
-
-.hearing-health-client-option {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 26px;
-  padding: 4px 8px;
-  border: none;
-  border-radius: var(--border-radius-xs);
-  corner-shape: var(--corner-shape-continuous);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.12s var(--ease-out-power3);
-}
-
-.hearing-health-client-option:hover {
-  background: var(--color-surface);
-}
-
-.hearing-health-client-option:focus-visible {
-  outline: none;
-  background: var(--color-surface-hover);
-}
-
-.hearing-health-client-option.active {
-  background: var(--color-surface);
-  font-weight: 500;
-}
-
-.hearing-health-client-option.new-client {
-  color: var(--color-text-secondary);
-}
-
-.hearing-health-client-option.new-client:hover {
-  color: var(--color-text-primary);
-}
-
-.hearing-health-client-menu-rule {
-  height: 0.5px;
-  margin: 3px 5px;
-  background: var(--color-border);
-}
-
-/* Inline client profile editor — lives in the page, not in a modal */
-.hearing-health-profile-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px 16px 12px;
-  border: 0.5px solid var(--color-border);
-  border-radius: var(--border-radius-md);
-  corner-shape: var(--corner-shape-continuous);
-  background: var(--color-bg);
-  box-shadow: var(--shadow-precise);
-}
-
-.hearing-health-profile-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) auto 76px minmax(0, 1fr);
-  gap: 10px 12px;
-}
-
-.hearing-health-profile-field {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.hearing-health-profile-field > span {
-  color: var(--color-text-tertiary);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.hearing-health-profile-field input,
-.hearing-health-profile-field select {
-  height: 28px;
-  padding: 0 8px;
-  border: 0.5px solid var(--color-border);
-  border-radius: var(--border-radius-xs);
-  corner-shape: var(--corner-shape-continuous);
-  background: var(--color-bg);
-  color: var(--color-text-primary);
-  font-size: 11.5px;
-  font-family: var(--font-sans);
-}
-
-.hearing-health-profile-field select {
-  cursor: pointer;
-}
-
-.hearing-health-profile-field input:focus-visible,
-.hearing-health-profile-field select:focus-visible {
-  outline: none;
-  border-color: var(--color-border-focus);
-}
-
-.hearing-health-profile-span2 {
-  grid-column: span 2;
-}
-
-.hearing-health-profile-gender {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.hearing-health-profile-gender button {
-  height: 28px;
-  padding: 0 10px;
-  border: 0.5px solid var(--color-border);
-  border-radius: var(--border-radius-xs);
-  corner-shape: var(--corner-shape-continuous);
-  background: var(--color-bg);
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.12s var(--ease-out-power3);
-}
-
-.hearing-health-profile-gender button:hover {
-  color: var(--color-text-primary);
-}
-
-.hearing-health-profile-gender button.active {
-  border-color: var(--color-text-primary);
-  background: var(--color-text-primary);
-  color: var(--color-bg);
-}
-
-.hearing-health-profile-gender button:focus-visible {
-  outline: none;
-  border-color: var(--color-border-focus);
-}
-
-.hearing-health-profile-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.hearing-health-profile-status {
-  margin-right: auto;
-  color: var(--color-text-tertiary);
-  font-size: 10.5px;
-}
-
-.hearing-health-profile-status.error {
-  color: var(--color-danger);
-}
-
-.hearing-health-profile-save {
-  min-height: 28px;
-  padding: 0 14px;
-  border: none;
-  border-radius: var(--border-radius-sm);
-  corner-shape: var(--corner-shape-continuous);
-  background: var(--color-text-primary);
-  color: var(--color-bg);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.12s var(--ease-out-power3);
-}
-
-.hearing-health-profile-save:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.hearing-health-profile-save:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.hearing-health-profile-save:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--color-border-focus);
 }
 
 /* Empty guidance when no client is selected */
@@ -626,11 +406,10 @@
   pointer-events: none;
 }
 
-/* Pictograms Overlay */
+/* Pictograms Overlay — lucide icons nested as inner <svg>, stroked with
+   currentColor so one color rule themes them all. */
 .hearing-health-pictogram-item {
-  font-size: 11px;
-  text-anchor: middle;
-  dominant-baseline: central;
+  color: var(--color-text-tertiary);
   opacity: 0.6;
   pointer-events: none;
 }
@@ -1095,9 +874,5 @@
 @media (max-width: 900px) {
   .hearing-health-fitting-grid {
     grid-template-columns: 1fr;
-  }
-
-  .hearing-health-profile-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }

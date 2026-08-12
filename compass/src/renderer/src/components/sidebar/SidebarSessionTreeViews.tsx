@@ -18,9 +18,10 @@ import { AnimatePresence, motion } from "motion/react";
 import { useId } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n.ts";
+import { useCompass } from "../../store.ts";
 import { ClientProfileDialog } from "../ClientProfileDialog.tsx";
 import { ThreadInlineConfirmation } from "../ThreadInlineConfirmation.tsx";
-import type { ClientProfileDraft } from "../client-registry.ts";
+import { clientRegistryKey, type ClientProfileDraft } from "../client-registry.ts";
 import type { ThreadConfirmationState } from "../thread-confirmation.ts";
 import type {
   ClientDeleteInteraction,
@@ -252,8 +253,13 @@ interface ClientGroupViewProps {
   };
   expanded: boolean;
   group: ClientGroup;
+  /** Pulses the row while hearing health still waits for a client pick. */
+  hhAttention?: boolean;
+  /** Marks the client currently bound to the hearing health workspace. */
+  hhSelected?: boolean;
   index: number;
   onContextMenu?(event: React.MouseEvent): void;
+  onHearingHealthSelect?(): void;
   reduced: boolean | null;
   renderSession(session: UiSessionInfo): React.JSX.Element;
   revealed: boolean;
@@ -286,6 +292,8 @@ function ClientGroupView(props: ClientGroupViewProps): React.JSX.Element {
     >
       <div
         className={`file-item folder-row${props.drag.target ? " drag-over" : ""}`}
+        data-hh-selected={props.hhSelected || undefined}
+        data-hh-attention={props.hhAttention || undefined}
         onDragEnter={props.drag.enter}
         onDragOver={props.drag.over}
         onDragLeave={props.drag.leave}
@@ -296,7 +304,10 @@ function ClientGroupView(props: ClientGroupViewProps): React.JSX.Element {
           type="button"
           className="file-item-main"
           aria-expanded={props.expanded}
-          onClick={props.toggleExpanded}
+          onClick={() => {
+            props.toggleExpanded();
+            props.onHearingHealthSelect?.();
+          }}
         >
           <span className="file-icon">
             <AnimatePresence initial={false} mode="popLayout">
@@ -505,6 +516,16 @@ function SessionTreeGroupController({
 }): React.JSX.Element {
   const expanded = !visibility.state.collapsedClients[group.id];
   const revealed = Boolean(visibility.state.revealedClients[group.id]);
+  // While the hearing health workspace is visible, client rows double as its
+  // client picker: clicking binds the client, and rows pulse until one is set.
+  const mainView = useCompass((state) => state.mainView);
+  const hearingHealthClient = useCompass((state) => state.hearingHealthClient);
+  const setHearingHealthClient = useCompass((state) => state.setHearingHealthClient);
+  const hearingHealthPicking = mainView === "hearing-health" && !group.unassigned;
+  const hhSelected = hearingHealthPicking
+    && hearingHealthClient !== null
+    && clientRegistryKey(hearingHealthClient) === clientRegistryKey(group.name);
+  const hhAttention = hearingHealthPicking && hearingHealthClient === null;
   return (
     <ClientGroupView
       group={group}
@@ -512,6 +533,11 @@ function SessionTreeGroupController({
       activeSessionId={activeSessionId}
       reduced={reduced}
       expanded={expanded}
+      hhAttention={hhAttention}
+      hhSelected={hhSelected}
+      onHearingHealthSelect={hearingHealthPicking
+        ? () => setHearingHealthClient(group.name)
+        : undefined}
       revealed={revealed}
       toggleExpanded={() => visibility.toggleClient(group.id)}
       toggleRevealed={() => visibility.toggleRevealed(group.id)}
