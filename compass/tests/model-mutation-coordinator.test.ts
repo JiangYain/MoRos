@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { InitPayload } from "../src/shared/types.ts";
+import type { AgentUiEvent, InitPayload } from "../src/shared/types.ts";
 import { ModelMutationCoordinator } from "../src/main/model-mutation-coordinator.ts";
 
 function payload(model: string): InitPayload {
@@ -133,4 +133,44 @@ test("credential mutations share the model publication queue", async () => {
     "select:model-b",
     "publish:model-b",
   ]);
+});
+
+test("settings mutations broadcast a state-refresh snapshot only after success", async () => {
+  const events: AgentUiEvent[] = [];
+  const coordinator = new ModelMutationCoordinator({
+    setModel: async () => ({ ok: true }),
+    setModelEnabled: async () => {
+      throw new Error("not used");
+    },
+    publish: async () => {
+      const snapshot = payload("model-a");
+      events.push({ kind: "state-refresh", payload: snapshot });
+      return snapshot;
+    },
+  });
+  const settings = payload("model-a").settings;
+
+  // Simulates setSummaryModel: snapshot is published after the mutation.
+  const summaryResult = await coordinator.publishAfter(async () => {
+    assert.equal(events.length, 0);
+    return { ...settings, summaryModel: { provider: "provider", id: "model-b" } };
+  });
+  assert.equal(summaryResult.summaryModel.id, "model-b");
+  assert.deepEqual(events.map((event) => event.kind), ["state-refresh"]);
+
+  // Simulates setQuickPrompts: the RPC result keeps the mutation's own shape.
+  const quickPromptsResult = await coordinator.publishAfter(async () => ({
+    ...settings,
+    quickPrompts: ["First prompt"],
+  }));
+  assert.deepEqual(quickPromptsResult.quickPrompts, ["First prompt"]);
+  assert.deepEqual(events.map((event) => event.kind), ["state-refresh", "state-refresh"]);
+
+  await assert.rejects(
+    coordinator.publishAfter(async () => {
+      throw new Error("language mutation failed");
+    }),
+    /language mutation failed/,
+  );
+  assert.equal(events.length, 2);
 });

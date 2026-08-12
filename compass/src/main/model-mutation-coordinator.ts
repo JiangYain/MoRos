@@ -45,4 +45,18 @@ export class ModelMutationCoordinator {
       return this.backend.publish(options.allowStaleDependencies ?? false);
     });
   }
+
+  /**
+   * Runs a settings mutation, publishes the authoritative snapshot once it
+   * succeeds, and returns the mutation result unchanged so RPC contracts are
+   * preserved. Failed mutations publish nothing. Settings do not affect
+   * dependency state, so a stale dependency inventory is acceptable.
+   */
+  publishAfter<Result>(mutation: () => Promise<Result>): Promise<Result> {
+    return this.queue.enqueue(async () => {
+      const result = await mutation();
+      await this.backend.publish(true);
+      return result;
+    });
+  }
 }

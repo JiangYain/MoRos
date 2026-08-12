@@ -202,7 +202,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     getDeveloperContext: () => Promise.resolve(service.getDeveloperContext()),
     prompt: (text, images, clientMessageId) => service.prompt(text, images, clientMessageId),
     abort: () => service.abort(),
-    resolveApproval: async (id, allowed) => service.resolveApproval(id, allowed),
+    resolveApproval: async (id, allowed, scope) => service.resolveApproval(id, allowed, scope),
     removeQueuedMessage: async (kind, index, text) => service.removeQueuedMessage(kind, index, text),
     newSession: async () => {
       await service.start();
@@ -247,18 +247,23 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     setModel: (provider, id) => modelMutations.setModel(provider, id),
     setModelEnabled: (provider, id, enabled) =>
       modelMutations.setModelEnabled(provider, id, enabled),
-    setSummaryModel: async (provider, id) => service.setSummaryModel(provider, id),
+    setSummaryModel: (provider, id) =>
+      modelMutations.publishAfter(() => service.setSummaryModel(provider, id)),
     setThinkingLevel: async (level) => {
       const stats = await service.setThinkingLevel(level);
       emitEvent({ kind: "stats", stats });
       return stats;
     },
-    setPermissionMode: async (mode) => service.setPermissionMode(mode),
-    setLanguage: async (language) => service.setLanguage(language),
-    setCommandExplanationLanguage: async (language) =>
-      service.setCommandExplanationLanguage(language),
-    setComposerSendKey: async (sendKey) => service.setComposerSendKey(sendKey),
-    setQuickPrompts: async (prompts) => service.setQuickPrompts(prompts),
+    setPermissionMode: (mode) =>
+      modelMutations.publishAfter(() => service.setPermissionMode(mode)),
+    setLanguage: (language) =>
+      modelMutations.publishAfter(() => service.setLanguage(language)),
+    setCommandExplanationLanguage: (language) =>
+      modelMutations.publishAfter(() => service.setCommandExplanationLanguage(language)),
+    setComposerSendKey: (sendKey) =>
+      modelMutations.publishAfter(() => service.setComposerSendKey(sendKey)),
+    setQuickPrompts: (prompts) =>
+      modelMutations.publishAfter(() => service.setQuickPrompts(prompts)),
     setApiKey: (provider, key) =>
       modelMutations.mutateAndPublish(() => service.setApiKey(provider, key)),
     loginProvider: (provider) => {
