@@ -281,6 +281,13 @@ export function HearingHealthWorkspace(): React.JSX.Element {
   const requestToken = useRef(0);
   useEffect(() => {
     flushPendingSave();
+    // A switch-triggered flush keeps reporting saving/saved through the
+    // indicator; with nothing in flight, stale saved/error state from the
+    // previous client resets instead.
+    if (activeSaveCount.current === 0) {
+      clearSavedResetTimer();
+      setSaveStatus("idle");
+    }
     savedIds.current.clear();
     setRecords([]);
     setActiveRecordKey(null);
@@ -306,7 +313,7 @@ export function HearingHealthWorkspace(): React.JSX.Element {
       // The load failure is already on the global banner; an empty working
       // record keeps the chart usable without touching stored data.
       .catch(() => adopt([]));
-  }, [flushPendingSave, listClientAudiograms, selectedClient]);
+  }, [clearSavedResetTimer, flushPendingSave, listClientAudiograms, selectedClient]);
 
   const activeRecord = useMemo(
     () => records.find((record) => record.key === activeRecordKey) ?? records[0],
