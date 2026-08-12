@@ -1,4 +1,4 @@
-import { ChevronDown, Pencil, Plus, User } from "lucide-react";
+import { Pencil, Plus, User } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -7,8 +7,6 @@ import { ClientProfileDialog } from "./ClientProfileDialog";
 import {
   clientRegistryKey,
   HEARING_AID_BRANDS,
-  normalizeClientName,
-  type ClientHearingAidBrand,
   type ClientProfileDraft,
 } from "./client-registry";
 import { AudiogramControls } from "./hearing-health/AudiogramControls";
@@ -30,7 +28,6 @@ import {
   type EarSide,
   type TransducerType,
 } from "./hearing-health/model";
-import { useDropdownDismiss } from "./hearing-health/use-dropdown-dismiss";
 
 export type {
   AudiogramRecord,
@@ -66,17 +63,11 @@ export function HearingHealthWorkspace(): React.JSX.Element {
   const [status, setStatus] = useState<LoadStatus>("idle");
   const [activeCurve, setActiveCurve] = useState<CurveType>("AC");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [clientMenuOpen, setClientMenuOpen] = useState(false);
   const [showSpeechSpectrum, setShowSpeechSpectrum] = useState(false);
   const [showPictograms, setShowPictograms] = useState(false);
   const [spLogramClientView, setSpLogramClientView] = useState(false);
   const [showUnaidedSii, setShowUnaidedSii] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [profileDraft, setProfileDraft] = useState<ClientProfileDraft | null>(null);
-
-  const clientMenuRef = useRef<HTMLDivElement>(null);
-  const closeClientMenu = useCallback(() => setClientMenuOpen(false), []);
-  useDropdownDismiss(clientMenuOpen, clientMenuRef, closeClientMenu);
 
   const clients = clientRegistry.clients;
   const selectedClient = useMemo(() => {
@@ -235,11 +226,6 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     applyRecordUpdate((record) => ({ ...record, date }));
   }, [applyRecordUpdate]);
 
-  const selectClient = useCallback((name: string) => {
-    setHearingHealthClient(name);
-    setClientMenuOpen(false);
-  }, [setHearingHealthClient]);
-
   const closeCreateDialog = useCallback(() => setCreateDialogOpen(false), []);
   const saveCreateDialog = useCallback((profile: ClientProfileDraft) => {
     ignoreCommandFailure(saveClientProfile(profile).then(() => {
@@ -248,8 +234,7 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     }));
   }, [saveClientProfile, setHearingHealthClient]);
 
-  // Inline profile editor. The draft re-seeds whenever the panel opens or the
-  // selected client (or their stored profile) changes.
+  // Baseline that seeds the profile edit dialog whenever it opens.
   const profileBaseline = useMemo<ClientProfileDraft | null>(() => {
     if (!selectedClient) return null;
     return {
@@ -262,41 +247,13 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     };
   }, [selectedClient, selectedProfile]);
 
-  useEffect(() => {
-    setProfileDraft(profileOpen && profileBaseline ? { ...profileBaseline } : null);
-  }, [profileBaseline, profileOpen]);
-
-  const updateProfileDraft = useCallback(<Key extends keyof ClientProfileDraft>(
-    field: Key,
-    value: ClientProfileDraft[Key],
-  ): void => {
-    setProfileDraft((current) => (current ? { ...current, [field]: value } : current));
-  }, []);
-
-  const profileName = normalizeClientName(profileDraft?.name ?? "");
-  const profileDuplicate = useMemo(() => {
-    if (!profileName || !selectedClient) return false;
-    const selfKey = clientRegistryKey(selectedClient);
-    const nameKey = clientRegistryKey(profileName);
-    return clients.some(
-      (client) => clientRegistryKey(client) === nameKey && clientRegistryKey(client) !== selfKey,
-    );
-  }, [clients, profileName, selectedClient]);
-  const profileDirty = Boolean(
-    profileDraft
-    && profileBaseline
-    && JSON.stringify({ ...profileDraft, name: profileName })
-      !== JSON.stringify(profileBaseline),
-  );
-  const canSaveProfile = Boolean(profileName) && !profileDuplicate && profileDirty;
-
-  const saveProfilePanel = useCallback(() => {
-    if (!selectedClient || !profileDraft || !profileName || profileDuplicate) return;
+  const closeProfileDialog = useCallback(() => setProfileOpen(false), [setProfileOpen]);
+  const saveProfileDialog = useCallback((profile: ClientProfileDraft) => {
+    if (!selectedClient) return;
     ignoreCommandFailure(
-      updateClientProfile(selectedClient, { ...profileDraft, name: profileName })
-        .then(() => setProfileOpen(false)),
+      updateClientProfile(selectedClient, profile).then(() => setProfileOpen(false)),
     );
-  }, [profileDraft, profileDuplicate, profileName, selectedClient, setProfileOpen, updateClientProfile]);
+  }, [selectedClient, setProfileOpen, updateClientProfile]);
 
   const clientMeta = useMemo(() => {
     if (!selectedProfile) return "";
@@ -339,171 +296,24 @@ export function HearingHealthWorkspace(): React.JSX.Element {
                   {clientMeta && <span className="hearing-health-client-meta-text">{clientMeta}</span>}
                   <button
                     type="button"
-                    className={`hearing-health-client-edit-btn${profileOpen ? " active" : ""}`}
-                    aria-expanded={profileOpen}
-                    aria-controls="hearing-health-profile-panel"
-                    onClick={() => setProfileOpen(!profileOpen)}
+                    className="hearing-health-client-edit-btn"
+                    aria-haspopup="dialog"
+                    onClick={() => setProfileOpen(true)}
                   >
                     <Pencil size={11} strokeWidth={1.6} aria-hidden="true" />
                     {t("client.editAction")}
                   </button>
                 </span>
               )}
-              <div className="hearing-health-client-select" ref={clientMenuRef}>
-                <button
-                  type="button"
-                  className="hearing-health-client-btn"
-                  aria-haspopup="listbox"
-                  aria-expanded={clientMenuOpen}
-                  onClick={() => setClientMenuOpen((open) => !open)}
-                >
+              {selectedClient && (
+                <span className="hearing-health-client-name">
                   <User size={13} strokeWidth={1.6} aria-hidden="true" />
-                  <span className="hearing-health-client-btn-name">
-                    {selectedClient ?? t("hearingHealth.selectClient")}
-                  </span>
-                  <ChevronDown size={12} strokeWidth={1.6} aria-hidden="true" />
-                </button>
-                {clientMenuOpen && (
-                  <div
-                    className="hearing-health-client-menu"
-                    role="listbox"
-                    aria-label={t("hearingHealth.selectClient")}
-                  >
-                    {clients.map((name) => (
-                      <button
-                        key={name}
-                        type="button"
-                        role="option"
-                        aria-selected={name === selectedClient}
-                        className={`hearing-health-client-option${name === selectedClient ? " active" : ""}`}
-                        onClick={() => selectClient(name)}
-                      >
-                        {name}
-                      </button>
-                    ))}
-                    {clients.length > 0 && <div className="hearing-health-client-menu-rule" />}
-                    <button
-                      type="button"
-                      className="hearing-health-client-option new-client"
-                      onClick={() => {
-                        setClientMenuOpen(false);
-                        setCreateDialogOpen(true);
-                      }}
-                    >
-                      <Plus size={12} strokeWidth={1.6} aria-hidden="true" />
-                      {t("sidebar.newClient")}
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <span className="hearing-health-client-name-text">{selectedClient}</span>
+                </span>
+              )}
             </div>
           </div>
         </header>
-        {selectedClient && profileOpen && profileDraft && (
-          <section
-            id="hearing-health-profile-panel"
-            className="hearing-health-profile-panel"
-            aria-label={t("client.editAction")}
-          >
-            <div className="hearing-health-profile-grid">
-              <label className="hearing-health-profile-field">
-                <span>{t("client.name")}</span>
-                <input
-                  value={profileDraft.name}
-                  placeholder={t("client.namePlaceholder")}
-                  onChange={(event) => updateProfileDraft("name", event.target.value)}
-                />
-              </label>
-              <div className="hearing-health-profile-field">
-                <span>{t("client.gender")}</span>
-                <div className="hearing-health-profile-gender" role="group" aria-label={t("client.gender")}>
-                  {(["female", "male"] as const).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      className={profileDraft.gender === option ? "active" : ""}
-                      aria-pressed={profileDraft.gender === option}
-                      onClick={() => updateProfileDraft(
-                        "gender",
-                        profileDraft.gender === option ? null : option,
-                      )}
-                    >
-                      {t(option === "female" ? "client.female" : "client.male")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="hearing-health-profile-field">
-                <span>{t("client.age")}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={130}
-                  inputMode="numeric"
-                  value={profileDraft.age ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.valueAsNumber;
-                    updateProfileDraft(
-                      "age",
-                      Number.isFinite(value) ? Math.min(130, Math.max(0, Math.round(value))) : null,
-                    );
-                  }}
-                />
-              </label>
-              <label className="hearing-health-profile-field">
-                <span>{t("client.brand")}</span>
-                <select
-                  value={profileDraft.hearingAidBrands[0] ?? ""}
-                  onChange={(event) => updateProfileDraft(
-                    "hearingAidBrands",
-                    event.target.value ? [event.target.value as ClientHearingAidBrand] : [],
-                  )}
-                >
-                  <option value="">{t("client.brandNone")}</option>
-                  {HEARING_AID_BRANDS.map((brand) => (
-                    <option value={brand.value} key={brand.value}>{brand.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="hearing-health-profile-field hearing-health-profile-span2">
-                <span>{t("client.contact")}</span>
-                <input
-                  value={profileDraft.contact}
-                  placeholder={t("client.contactPlaceholder")}
-                  onChange={(event) => updateProfileDraft("contact", event.target.value)}
-                />
-              </label>
-              <label className="hearing-health-profile-field hearing-health-profile-span2">
-                <span>{t("client.notes")}</span>
-                <input
-                  value={profileDraft.notes}
-                  placeholder={t("client.notesPlaceholder")}
-                  onChange={(event) => updateProfileDraft("notes", event.target.value)}
-                />
-              </label>
-            </div>
-            <div className="hearing-health-profile-actions">
-              <span
-                className={`hearing-health-profile-status${profileDuplicate ? " error" : ""}`}
-                aria-live="polite"
-              >
-                {profileDuplicate
-                  ? t("client.exists", { name: profileName })
-                  : !profileName
-                    ? t("client.nameRequired")
-                    : ""}
-              </span>
-              <button
-                type="button"
-                className="hearing-health-profile-save"
-                disabled={!canSaveProfile}
-                onClick={saveProfilePanel}
-              >
-                {t("common.save")}
-              </button>
-            </div>
-          </section>
-        )}
         {selectedClient && activeRecord && status === "ready" ? (
           <div className="hearing-health-fitting-grid">
             {earCard("right")}
@@ -550,6 +360,16 @@ export function HearingHealthWorkspace(): React.JSX.Element {
           existingClients={clients}
           onClose={closeCreateDialog}
           onSave={saveCreateDialog}
+        />,
+        document.body,
+      )}
+      {profileOpen && selectedClient && profileBaseline && createPortal(
+        <ClientProfileDialog
+          key={`hh-edit-${clientRegistryKey(selectedClient)}`}
+          existingClients={clients}
+          initialProfile={profileBaseline}
+          onClose={closeProfileDialog}
+          onSave={saveProfileDialog}
         />,
         document.body,
       )}

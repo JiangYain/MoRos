@@ -655,6 +655,53 @@ body.sidebar-resizing * {
   color: var(--color-text-primary);
 }
 
+/* Hearing-health picking: the bound client row gets an accent bar, and while
+   no client is bound yet the candidate rows breathe softly to invite a pick. */
+.file-item.folder-row[data-hh-selected] {
+  background: var(--color-surface-active);
+  color: var(--color-text-primary);
+}
+
+.file-item.folder-row[data-hh-selected]::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: var(--border-radius-pill);
+  background: var(--color-accent);
+}
+
+@keyframes hh-client-attention {
+  0%,
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+
+  50% {
+    background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  }
+}
+
+.file-item.folder-row[data-hh-attention] {
+  animation: hh-client-attention 2s ease-in-out infinite;
+}
+
+.file-item.folder-row[data-hh-attention]:hover {
+  animation: none;
+  background: var(--color-surface-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-item.folder-row[data-hh-attention] {
+    animation: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+}
+
 .file-item-main {
   flex: 1;
   min-width: 0;
@@ -1636,7 +1683,7 @@ body.sidebar-resizing * {
 
 .client-profile-brands > div {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -1676,6 +1723,17 @@ body.sidebar-resizing * {
   position: absolute;
   opacity: 0;
   pointer-events: none;
+}
+
+/* "No brand" option: same tile as the logo radios, with a plain text label. */
+.client-profile-brand-none {
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.client-profile-brands label.client-profile-brand-none:has(input:checked) {
+  color: var(--color-text-primary);
 }
 
 .client-profile-brand-logo {

@@ -8,8 +8,8 @@ import starkeyLogo from "../assets/hearing-aid-starkey.svg";
 import widexLogo from "../assets/hearing-aid-widex.svg";
 import {
   clientProfileDisplayName,
+  clientRegistryKey,
   HEARING_AID_BRANDS,
-  normalizeClientName,
   type ClientGender,
   type ClientHearingAidBrand,
   type ClientProfileDraft,
@@ -18,6 +18,8 @@ import {
 
 interface ClientProfileDialogProps {
   existingClients: string[];
+  /** When set, the dialog edits this profile instead of creating a new one. */
+  initialProfile?: ClientProfileDraft;
   onClose(): void;
   onSave(profile: ClientProfileDraft): void;
 }
@@ -43,20 +45,28 @@ const BRAND_LOGOS: Record<SelectableClientHearingAidBrand, string> = {
 
 export function ClientProfileDialog({
   existingClients,
+  initialProfile,
   onClose,
   onSave,
 }: ClientProfileDialogProps): React.JSX.Element {
-  const { language, t } = useI18n();
-  const [profile, setProfile] = useState<ClientProfileDraft>(EMPTY_PROFILE);
+  const { t } = useI18n();
+  const editing = initialProfile !== undefined;
+  const [profile, setProfile] = useState<ClientProfileDraft>(initialProfile
+    ? { ...initialProfile, hearingAidBrands: [...initialProfile.hearingAidBrands] }
+    : EMPTY_PROFILE);
   const formRef = useRef<HTMLFormElement>(null);
   const titleId = useId();
   const displayName = clientProfileDisplayName(profile);
   const duplicate = useMemo(() => {
-    const key = normalizeClientName(displayName).toLocaleLowerCase(language);
-    return Boolean(key) && existingClients.some(
-      (client) => normalizeClientName(client).toLocaleLowerCase(language) === key,
-    );
-  }, [displayName, existingClients, language]);
+    const key = clientRegistryKey(displayName);
+    if (!key) return false;
+    // While editing, keeping the client's own name is not a collision.
+    const selfKey = initialProfile ? clientRegistryKey(initialProfile.name) : null;
+    return existingClients.some((client) => {
+      const clientKey = clientRegistryKey(client);
+      return clientKey === key && clientKey !== selfKey;
+    });
+  }, [displayName, existingClients, initialProfile]);
   const canSave = Boolean(displayName) && !duplicate;
 
   useEffect(() => {
@@ -153,7 +163,7 @@ export function ClientProfileDialog({
         }}
       >
         <header>
-          <h2 id={titleId}>{t("client.newProfile")}</h2>
+          <h2 id={titleId}>{t(editing ? "client.editProfileTitle" : "client.newProfile")}</h2>
           <button type="button" className="client-dialog-close" aria-label={t("common.close")} onClick={onClose}>
             <X size={15} strokeWidth={1.65} />
           </button>
@@ -236,6 +246,19 @@ export function ClientProfileDialog({
             <fieldset className="client-profile-field client-profile-brands">
               <legend>{t("client.brand")} <small>{t("client.singleSelect")}</small></legend>
               <div>
+                <label className="client-profile-brand-none" title={t("client.brandNone")}>
+                  <input
+                    type="radio"
+                    name="client-hearing-aid-brand"
+                    value=""
+                    checked={profile.hearingAidBrands.length === 0}
+                    onChange={() => update("hearingAidBrands", [])}
+                  />
+                  <span>{t("client.brandNone")}</span>
+                  <span className="client-profile-brand-check" aria-hidden="true">
+                    <Check size={9} strokeWidth={2.4} />
+                  </span>
+                </label>
                 {HEARING_AID_BRANDS.map((brand) => (
                   <label key={brand.value} title={brand.label}>
                     <input
@@ -266,14 +289,16 @@ export function ClientProfileDialog({
           <p className={duplicate ? "client-profile-status error" : "client-profile-status"} aria-live="polite">
             {duplicate
               ? t("client.exists", { name: displayName })
-              : displayName
-                ? t("client.willCreate", { name: displayName })
-                : t("client.nameRequired")}
+              : !displayName
+                ? t("client.nameRequired")
+                : editing
+                  ? ""
+                  : t("client.willCreate", { name: displayName })}
           </p>
           <div>
             <button type="button" className="client-profile-cancel" onClick={onClose}>{t("common.cancel")}</button>
             <button type="submit" className="client-profile-save" disabled={!canSave}>
-              {t("client.createProfile")}
+              {t(editing ? "common.save" : "client.createProfile")}
             </button>
           </div>
         </footer>

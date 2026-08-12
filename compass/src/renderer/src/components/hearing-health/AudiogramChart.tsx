@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Bird, Droplet, Guitar, Leaf, Plane, Speech, Tractor, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AUDIOGRAM_MARKERS } from "../../../../shared/client-audiograms";
@@ -236,14 +236,17 @@ function AudiogramOverlays({ showPictograms, showSpeechSpectrum }: { showPictogr
         />
       )}
       {showPictograms && (
-        <g>
-          <text x={getXByFrequency(250)} y={getY(15)} className="hearing-health-pictogram-item">🍃</text>
-          <text x={getXByFrequency(4000)} y={getY(15)} className="hearing-health-pictogram-item">🐦</text>
-          <text x={getXByFrequency(500)} y={getY(30)} className="hearing-health-pictogram-item">💧</text>
-          <text x={getXByFrequency(1000)} y={getY(45)} className="hearing-health-pictogram-item">🗣️</text>
-          <text x={getXByFrequency(500)} y={getY(65)} className="hearing-health-pictogram-item">🎸</text>
-          <text x={getXByFrequency(250)} y={getY(95)} className="hearing-health-pictogram-item">🚜</text>
-          <text x={getXByFrequency(1000)} y={getY(110)} className="hearing-health-pictogram-item">✈️</text>
+        // Everyday-sound pictograms (leaves, bird, dripping water, speech,
+        // guitar, tractor, plane). Each nested lucide <svg> is offset by half
+        // its size so its center sits on the frequency/dB coordinate.
+        <g aria-hidden="true">
+          <Leaf className="hearing-health-pictogram-item" x={getXByFrequency(250) - 8} y={getY(15) - 8} width={16} height={16} strokeWidth={1.5} />
+          <Bird className="hearing-health-pictogram-item" x={getXByFrequency(4000) - 8} y={getY(15) - 8} width={16} height={16} strokeWidth={1.5} />
+          <Droplet className="hearing-health-pictogram-item" x={getXByFrequency(500) - 8} y={getY(30) - 8} width={16} height={16} strokeWidth={1.5} />
+          <Speech className="hearing-health-pictogram-item" x={getXByFrequency(1000) - 8} y={getY(45) - 8} width={16} height={16} strokeWidth={1.5} />
+          <Guitar className="hearing-health-pictogram-item" x={getXByFrequency(500) - 8} y={getY(65) - 8} width={16} height={16} strokeWidth={1.5} />
+          <Tractor className="hearing-health-pictogram-item" x={getXByFrequency(250) - 8} y={getY(95) - 8} width={16} height={16} strokeWidth={1.5} />
+          <Plane className="hearing-health-pictogram-item" x={getXByFrequency(1000) - 8} y={getY(110) - 8} width={16} height={16} strokeWidth={1.5} />
         </g>
       )}
     </>
