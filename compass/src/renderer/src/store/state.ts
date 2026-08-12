@@ -162,6 +162,8 @@ export interface CompassState {
   unassignSessionClient(sessionId: string): Promise<void>;
   listClientAudiograms(clientName: string): Promise<ClientAudiogramRecord[]>;
   saveClientAudiogram(clientName: string, record: ClientAudiogramDraft): Promise<ClientAudiogramRecord>;
+  /** Resolves to false when the client or the record does not exist. */
+  deleteClientAudiogram(clientName: string, id: number): Promise<boolean>;
   setModel(provider: string, id: string): Promise<void>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<void>;
   setSummaryModel(provider: string, id: string): Promise<void>;

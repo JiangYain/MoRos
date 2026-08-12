@@ -244,6 +244,8 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     listClientAudiograms: async (clientName) => clientDatabase.listAudiograms(clientName),
     saveClientAudiogram: async (clientName, record) =>
       clientDatabase.saveAudiogram(clientName, record),
+    deleteClientAudiogram: async (clientName, id) =>
+      clientDatabase.deleteAudiogram(clientName, id),
     setModel: (provider, id) => modelMutations.setModel(provider, id),
     setModelEnabled: (provider, id, enabled) =>
       modelMutations.setModelEnabled(provider, id, enabled),

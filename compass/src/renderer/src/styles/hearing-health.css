@@ -81,6 +81,41 @@
   text-overflow: ellipsis;
 }
 
+/* Autosave status indicator next to the client info */
+.hearing-health-save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 16px;
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.hearing-health-save-indicator[data-status="saved"] {
+  color: var(--color-text-secondary);
+}
+
+.hearing-health-save-indicator[data-status="error"] {
+  color: var(--color-danger);
+}
+
+.hearing-health-save-spinner {
+  animation: hearing-health-spin 0.9s linear infinite;
+}
+
+@keyframes hearing-health-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hearing-health-save-spinner {
+    animation: none;
+  }
+}
+
 .hearing-health-client-edit-btn {
   display: inline-flex;
   align-items: center;
@@ -412,6 +447,67 @@
   grid-template-columns: minmax(0, 1fr) 210px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
+}
+
+/* Loading skeleton — placeholders mirroring the fitting grid while
+   audiogram records are fetched. */
+.hearing-health-skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--border-radius-xs);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-surface);
+}
+
+.hearing-health-skeleton-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    var(--color-surface-hover) 50%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+  animation: hearing-health-shimmer 1.4s linear infinite;
+}
+
+.hearing-health-skeleton-topbar {
+  height: 24px;
+  width: 60%;
+}
+
+.hearing-health-skeleton-chart {
+  /* Matches the audiogram SVG viewBox (360 x 320). */
+  aspect-ratio: 360 / 320;
+  width: 100%;
+  border-radius: var(--border-radius-md);
+}
+
+.hearing-health-skeleton-footer {
+  height: 28px;
+}
+
+.hearing-health-skeleton-control {
+  height: 30px;
+}
+
+.hearing-health-skeleton-panel {
+  height: 92px;
+}
+
+@keyframes hearing-health-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hearing-health-skeleton-block::after {
+    animation: none;
+    display: none;
+  }
 }
 
 /* Audiogram Card Container — Clean & Frameless */
@@ -791,6 +887,44 @@
 .hearing-health-history-option.active {
   background: var(--color-surface);
   font-weight: 500;
+}
+
+.hearing-health-history-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hearing-health-history-row .hearing-health-history-option {
+  flex: 1;
+  min-width: 0;
+}
+
+.hearing-health-history-delete {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-xs);
+  corner-shape: var(--corner-shape-continuous);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color 0.12s var(--ease-out-power3), background 0.12s var(--ease-out-power3);
+}
+
+.hearing-health-history-delete:hover {
+  color: var(--color-danger);
+  background: var(--color-surface);
+}
+
+.hearing-health-history-delete:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px var(--color-border-focus);
 }
 
 .hearing-health-history-btn {

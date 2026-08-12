@@ -5,6 +5,25 @@ import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { ClientDatabase } from "../src/main/client-database.ts";
+import type { ClientAudiogramDraft } from "../src/shared/client-audiograms.ts";
+
+function audiogramDraft(date: string): ClientAudiogramDraft {
+  const emptyCurve = (): null[] => [null, null, null, null, null, null, null];
+  return {
+    id: null,
+    date,
+    useAudiogramRight: true,
+    useAudiogramLeft: true,
+    transducerRight: "Insert earphone",
+    transducerLeft: "Insert earphone",
+    right: {
+      ac: [10, 15, 20, 30, 40, 55, 70].map((db) => ({ db, marker: "unmasked" as const })),
+      bc: emptyCurve(),
+      ucl: emptyCurve(),
+    },
+    left: { ac: emptyCurve(), bc: emptyCurve(), ucl: emptyCurve() },
+  };
+}
 
 test("client database persists profiles and session assignments relationally", () => {
   const database = new ClientDatabase(":memory:");
@@ -102,6 +121,33 @@ test("deleteProfile removes the client, cascades brands, and releases sessions",
     });
     assert.deepEqual(recreated.profiles.alice.hearingAidBrands, []);
     assert.deepEqual(recreated.assignments, {});
+  } finally {
+    database.close();
+  }
+});
+
+test("deleteAudiogram removes only the targeted record and reports misses", () => {
+  const database = new ClientDatabase(":memory:");
+  try {
+    const kept = database.saveAudiogram("Alice", audiogramDraft("2026-01-03"));
+    const removed = database.saveAudiogram("Alice", audiogramDraft("2026-07-29"));
+
+    assert.equal(database.deleteAudiogram("Alice", removed.id), true);
+    assert.deepEqual(
+      database.listAudiograms("Alice").map((record) => record.id),
+      [kept.id],
+    );
+
+    // Deleting again, through another client, or for an unknown client
+    // reports false instead of throwing.
+    assert.equal(database.deleteAudiogram("Alice", removed.id), false);
+    assert.equal(database.deleteAudiogram("Bob", kept.id), false);
+    assert.equal(database.deleteAudiogram("无此客户", 4321), false);
+
+    // The surviving record is untouched.
+    const survivor = database.listAudiograms("Alice")[0];
+    assert.equal(survivor.date, "2026-01-03");
+    assert.deepEqual(survivor.right.ac[0], { db: 10, marker: "unmasked" });
   } finally {
     database.close();
   }
