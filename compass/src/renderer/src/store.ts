@@ -28,6 +28,7 @@ export type {
   ComposerSeed,
   MainView,
   PendingSettingsNavigation,
+  PendingWorkspaceChange,
   SettingsNavigationGuard,
   SettingsNavigationResolution,
   SettingsSection,
@@ -36,7 +37,6 @@ export type {
 type StoreMessageKey =
   | "avatarStorage"
   | "identityStorage"
-  | "workspaceChange"
   | "noModel"
   | "approvalInactive"
   | "commandFailed";
@@ -45,7 +45,6 @@ const STORE_MESSAGES: Record<AppLanguage, Record<StoreMessageKey, string>> = {
   "zh-CN": {
     avatarStorage: "头像无法保存到本地存储。",
     identityStorage: "个人资料无法保存到本地存储。",
-    workspaceChange: "当前任务仍在运行。更换工作区会中止本次任务，是否继续？",
     noModel: "请先在设置中配置 API Key，或切换到已配置的模型。",
     approvalInactive: "该批准请求已失效。",
     commandFailed: "操作失败，请重试。",
@@ -53,7 +52,6 @@ const STORE_MESSAGES: Record<AppLanguage, Record<StoreMessageKey, string>> = {
   "zh-TW": {
     avatarStorage: "無法將頭像儲存到本機。",
     identityStorage: "無法將個人資料儲存到本機。",
-    workspaceChange: "目前工作仍在執行。變更工作區會中止這項工作，是否繼續？",
     noModel: "請先在設定中配置 API Key，或切換到已配置的模型。",
     approvalInactive: "此核准請求已失效。",
     commandFailed: "操作失敗，請重試。",
@@ -61,7 +59,6 @@ const STORE_MESSAGES: Record<AppLanguage, Record<StoreMessageKey, string>> = {
   en: {
     avatarStorage: "The avatar could not be saved locally.",
     identityStorage: "The profile could not be saved locally.",
-    workspaceChange: "A task is still running. Changing the workspace will stop it. Continue?",
     noModel: "Configure an API key in Settings or switch to a configured model first.",
     approvalInactive: "This approval request is no longer active.",
     commandFailed: "The operation failed. Please try again.",
@@ -69,7 +66,6 @@ const STORE_MESSAGES: Record<AppLanguage, Record<StoreMessageKey, string>> = {
   de: {
     avatarStorage: "Der Avatar konnte nicht lokal gespeichert werden.",
     identityStorage: "Das Profil konnte nicht lokal gespeichert werden.",
-    workspaceChange: "Eine Aufgabe wird noch ausgeführt. Beim Wechsel des Arbeitsbereichs wird sie beendet. Fortfahren?",
     noModel: "Konfigurieren Sie zuerst einen API-Schlüssel oder wechseln Sie zu einem konfigurierten Modell.",
     approvalInactive: "Diese Freigabeanfrage ist nicht mehr aktiv.",
     commandFailed: "Der Vorgang ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
@@ -143,6 +139,7 @@ export const useCompass = create<CompassState>((set, get) => {
   settingsSection: null,
   settingsGuard: null,
   pendingSettingsNavigation: null,
+  pendingWorkspaceChange: null,
   sidebarOpen: false,
   mainView: "assistant",
   hearingHealthClient: null,

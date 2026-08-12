@@ -7,6 +7,7 @@ import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { TitleBar } from "./components/TitleBar";
+import { WorkspaceChangeDialog } from "./components/WorkspaceChangeDialog";
 import { api, isDesktop } from "./ipc";
 import { useI18n } from "./i18n";
 import { ignoreCommandFailure, type SettingsSection, useCompass } from "./store";
@@ -303,6 +304,7 @@ export default function App(): React.JSX.Element {
           </>
         )}
       </div>
+      <WorkspaceChangeDialog />
     </div>
   );
 }

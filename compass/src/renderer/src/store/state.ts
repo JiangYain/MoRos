@@ -52,6 +52,15 @@ export interface PendingSettingsNavigation {
   proceed(): void;
 }
 
+/**
+ * Pending confirmation for changing the workspace while a task is still
+ * streaming. Present only while the in-app confirm dialog is open.
+ */
+export interface PendingWorkspaceChange {
+  proceed(): void;
+  cancel(): void;
+}
+
 export type SettingsNavigationResolution = "save" | "discard" | "stay";
 
 /** One-shot content the composer should insert (for example, /skill:name plus images). */
@@ -91,6 +100,7 @@ export interface CompassState {
   settingsSection: SettingsSection | null;
   settingsGuard: SettingsNavigationGuard | null;
   pendingSettingsNavigation: PendingSettingsNavigation | null;
+  pendingWorkspaceChange: PendingWorkspaceChange | null;
   sidebarOpen: boolean;
   mainView: MainView;
   /** Client shown by the hearing health workspace (null falls back to the active session's client). */

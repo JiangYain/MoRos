@@ -18,8 +18,7 @@ import type { CompassState } from "./state.ts";
 export type CompassCommandMessageKey =
   | "approvalInactive"
   | "commandFailed"
-  | "noModel"
-  | "workspaceChange";
+  | "noModel";
 
 type CompassCommandActions = Pick<
   CompassState,
@@ -430,11 +429,24 @@ export function createCompassCommandActions({
       get().applyInit(payload);
     }),
 
-    setWorkspaceDir: () => runCommand(async () => {
-      if (get().streaming && !window.confirm(message("workspaceChange"))) return;
-      clearPendingAgentEvents();
-      const payload = await api.setWorkspaceDir();
-      if (payload) get().applyInit(payload);
-    }),
+    setWorkspaceDir: () => {
+      const changeWorkspaceDir = (): Promise<void> => runCommand(async () => {
+        clearPendingAgentEvents();
+        const payload = await api.setWorkspaceDir();
+        if (payload) get().applyInit(payload);
+      });
+      if (!get().streaming) return changeWorkspaceDir();
+      set({
+        pendingWorkspaceChange: {
+          proceed: () => {
+            set({ pendingWorkspaceChange: null });
+            // Nothing awaits the dialog; failures report via the error banner.
+            ignoreCommandFailure(changeWorkspaceDir());
+          },
+          cancel: () => set({ pendingWorkspaceChange: null }),
+        },
+      });
+      return Promise.resolve();
+    },
   };
 }
