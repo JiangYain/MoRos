@@ -1,7 +1,7 @@
-import { ChevronDown, Pencil, Plus, User } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, CircleAlert, Clock, LoaderCircle, Pencil, Plus, User } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useI18n } from "../i18n";
+import { localeFor, useI18n, type TranslationKey } from "../i18n";
 import { ignoreCommandFailure, useCompass } from "../store";
 import { ClientProfileDialog } from "./ClientProfileDialog";
 import {
@@ -11,7 +11,7 @@ import {
   type ClientHearingAidBrand,
   type ClientProfileDraft,
 } from "./client-registry";
-import { AudiogramControls } from "./hearing-health/AudiogramControls";
+import { AudiogramControls, formatAudiogramDate } from "./hearing-health/AudiogramControls";
 import { AudiogramEarCard } from "./hearing-health/AudiogramEarCard";
 import {
   audiogramDraftFromRecord,
@@ -40,16 +40,128 @@ export type {
 } from "./hearing-health/model";
 
 const SAVE_DEBOUNCE_MS = 500;
+const SAVED_RESET_MS = 2000;
 
 type LoadStatus = "idle" | "loading" | "ready";
+type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
+
+const SAVE_STATUS_KEYS: Record<Exclude<SaveStatus, "idle">, TranslationKey> = {
+  pending: "hearingHealth.save.pending",
+  saving: "hearingHealth.save.saving",
+  saved: "hearingHealth.save.saved",
+  error: "hearingHealth.save.error",
+};
+
+type PendingDestructive =
+  | { kind: "ear"; ear: EarSide }
+  | { kind: "curve"; ear: EarSide; curve: CurveType }
+  | { kind: "record"; recordKey: string };
 
 interface PendingSave {
   clientName: string;
   record: AudiogramRecord;
 }
 
-export function HearingHealthWorkspace(): React.JSX.Element {
+function SaveStatusIndicator({ status }: { status: SaveStatus }): React.JSX.Element {
   const { t } = useI18n();
+  return (
+    <span className="hearing-health-save-indicator" aria-live="polite" data-status={status}>
+      {status !== "idle" && (
+        <>
+          {status === "pending" && <Clock size={11} strokeWidth={1.6} aria-hidden="true" />}
+          {status === "saving" && (
+            <LoaderCircle
+              size={11}
+              strokeWidth={1.6}
+              aria-hidden="true"
+              className="hearing-health-save-spinner"
+            />
+          )}
+          {status === "saved" && <Check size={11} strokeWidth={1.8} aria-hidden="true" />}
+          {status === "error" && <CircleAlert size={11} strokeWidth={1.6} aria-hidden="true" />}
+          <span>{t(SAVE_STATUS_KEYS[status])}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Loading placeholder mirroring the three-column fitting grid. */
+function HearingHealthSkeleton(): React.JSX.Element {
+  const earCard = (
+    <div className="hearing-health-ear-card">
+      <div className="hearing-health-skeleton-block hearing-health-skeleton-topbar" />
+      <div className="hearing-health-skeleton-block hearing-health-skeleton-chart" />
+      <div className="hearing-health-skeleton-block hearing-health-skeleton-footer" />
+    </div>
+  );
+  return (
+    <div className="hearing-health-fitting-grid" aria-hidden="true">
+      {earCard}
+      <div className="hearing-health-center-panel">
+        <div className="hearing-health-skeleton-block hearing-health-skeleton-control" />
+        <div className="hearing-health-skeleton-block hearing-health-skeleton-panel" />
+        <div className="hearing-health-skeleton-block hearing-health-skeleton-panel" />
+      </div>
+      {earCard}
+    </div>
+  );
+}
+
+function DestructiveConfirmation({
+  title,
+  body,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onCancel(): void;
+  onConfirm(): void;
+}): React.JSX.Element {
+  const { t } = useI18n();
+  const titleId = useId();
+  const bodyId = useId();
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+  return (
+    <div
+      className="client-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onCancel();
+      }}
+    >
+      <div
+        className="client-delete-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+      >
+        <h2 id={titleId}>{title}</h2>
+        <p id={bodyId}>{body}</p>
+        <div className="client-delete-actions">
+          <button type="button" className="client-profile-cancel" autoFocus onClick={onCancel}>
+            {t("common.cancel")}
+          </button>
+          <button type="button" className="client-delete-confirm" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function HearingHealthWorkspace(): React.JSX.Element {
+  const { language, t } = useI18n();
   const clientRegistry = useCompass((state) => state.clientRegistry);
   const activeSessionId = useCompass((state) => state.stats?.sessionId);
   const hearingHealthClient = useCompass((state) => state.hearingHealthClient);
@@ -58,12 +170,15 @@ export function HearingHealthWorkspace(): React.JSX.Element {
   const setProfileOpen = useCompass((state) => state.setHearingHealthProfileOpen);
   const listClientAudiograms = useCompass((state) => state.listClientAudiograms);
   const saveClientAudiogram = useCompass((state) => state.saveClientAudiogram);
+  const deleteClientAudiogram = useCompass((state) => state.deleteClientAudiogram);
   const saveClientProfile = useCompass((state) => state.saveClientProfile);
   const updateClientProfile = useCompass((state) => state.updateClientProfile);
 
   const [records, setRecords] = useState<AudiogramRecord[]>([]);
   const [activeRecordKey, setActiveRecordKey] = useState<string | null>(null);
   const [status, setStatus] = useState<LoadStatus>("idle");
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [pendingDestructive, setPendingDestructive] = useState<PendingDestructive | null>(null);
   const [activeCurve, setActiveCurve] = useState<CurveType>("AC");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [clientMenuOpen, setClientMenuOpen] = useState(false);
@@ -105,6 +220,15 @@ export function HearingHealthWorkspace(): React.JSX.Element {
   const pendingSave = useRef<PendingSave | null>(null);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
   const savedIds = useRef(new Map<string, number>());
+  const activeSaveCount = useRef(0);
+  const savedResetTimer = useRef<number | null>(null);
+
+  const clearSavedResetTimer = useCallback((): void => {
+    if (savedResetTimer.current !== null) {
+      window.clearTimeout(savedResetTimer.current);
+      savedResetTimer.current = null;
+    }
+  }, []);
 
   const flushPendingSave = useCallback((): void => {
     if (saveTimer.current !== null) {
@@ -114,6 +238,9 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     const pending = pendingSave.current;
     if (!pending) return;
     pendingSave.current = null;
+    activeSaveCount.current += 1;
+    clearSavedResetTimer();
+    setSaveStatus("saving");
     saveChain.current = saveChain.current
       .then(async () => {
         const draft = audiogramDraftFromRecord(pending.record);
@@ -125,10 +252,23 @@ export function HearingHealthWorkspace(): React.JSX.Element {
           record.key === pending.record.key && record.id === null
             ? { ...record, id: saved.id }
             : record));
+        activeSaveCount.current -= 1;
+        // Report "saved" only once nothing is queued or in flight anymore.
+        if (activeSaveCount.current === 0 && pendingSave.current === null) {
+          setSaveStatus("saved");
+          clearSavedResetTimer();
+          savedResetTimer.current = window.setTimeout(() => {
+            savedResetTimer.current = null;
+            setSaveStatus((current) => (current === "saved" ? "idle" : current));
+          }, SAVED_RESET_MS);
+        }
       })
       // Failures already reached the global error banner via the store command.
-      .catch(() => undefined);
-  }, [saveClientAudiogram]);
+      .catch(() => {
+        activeSaveCount.current -= 1;
+        setSaveStatus("error");
+      });
+  }, [clearSavedResetTimer, saveClientAudiogram]);
 
   const scheduleSave = useCallback((clientName: string, record: AudiogramRecord): void => {
     const pending = pendingSave.current;
@@ -136,11 +276,16 @@ export function HearingHealthWorkspace(): React.JSX.Element {
       flushPendingSave();
     }
     pendingSave.current = { clientName, record };
+    clearSavedResetTimer();
+    setSaveStatus("pending");
     if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(flushPendingSave, SAVE_DEBOUNCE_MS);
-  }, [flushPendingSave]);
+  }, [clearSavedResetTimer, flushPendingSave]);
 
-  useEffect(() => () => flushPendingSave(), [flushPendingSave]);
+  useEffect(() => () => {
+    flushPendingSave();
+    clearSavedResetTimer();
+  }, [clearSavedResetTimer, flushPendingSave]);
 
   const requestToken = useRef(0);
   useEffect(() => {
@@ -149,6 +294,9 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     setRecords([]);
     setActiveRecordKey(null);
     setHistoryOpen(false);
+    // A confirmation captured for the previous client must not run against
+    // the newly selected client's records.
+    setPendingDestructive(null);
     if (!selectedClient) {
       setStatus("idle");
       return;
@@ -197,6 +345,46 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     setHistoryOpen(false);
   }, []);
 
+  const deleteRecord = useCallback((recordKey: string) => {
+    if (!selectedClient || status !== "ready") return;
+    const target = records.find((record) => record.key === recordKey);
+    if (!target) return;
+    // Drop any queued debounce save so it cannot re-insert the deleted record.
+    if (pendingSave.current?.record.key === recordKey) {
+      pendingSave.current = null;
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      if (activeSaveCount.current === 0) {
+        setSaveStatus((current) => (current === "pending" ? "idle" : current));
+      }
+    }
+    const remaining = records.filter((record) => record.key !== recordKey);
+    if (remaining.length === 0) {
+      const fresh = createAudiogramRecord();
+      setRecords([fresh]);
+      setActiveRecordKey(fresh.key);
+    } else {
+      setRecords(remaining);
+      if (activeRecordKey === recordKey) setActiveRecordKey(remaining[0].key);
+    }
+    const clientName = selectedClient;
+    const knownId = target.id ?? savedIds.current.get(recordKey);
+    // The delete queues behind in-flight saves, so an insert that is still
+    // assigning this record's database id completes (and publishes the id
+    // into savedIds) before the row is removed again.
+    saveChain.current = saveChain.current
+      .then(async () => {
+        const persistedId = savedIds.current.get(recordKey) ?? knownId;
+        savedIds.current.delete(recordKey);
+        if (persistedId === undefined) return;
+        await deleteClientAudiogram(clientName, persistedId);
+      })
+      // Failures already reached the global error banner via the store command.
+      .catch(() => undefined);
+  }, [activeRecordKey, deleteClientAudiogram, records, selectedClient, status]);
+
   const clearEar = useCallback((ear: EarSide) => {
     applyRecordUpdate((record) => ({ ...record, [ear]: cloneEmptyThresholds() }));
   }, [applyRecordUpdate]);
@@ -221,6 +409,61 @@ export function HearingHealthWorkspace(): React.JSX.Element {
   const clearEarCurve = useCallback((ear: EarSide, curve: CurveType) => {
     applyRecordUpdate((record) => clearCurve(record, ear, curve));
   }, [applyRecordUpdate]);
+
+  // Destructive operations ask for confirmation first. The ear card and chart
+  // keep plain callbacks; the workspace owns the pending request and runs the
+  // original action only after the dialog is confirmed.
+  const requestClearEar = useCallback((ear: EarSide) => {
+    setPendingDestructive({ kind: "ear", ear });
+  }, []);
+
+  const requestClearCurve = useCallback((ear: EarSide, curve: CurveType) => {
+    setPendingDestructive({ kind: "curve", ear, curve });
+  }, []);
+
+  const requestDeleteRecord = useCallback((recordKey: string) => {
+    setPendingDestructive({ kind: "record", recordKey });
+  }, []);
+
+  const cancelDestructive = useCallback(() => setPendingDestructive(null), []);
+
+  const confirmDestructive = useCallback(() => {
+    const pending = pendingDestructive;
+    setPendingDestructive(null);
+    if (!pending) return;
+    if (pending.kind === "ear") clearEar(pending.ear);
+    else if (pending.kind === "curve") clearEarCurve(pending.ear, pending.curve);
+    else deleteRecord(pending.recordKey);
+  }, [clearEar, clearEarCurve, deleteRecord, pendingDestructive]);
+
+  const destructiveCopy = useMemo(() => {
+    if (!pendingDestructive) return null;
+    if (pendingDestructive.kind === "ear" || pendingDestructive.kind === "curve") {
+      const ear = t(
+        pendingDestructive.ear === "right" ? "hearingHealth.earRight" : "hearingHealth.earLeft",
+      );
+      if (pendingDestructive.kind === "ear") {
+        return {
+          title: t("hearingHealth.confirmClearEarTitle", { ear }),
+          body: t("hearingHealth.confirmClearEarBody", { ear }),
+          confirm: t("hearingHealth.confirmClearEarAction"),
+        };
+      }
+      const curve = pendingDestructive.curve;
+      return {
+        title: t("hearingHealth.confirmClearCurveTitle", { curve, ear }),
+        body: t("hearingHealth.confirmClearCurveBody", { curve, ear }),
+        confirm: t("hearingHealth.confirmClearCurveAction"),
+      };
+    }
+    const record = records.find((candidate) => candidate.key === pendingDestructive.recordKey);
+    const date = record ? formatAudiogramDate(record.date, localeFor(language)) : "";
+    return {
+      title: t("hearingHealth.confirmDeleteRecordTitle", { date }),
+      body: t("hearingHealth.confirmDeleteRecordBody", { date }),
+      confirm: t("hearingHealth.confirmDeleteRecordAction"),
+    };
+  }, [language, pendingDestructive, records, t]);
 
   const copyCurve = useCallback((ear: EarSide, curve: CurveType) => {
     applyRecordUpdate((record) => copyCurveToOtherEar(record, ear, curve));
@@ -316,8 +559,8 @@ export function HearingHealthWorkspace(): React.JSX.Element {
       activeCurve={activeCurve}
       showPictograms={showPictograms}
       showSpeechSpectrum={showSpeechSpectrum}
-      onClear={() => clearEar(ear)}
-      onClearCurve={(curve) => clearEarCurve(ear, curve)}
+      onClear={() => requestClearEar(ear)}
+      onClearCurve={(curve) => requestClearCurve(ear, curve)}
       onCopyCurve={(curve) => copyCurve(ear, curve)}
       onDateChange={changeDate}
       onRemovePoint={(curve, frequencyIndex) => removePoint(ear, curve, frequencyIndex)}
@@ -334,6 +577,7 @@ export function HearingHealthWorkspace(): React.JSX.Element {
           <div className="hearing-health-header-row">
             <h1 className="hearing-health-title">{t("hearingHealth.title")}</h1>
             <div className="hearing-health-clientbar">
+              {selectedClient && <SaveStatusIndicator status={saveStatus} />}
               {selectedClient && (
                 <span className="hearing-health-client-meta">
                   {clientMeta && <span className="hearing-health-client-meta-text">{clientMeta}</span>}
@@ -520,6 +764,7 @@ export function HearingHealthWorkspace(): React.JSX.Element {
               spLogramClientView={spLogramClientView}
               onActiveCurveChange={setActiveCurve}
               onAddHistory={addHistory}
+              onDeleteRecord={requestDeleteRecord}
               onHistoryOpenChange={setHistoryOpen}
               onRecordChange={selectRecord}
               onShowPictogramsChange={setShowPictograms}
@@ -529,6 +774,8 @@ export function HearingHealthWorkspace(): React.JSX.Element {
             />
             {earCard("left")}
           </div>
+        ) : selectedClient && status === "loading" ? (
+          <HearingHealthSkeleton />
         ) : !selectedClient ? (
           <div className="hearing-health-empty">
             <p className="hearing-health-empty-title">{t("hearingHealth.noClient")}</p>
@@ -550,6 +797,16 @@ export function HearingHealthWorkspace(): React.JSX.Element {
           existingClients={clients}
           onClose={closeCreateDialog}
           onSave={saveCreateDialog}
+        />,
+        document.body,
+      )}
+      {destructiveCopy && createPortal(
+        <DestructiveConfirmation
+          title={destructiveCopy.title}
+          body={destructiveCopy.body}
+          confirmLabel={destructiveCopy.confirm}
+          onCancel={cancelDestructive}
+          onConfirm={confirmDestructive}
         />,
         document.body,
       )}

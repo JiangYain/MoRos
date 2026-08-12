@@ -543,6 +543,23 @@ export class ClientDatabase {
     return this.audiogramFromRow(row, displayName);
   }
 
+  /** Deletes one record owned by the client; false when either does not exist. */
+  deleteAudiogram(clientNameValue: string, id: number): boolean {
+    const name = normalizeClientName(clientNameValue);
+    if (!name) return false;
+    if (!Number.isInteger(id) || id <= 0) return false;
+    return this.transaction(() => {
+      const client = this.database.prepare(
+        "SELECT id FROM clients WHERE client_key = ?",
+      ).get(clientRegistryKey(name));
+      if (!client) return false;
+      const deleted = this.database.prepare(
+        "DELETE FROM audiogram_records WHERE id = ? AND client_id = ?",
+      ).run(id, numberValue(client.id));
+      return numberValue(deleted.changes) > 0;
+    });
+  }
+
   importLegacyRegistry(serializedRegistry: string): ClientRegistry {
     if (Buffer.byteLength(serializedRegistry, "utf8") > MAX_LEGACY_REGISTRY_BYTES) {
       throw new Error("旧客户档案数据过大，无法自动迁移。");

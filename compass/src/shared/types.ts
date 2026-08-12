@@ -498,6 +498,8 @@ export interface CompassApi {
   unassignSessionClient(sessionId: string): Promise<ClientRegistry>;
   listClientAudiograms(clientName: string): Promise<ClientAudiogramRecord[]>;
   saveClientAudiogram(clientName: string, record: ClientAudiogramDraft): Promise<ClientAudiogramRecord>;
+  /** Resolves to false when the client or the record does not exist. */
+  deleteClientAudiogram(clientName: string, id: number): Promise<boolean>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<ModelPreferenceUpdate>;
   setSummaryModel(provider: string, id: string): Promise<AppSettingsView>;

@@ -71,6 +71,7 @@ const ARGUMENTS = {
       ucl: [null, null, null, null, null, null, null],
     },
   }],
+  deleteClientAudiogram: ["Client A", 12],
   setModel: ["openai", "gpt-test"],
   setModelEnabled: ["openai", "gpt-test", false],
   setSummaryModel: ["openai", "gpt-test"],
@@ -147,6 +148,11 @@ test("the shared decoder validates both Electron and web arguments", () => {
   assert.throws(() => decodeBackendArguments("removeQueuedMessage", ["steering", 0, 7]), /text must be a string/);
   assert.deepEqual(decodeBackendArguments("setComposerSendKey", ["enter"]), ["enter"]);
   assert.throws(() => decodeBackendArguments("setComposerSendKey", ["ctrlEnter"]), /Invalid composer send key/);
+  assert.deepEqual(decodeBackendArguments("deleteClientAudiogram", ["Client A", 12]), ["Client A", 12]);
+  assert.throws(() => decodeBackendArguments("deleteClientAudiogram", ["   ", 12]), /non-empty string/);
+  assert.throws(() => decodeBackendArguments("deleteClientAudiogram", ["Client A", 0]), /positive integer/);
+  assert.throws(() => decodeBackendArguments("deleteClientAudiogram", ["Client A", 1.5]), /positive integer/);
+  assert.throws(() => decodeBackendArguments("deleteClientAudiogram", ["Client A", "12"]), /positive integer/);
 });
 
 test("web handlers adapt every browser method over the backend interface", async () => {

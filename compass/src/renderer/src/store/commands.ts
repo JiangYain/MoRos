@@ -29,6 +29,7 @@ type CompassCommandActions = Pick<
   | "assignSessionClient"
   | "boot"
   | "cancelDependencyInstall"
+  | "deleteClientAudiogram"
   | "deleteClientProfile"
   | "deleteSession"
   | "installDependency"
@@ -274,6 +275,10 @@ export function createCompassCommandActions({
 
     saveClientAudiogram: (clientName, record) => runCommand(
       () => api.saveClientAudiogram(clientName, record),
+    ),
+
+    deleteClientAudiogram: (clientName, id) => runCommand(
+      () => api.deleteClientAudiogram(clientName, id),
     ),
 
     setModel: (provider, id) => runCommand(async () => {

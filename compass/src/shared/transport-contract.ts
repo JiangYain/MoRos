@@ -229,6 +229,22 @@ export const BACKEND_OPERATION_SPECS = {
       return [clientName, record];
     },
   },
+  deleteClientAudiogram: {
+    ipcChannel: "clients:delete-audiogram",
+    web: true,
+    decode: (args) => {
+      argumentCount(args, 2);
+      const clientName = stringArg(args, 0, "clientName");
+      if (clientName.trim().length === 0) {
+        throw new Error("clientName must be a non-empty string.");
+      }
+      const id = args[1];
+      if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) {
+        throw new Error("id must be a positive integer.");
+      }
+      return [clientName, id];
+    },
+  },
   setModel: { ipcChannel: "models:set", web: true, decode: twoStrings("provider", "id") },
   setModelEnabled: {
     ipcChannel: "models:set-enabled",

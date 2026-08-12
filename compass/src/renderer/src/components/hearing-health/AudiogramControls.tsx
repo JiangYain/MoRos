@@ -1,4 +1,4 @@
-import { Calendar, ChevronDown, Plus } from "lucide-react";
+import { Calendar, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { useRef } from "react";
 import { localeFor, useI18n } from "../../i18n";
 import type { AudiogramRecord, CurveType } from "./model";
@@ -19,6 +19,7 @@ interface AudiogramControlsProps {
   spLogramClientView: boolean;
   onActiveCurveChange: (curve: CurveType) => void;
   onAddHistory: () => void;
+  onDeleteRecord: (recordKey: string) => void;
   onHistoryOpenChange: (open: boolean) => void;
   onRecordChange: (recordKey: string) => void;
   onShowPictogramsChange: (show: boolean) => void;
@@ -79,18 +80,32 @@ export function AudiogramControls(props: AudiogramControlsProps): React.JSX.Elem
         </button>
         {props.historyOpen && (
           <div className="hearing-health-history-menu" role="listbox" aria-label={t("hearingHealth.historyMenu")}>
-            {props.records.map((record) => (
-              <button
-                key={record.key}
-                type="button"
-                role="option"
-                aria-selected={record.key === activeRecord?.key}
-                className={`hearing-health-history-option${record.key === activeRecord?.key ? " active" : ""}`}
-                onClick={() => props.onRecordChange(record.key)}
-              >
-                {formatAudiogramDate(record.date, localeFor(language))}
-              </button>
-            ))}
+            {props.records.map((record) => {
+              const dateLabel = formatAudiogramDate(record.date, localeFor(language));
+              const deleteLabel = t("hearingHealth.deleteRecord", { date: dateLabel });
+              return (
+                <div className="hearing-health-history-row" key={record.key}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={record.key === activeRecord?.key}
+                    className={`hearing-health-history-option${record.key === activeRecord?.key ? " active" : ""}`}
+                    onClick={() => props.onRecordChange(record.key)}
+                  >
+                    {dateLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="hearing-health-history-delete"
+                    aria-label={deleteLabel}
+                    title={deleteLabel}
+                    onClick={() => props.onDeleteRecord(record.key)}
+                  >
+                    <Trash2 size={12} strokeWidth={1.6} aria-hidden="true" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
         <button type="button" className="hearing-health-add-history-btn" onClick={props.onAddHistory}>
