@@ -20,7 +20,8 @@
 - Phonak Target 与 Widex COMPASS GPS 的 Windows UI 自动化 Skill；
 - Git/Bash、验配软件和 Noahlink Wireless driver 的本机检测与安装进度；
 - 简体中文、繁体中文、英语、德语，浅色/深色/跟随系统主题；
-- 设置内归档箱（查看/恢复归档会话）、客户档案的编辑与删除（侧栏客户右键菜单）、听力健康听力图的 SQLite 持久化（schema v3，与客户关联）、会话正文内容搜索、排队消息撤回/回填、可配置的 Enter/Shift+Enter 发送方式、消息与附件图片放大预览、Alt+←/→ 与鼠标侧键历史导航、错误横幅自动消失、设置内"关于"版本信息、Quick Prompts 未保存离开拦截与 Next 切换。
+- 设置内归档箱（查看/恢复归档会话）、客户档案的编辑与删除（侧栏客户右键菜单）、听力健康听力图的 SQLite 持久化（schema v3，与客户关联）、会话正文内容搜索、排队消息撤回/回填、可配置的 Enter/Shift+Enter 发送方式、消息与附件图片放大预览、Alt+←/→ 与鼠标侧键历史导航、错误横幅自动消失、设置内"关于"版本信息、Quick Prompts 未保存离开拦截与 Next 切换；
+- 审批卡的"本次会话始终允许此工具"（`resolveApproval` 可选 scope，会话内同名工具免审批、不持久化）、更换工作区的应用内确认模态（替代原生 confirm）、Composer 草稿按会话隔离且跨视图保留（内存态）、设置类 mutation 成功后广播 `state-refresh` 使桌面与浏览器同步、听力健康的保存状态指示/加载骨架/破坏性操作确认/历史记录删除（`deleteClientAudiogram`）、听力健康客户改为左侧栏点选（含引导动效）并统一用 `ClientProfileDialog` 编辑（含"无品牌"）、听力图象形图为 SVG（lucide）、侧栏折叠为图标栏（新建/搜索/设置）、用户消息重新编辑与失败/中止回复重试、折叠模型环不再显示品牌图标。
 
 不要误解为已实现：
 
@@ -302,7 +303,7 @@ sequenceDiagram
 [`App`](compass/src/renderer/src/App.tsx) 管理两种 `MainView`：
 
 - `assistant`：空线程显示 [`Hero`](compass/src/renderer/src/components/Hero.tsx) 与 [`QuickPrompts`](compass/src/renderer/src/components/QuickPrompts.tsx)；有消息、审批或依赖提示时显示 [`Thread`](compass/src/renderer/src/components/Thread.tsx)；底部始终是 [`Composer`](compass/src/renderer/src/components/Composer.tsx)。
-- `hearing-health`：显示 [`HearingHealthWorkspace`](compass/src/renderer/src/components/HearingHealthWorkspace.tsx)：选定客户后编辑双耳听力图（AC/BC/UCL、换能器、日期、历史记录），改动防抖持久化到 SQLite 并与客户档案关联；客户资料的编辑内联在该页面（"编辑资料"展开面板，无独立模态），侧栏客户右键菜单可直接进入；新建客户仍使用 `ClientProfileDialog`。use_audiogram 字段保留在数据库但当前 UI 不展示。
+- `hearing-health`：显示 [`HearingHealthWorkspace`](compass/src/renderer/src/components/HearingHealthWorkspace.tsx)：客户在左侧边栏点选（该视图下点击客户分组行即选中；未选中时客户行有引导动效，reduced-motion 降级为静态高亮），选定后编辑双耳听力图（AC/BC/UCL、换能器、日期、历史记录，历史记录可确认后删除），改动防抖持久化到 SQLite 并带保存状态指示（待保存/保存中/已保存/失败），加载时显示骨架屏；清空整耳与清除曲线先经应用内确认；客户资料的新建与编辑统一使用 `ClientProfileDialog`（编辑模式预填、品牌含"无"选项）。use_audiogram 字段保留在数据库但当前 UI 不展示。
 
 [`Sidebar`](compass/src/renderer/src/components/Sidebar.tsx) 负责新建/搜索会话、客户与日期归组、正式归属操作、重命名/归档/删除、主视图切换和本地操作员菜单。客户分组行支持右键菜单：编辑资料、打开听力健康、删除客户（删除走应用内确认，级联清理归属与听力记录，其会话回到"未关联客户"）。会话搜索除标题/客户/时间外还经防抖调用 main 侧正文搜索（`searchSessionContent`），结果列表可滚动、不再截断为 12 条。`UiSessionInfo.isRunning` 为真时，会话行右侧用旋转指示器替代相对时间；reduced-motion 下保留静态状态图标。后台运行会话的归档/删除入口会禁用，必须先进入该会话。`Ctrl/Cmd+,` 打开设置，`Ctrl/Cmd+N` 新会话，`Ctrl/Cmd+K` 或 `Ctrl/Cmd+P` 打开会话搜索。宽度可拖动并写 localStorage；小于 760px 时变为遮罩式侧栏。
 
@@ -329,7 +330,7 @@ sequenceDiagram
 
 [`applyInit`](compass/src/renderer/src/store.ts) 用完整 `InitPayload` 建立一致快照；[`applyEvent`](compass/src/renderer/src/store.ts) 对增量 `AgentUiEvent` 更新线程、stats、审批、依赖、客户与会话列表。SSE 重连后会调用 `init` 重同步，不能只依赖丢失前的增量事件。
 
-后端状态共享不等于所有 UI 状态实时一致：主题、操作员资料、侧栏宽度和手工排序属于各 renderer profile 的 localStorage，桌面与浏览器不共享；`setSummaryModel`、`setPermissionMode`、`setLanguage`、`setQuickPrompts` 当前也不主动广播 `state-refresh`，另一入口可能要等下一次初始化/刷新才显示新值。
+后端状态共享不等于所有 UI 状态实时一致：主题、操作员资料、侧栏宽度和手工排序属于各 renderer profile 的 localStorage，桌面与浏览器不共享。`setSummaryModel`、`setPermissionMode`、`setLanguage`、`setCommandExplanationLanguage`、`setComposerSendKey`、`setQuickPrompts` 成功后会用与 init 同源的快照广播 `state-refresh`，双入口同步；Composer 草稿（`composerDrafts`）与待确认的工作区更换（`pendingWorkspaceChange`）是 renderer 内存态，不跨入口。
 
 ### 7.3 同一 `CompassApi` 契约
 
@@ -359,7 +360,7 @@ sequenceDiagram
 | 线程项目 | [`UiThreadItem`](compass/src/shared/types.ts)：user、assistant、tool、notice | 是 Pi message 的 UI 投影，不独立持久化 |
 | 消息块 | `UiBlock`：text/thinking；工具是单独 thread item | Pi 原始 content 可能更丰富 |
 | 工具调用 | Pi tool call 投影为 tool start/update/end | Skill 是资源/指令包，不等于一次 tool call |
-| 审批请求 | 每个 live session 独立持有的 `UiApprovalRequest`，最多等待 10 分钟 | 只在当前进程内 pending；单纯切换会话会保留，停止该任务、session dispose 或应用关闭会取消 |
+| 审批请求 | 每个 live session 独立持有的 `UiApprovalRequest`，最多等待 10 分钟；`resolveApproval` 可带 `scope: "session"`，该 owner 后续同名工具免审批 | 只在当前进程内 pending；单纯切换会话会保留，停止该任务、session dispose 或应用关闭会取消；会话级放行不持久化、按工具名整体放行 |
 | Model | Provider 下的具体模型：能力、上下文窗、reasoning/images | enabled model、default model、summary model 是不同选择 |
 | Provider | Pi 模型目录中的服务提供方及认证策略 | `provider-auth-registry.json` 不是 Provider 目录本身 |
 | `ThinkingLevel` | `off/minimal/low/medium/high/xhigh/max` | 模型不一定支持全部等级；Pi 可降级或拒绝 |
@@ -545,7 +546,7 @@ Compass UI 的 `setApiKey` 和 OAuth login 最终写入 Pi credential store（�
 | shell | 每次询问 | 只有窄正则可证明为只读、且无重定向/管道/命令替换等元字符时直接允许，否则询问 | 直接允许 |
 | 其他/动态工具 | 询问 | 询问，除非未来策略能证明只读 | 直接允许 |
 
-审批等待最多 10 分钟；单纯切换会话不会取消该会话的未决审批，重新进入后仍可处理；停止对应任务、session dispose 或应用关闭会拒绝未决请求。
+审批等待最多 10 分钟；单纯切换会话不会取消该会话的未决审批，重新进入后仍可处理；停止对应任务、session dispose 或应用关闭会拒绝未决请求。审批卡除"允许一次/拒绝"外还有"本次会话始终允许"：以工具名为粒度记入该 live session owner 的内存放行集合（例如放行 shell 即放行该会话后续全部 shell 命令），不持久化，owner 释放即失效。
 
 重要限制：
 
@@ -810,15 +811,16 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 2. **设计文档漂移**：`UI_COLOR_SYSTEM.md` 的至少一个 light token 与当前 `global.css` 不一致。
 3. **历史文档漂移（本分支已修正文案）**：任务基线的 README/Provider audit 使用过期 Pi identifiers 或旧认证说明；本分支已把这两份 Markdown 最小更正为当前 gitlink/package 与 credential ownership 规则。后续 Pi 更新仍需防止再次漂移。
 4. **可移植性**：Phonak Skill 的部分命令示例仍带机器特定绝对路径；新增或整理示例时应改为仓库相对/环境变量写法。
-5. **多入口一致性**：若干设置 mutation 不广播完整状态，桌面与 Web 同时打开时 UI 可能暂时陈旧。
-6. **客户数据生命周期**：SQLite 与 Pi JSONL/图片是本地明文数据；客户删除已有 UI 与级联清理（归属、品牌、听力记录），但仍没有自动备份、保留策略或应用层加密流程。
-7. **audit 提示路径**：`audit-providers.mjs` 当前部分“下一步配置”控制台提示仍写旧的 Pi auth 路径；真实默认位置以 `getAgentDir()/auth.json`，即 `~/.pi/agent/auth.json` 为准。
-8. **Pi build cache**：`prepare-pi-source` marker 基于 Pi revision 与 recipe，但未包含 Node 版本、平台和完整工具链；跨环境复用已有 `dist` 时应主动重建验证。
-9. **Target 版本边界**：Dependency catalog 推荐 Target 11.1，而当前 Phonak Skill 的调查/校准证据针对内部 Target 12 构建；兼容性不能互相推导。
+5. **客户数据生命周期**：SQLite 与 Pi JSONL/图片是本地明文数据；客户删除已有 UI 与级联清理（归属、品牌、听力记录），但仍没有自动备份、保留策略或应用层加密流程。
+6. **audit 提示路径**：`audit-providers.mjs` 当前部分“下一步配置”控制台提示仍写旧的 Pi auth 路径；真实默认位置以 `getAgentDir()/auth.json`，即 `~/.pi/agent/auth.json` 为准。
+7. **Pi build cache**：`prepare-pi-source` marker 基于 Pi revision 与 recipe，但未包含 Node 版本、平台和完整工具链；跨环境复用已有 `dist` 时应主动重建验证。
+8. **Target 版本边界**：Dependency catalog 推荐 Target 11.1，而当前 Phonak Skill 的调查/校准证据针对内部 Target 12 构建；兼容性不能互相推导。
 
 本轮已关闭的旧问题：unit tests 与 smoke 已进入 workflow 阻断检查；Hearing Health 已实现可编辑的双耳听力图与 SII/历史控制；session path allow-list、create-before-swap、活动会话移除恢复和 assignment 清理已落地；自动下载完整性、ZIP 边界与不可逆安装状态已加固，无法核验的厂商包改为只开官网；settings 已改为可恢复的原子持久化，非模型设置 mutation 也具备内存/磁盘/live effect 补偿。
 
 2026-08-12 一轮 UI/UX 修复关闭的问题：归档会话不可见/不可恢复（新增设置归档箱与 `listArchivedSessions`/`restoreArchivedSession`）；客户档案不可编辑/删除（`updateClientProfile`/`deleteClientProfile` + 侧栏客户右键菜单）；听力健康数据不持久化、听力图点击落点偏移、图表颜色不随主题（schema v3 + `chart-geometry` 纯函数 + CSS 变量主题化）；会话搜索仅匹配标题且截断 12 条（`searchSessionContent` 正文搜索）；排队消息不可撤回（`removeQueuedMessage` + chip 回填）；错误横幅常驻（8 秒自动消失，悬停暂停）；Quick Prompts 草稿离开丢失（导航守卫模态）；About 无版本信息；Enter/Shift+Enter 发送方式可配置（`composerSendKey`）；图片无放大预览（ImageLightbox）；后退/前进无 Alt+←/→ 与鼠标侧键。
+
+2026-08-12 第二轮（并行分支合并）关闭的问题：更换工作区使用原生 `window.confirm`（改为应用内 `WorkspaceChangeDialog`）；审批只有"允许一次/拒绝"（`resolveApproval` 增加可选 `scope`，会话内同名工具免审批）；Composer 草稿不按会话隔离、进设置即丢（store 内存草稿表 `composerDrafts` + 对象化 `composerSeed`）；设置 mutation 不广播导致双入口陈旧（六个 setter 成功后发布 `state-refresh` 全量快照）；听力健康无保存反馈/加载空白/破坏性操作无确认/历史不可删（保存指示器、骨架屏、确认模态、`deleteClientAudiogram` 全链路）；听力健康客户用右上角下拉选择（改为左侧栏点选 + 引导动效，资料编辑统一 `ClientProfileDialog` 且品牌含"无"）；听力图象形图用 emoji（改为 lucide SVG）；侧栏折叠为空白条（改为新建/搜索/设置图标栏）；用户消息不可重新编辑、失败/中止无重试；折叠模型环内含品牌图标（已移除）。
 
 ### 21.2 已知设计取舍 / 风险边界
 
