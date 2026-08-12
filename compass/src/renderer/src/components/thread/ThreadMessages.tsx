@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { AgentActivityOrb } from "../AgentActivityOrb";
 import { CopyButton } from "../CopyButton";
+import { ImageLightbox } from "../ImageLightbox";
 import { Markdown } from "../Markdown";
 import { stripRedundantCompletionOpener } from "../threadCommands";
 import type { ThreadActivity } from "../threadActivity";
@@ -124,19 +125,31 @@ function SkillBlock({
 }
 
 export function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }): React.JSX.Element {
+  const { t } = useI18n();
+  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   return (
     <motion.div className="msg-user" data-thread-prompt-id={item.id} {...THREAD_ENTRANCE}>
       {item.images && item.images.length > 0 && (
         <div className="msg-user-images">
-          {item.images.map((image, index) => (
-            <img
-              key={`${image.mimeType}-${index}`}
-              src={`data:${image.mimeType};base64,${image.data}`}
-              alt={image.name ?? `Attachment ${index + 1}`}
-            />
-          ))}
+          {item.images.map((image, index) => {
+            const src = `data:${image.mimeType};base64,${image.data}`;
+            const alt = image.name ?? `Attachment ${index + 1}`;
+            return (
+              <button
+                key={`${image.mimeType}-${index}`}
+                type="button"
+                className="msg-user-image-button"
+                aria-label={t("common.viewImage")}
+                title={t("common.viewImage")}
+                onClick={() => setPreview({ src, alt })}
+              >
+                <img src={src} alt={alt} />
+              </button>
+            );
+          })}
         </div>
       )}
+      {preview && <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />}
       {item.skillName ? (
         <div className="text msg-user-bubble has-skill">
           <div className="msg-user-skill-chip">

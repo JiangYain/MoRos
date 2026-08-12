@@ -1,11 +1,14 @@
 import { Calendar, ChevronDown, Plus } from "lucide-react";
+import { useRef } from "react";
+import { localeFor, useI18n } from "../../i18n";
 import type { AudiogramRecord, CurveType } from "./model";
+import { useDropdownDismiss } from "./use-dropdown-dismiss";
 
 const CURVES: readonly CurveType[] = ["AC", "BC", "UCL"];
 
 interface AudiogramControlsProps {
   activeCurve: CurveType;
-  activeRecordId: string;
+  activeRecordKey: string | null;
   records: AudiogramRecord[];
   historyOpen: boolean;
   leftSii: number;
@@ -17,20 +20,26 @@ interface AudiogramControlsProps {
   onActiveCurveChange: (curve: CurveType) => void;
   onAddHistory: () => void;
   onHistoryOpenChange: (open: boolean) => void;
-  onRecordChange: (recordId: string) => void;
+  onRecordChange: (recordKey: string) => void;
   onShowPictogramsChange: (show: boolean) => void;
   onShowSpeechSpectrumChange: (show: boolean) => void;
   onShowUnaidedSiiChange: (show: boolean) => void;
   onSpLogramClientViewChange: (show: boolean) => void;
 }
 
+export function formatAudiogramDate(date: string, locale: string): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(parsed);
+}
+
 function CurveSymbol({ curve, ear }: { curve: CurveType; ear: "right" | "left" }): React.JSX.Element {
-  const color = ear === "right" ? "#dc2626" : "#2563eb";
+  const color = ear === "right" ? "var(--hh-ear-right)" : "var(--hh-ear-left)";
   const marker = curve === "BC" ? (ear === "right" ? "<" : ">") : curve === "UCL" ? "m" : null;
   return (
-    <svg width="18" height="12">
+    <svg width="18" height="12" aria-hidden="true">
       <line x1="1" y1="6" x2="17" y2="6" stroke={color} strokeWidth={curve === "AC" ? 1.5 : 1.2} strokeDasharray={curve === "BC" ? "3 2" : curve === "UCL" ? "2 2" : undefined} />
-      {curve === "AC" && ear === "right" && <circle cx="9" cy="6" r="3.2" fill="#ffffff" stroke={color} strokeWidth="1.5" />}
+      {curve === "AC" && ear === "right" && <circle cx="9" cy="6" r="3.2" fill="var(--color-bg)" stroke={color} strokeWidth="1.5" />}
       {curve === "AC" && ear === "left" && (
         <>
           <line x1="5" y1="2" x2="13" y2="10" stroke={color} strokeWidth="1.5" />
@@ -43,32 +52,50 @@ function CurveSymbol({ curve, ear }: { curve: CurveType; ear: "right" | "left" }
 }
 
 export function AudiogramControls(props: AudiogramControlsProps): React.JSX.Element {
-  const activeRecord = props.records.find((record) => record.id === props.activeRecordId) ?? props.records[0];
+  const { language, t } = useI18n();
+  const historyRef = useRef<HTMLDivElement>(null);
+  const activeRecord = props.records.find((record) => record.key === props.activeRecordKey)
+    ?? props.records[0];
+  const closeHistory = (): void => props.onHistoryOpenChange(false);
+  useDropdownDismiss(props.historyOpen, historyRef, closeHistory);
+
   return (
     <div className="hearing-health-center-panel">
-      <div className="hearing-health-history-box" style={{ position: "relative" }}>
-        <button type="button" className="hearing-health-history-btn" onClick={() => props.onHistoryOpenChange(!props.historyOpen)}>
-          <Calendar size={12} strokeWidth={1.6} />
-          <span>History: {activeRecord.date}</span>
-          <ChevronDown size={12} strokeWidth={1.6} />
+      <div className="hearing-health-history-box" ref={historyRef}>
+        <button
+          type="button"
+          className="hearing-health-history-btn"
+          aria-haspopup="listbox"
+          aria-expanded={props.historyOpen}
+          onClick={() => props.onHistoryOpenChange(!props.historyOpen)}
+        >
+          <Calendar size={12} strokeWidth={1.6} aria-hidden="true" />
+          <span>
+            {t("hearingHealth.historyLabel", {
+              date: activeRecord ? formatAudiogramDate(activeRecord.date, localeFor(language)) : "—",
+            })}
+          </span>
+          <ChevronDown size={12} strokeWidth={1.6} aria-hidden="true" />
         </button>
         {props.historyOpen && (
-          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, marginTop: 4, background: "var(--color-bg)", border: "0.5px solid var(--color-border)", borderRadius: "var(--border-radius-xs)", boxShadow: "var(--shadow-popover)", overflow: "hidden" }}>
+          <div className="hearing-health-history-menu" role="listbox" aria-label={t("hearingHealth.historyMenu")}>
             {props.records.map((record) => (
               <button
-                key={record.id}
+                key={record.key}
                 type="button"
-                style={{ width: "100%", padding: "6px 10px", border: "none", background: record.id === props.activeRecordId ? "var(--color-surface)" : "transparent", textAlign: "left", fontSize: "11px", cursor: "pointer" }}
-                onClick={() => props.onRecordChange(record.id)}
+                role="option"
+                aria-selected={record.key === activeRecord?.key}
+                className={`hearing-health-history-option${record.key === activeRecord?.key ? " active" : ""}`}
+                onClick={() => props.onRecordChange(record.key)}
               >
-                {record.date}
+                {formatAudiogramDate(record.date, localeFor(language))}
               </button>
             ))}
           </div>
         )}
         <button type="button" className="hearing-health-add-history-btn" onClick={props.onAddHistory}>
-          <Plus size={12} strokeWidth={1.8} />
-          <span>Add to history</span>
+          <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
+          <span>{t("hearingHealth.addToHistory")}</span>
         </button>
       </div>
 
@@ -83,16 +110,16 @@ export function AudiogramControls(props: AudiogramControlsProps): React.JSX.Elem
       </div>
 
       <div className="hearing-health-options-box">
-        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.showSpeechSpectrum} onChange={(event) => props.onShowSpeechSpectrumChange(event.target.checked)} /><span>Show speech spectrum</span></label>
-        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.showPictograms} onChange={(event) => props.onShowPictogramsChange(event.target.checked)} /><span>Show pictograms</span></label>
-        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.spLogramClientView} onChange={(event) => props.onSpLogramClientViewChange(event.target.checked)} /><span>SPLogram in client view</span></label>
-        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.showUnaidedSii} onChange={(event) => props.onShowUnaidedSiiChange(event.target.checked)} /><span>Show unaided SII</span></label>
+        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.showSpeechSpectrum} onChange={(event) => props.onShowSpeechSpectrumChange(event.target.checked)} /><span>{t("hearingHealth.showSpeechSpectrum")}</span></label>
+        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.showPictograms} onChange={(event) => props.onShowPictogramsChange(event.target.checked)} /><span>{t("hearingHealth.showPictograms")}</span></label>
+        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.spLogramClientView} onChange={(event) => props.onSpLogramClientViewChange(event.target.checked)} /><span>{t("hearingHealth.splClientView")}</span></label>
+        <label className="hearing-health-checkbox-label"><input type="checkbox" checked={props.showUnaidedSii} onChange={(event) => props.onShowUnaidedSiiChange(event.target.checked)} /><span>{t("hearingHealth.showUnaidedSii")}</span></label>
       </div>
 
       {props.showUnaidedSii && (
         <div className="hearing-health-sii-score-bar">
           <span className="right">R: {props.rightSii}%</span>
-          <span style={{ color: "var(--color-text-tertiary)" }}>|</span>
+          <span className="hearing-health-sii-divider">|</span>
           <span className="left">L: {props.leftSii}%</span>
         </div>
       )}

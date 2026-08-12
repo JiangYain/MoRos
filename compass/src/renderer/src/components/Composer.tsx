@@ -1,4 +1,4 @@
-import type { UiSkill } from "@shared/types";
+import type { QueuedMessageKind, UiSkill } from "@shared/types";
 import { parseSkillInvocation } from "@shared/skill-display";
 import { ArrowUp, Mic, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -35,6 +35,8 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const send = useCompass((state) => state.send);
   const abort = useCompass((state) => state.abort);
   const openSettings = useCompass((state) => state.openSettings);
+  const removeQueuedMessage = useCompass((state) => state.removeQueuedMessage);
+  const composerSendKey = useCompass((state) => state.settings?.composerSendKey ?? "enter");
 
   const [text, setText] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<UiSkill | null>(null);
@@ -199,6 +201,24 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     });
   };
 
+  const withdrawQueuedMessage = (kind: QueuedMessageKind, index: number, message: string): void => {
+    void removeQueuedMessage(kind, index, message);
+  };
+
+  const recallQueuedMessage = (kind: QueuedMessageKind, index: number, message: string): void => {
+    void removeQueuedMessage(kind, index, message).then((removed) => {
+      if (!removed) return;
+      setText((current) => (current.trim() ? `${current.trimEnd()}\n${message}` : message));
+      // Mirrors the composer-seed effect: focus the textarea with the caret at the end.
+      requestAnimationFrame(() => {
+        const node = textareaRef.current;
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(node.value.length, node.value.length);
+      });
+    });
+  };
+
   const doSend = (): void => {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0 && !selectedSkill) return;
@@ -259,10 +279,14 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
       setPopover("none");
       return;
     }
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      doSend();
-      return;
+    if (event.key === "Enter") {
+      const sendCombination = composerSendKey === "shiftEnter" ? event.shiftKey : !event.shiftKey;
+      if (sendCombination) {
+        event.preventDefault();
+        doSend();
+        return;
+      }
+      // The complementary combination falls through to the native newline.
     }
     if (event.key === "Escape" && streaming) {
       event.preventDefault();
@@ -279,7 +303,12 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   return (
     <div className="composer-zone">
       <div className="composer-wrap" ref={rootRef}>
-        <QueueChips steering={queue.steering} followUp={queue.followUp} />
+        <QueueChips
+          steering={queue.steering}
+          followUp={queue.followUp}
+          onRecall={recallQueuedMessage}
+          onWithdraw={withdrawQueuedMessage}
+        />
 
         <ContextUsageSurface expanded={contextExpanded} onClose={() => setContextExpanded(false)} showQuickPrompts={showQuickPrompts} />
 

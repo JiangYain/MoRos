@@ -2978,3 +2978,123 @@
     margin-left: 34px;
   }
 }
+
+.settings-archive-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-archive-row {
+  min-height: 52px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-archive-row + .settings-archive-row {
+  border-top: 0.5px solid var(--color-border-subtle);
+}
+
+.settings-archive-row-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-archive-row-copy strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 11.75px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-archive-row-copy span {
+  color: var(--color-text-tertiary);
+  font-size: 9.75px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.settings-archive-row .settings-small-btn {
+  flex: 0 0 auto;
+}
+
+.settings-archive-empty {
+  min-height: 170px;
+  margin-top: 24px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 0.5px dashed var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text-tertiary);
+  background: var(--color-surface);
+  font-size: 10px;
+}
+
+/* ============================================================
+   SETTINGS: ABOUT VERSION + QUICK PROMPT LEAVE GUARD
+   ============================================================ */
+.settings-about-version {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.settings-guard-backdrop {
+  position: fixed;
+  inset: var(--titlebar-h) 0 0;
+  z-index: 130;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-overlay);
+  backdrop-filter: blur(2px);
+}
+
+.settings-guard-dialog {
+  width: min(380px, calc(100vw - 40px));
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius-md);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-elevated);
+  box-shadow: var(--shadow-dialog);
+}
+
+.settings-guard-dialog h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.settings-guard-dialog p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.settings-guard-actions {
+  margin-top: 7px;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}

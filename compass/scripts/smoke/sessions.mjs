@@ -241,7 +241,7 @@ export async function runSessionScenario({ app, page, shot, finalMessage, longSm
       }, dependencyScenario.missing);
       const dependencyCard = page.locator(".thread-dependency-card");
       await dependencyCard.waitFor();
-      await dependencyCard.getByRole("button", { name: "Download & install Target", exact: true }).waitFor();
+      await dependencyCard.getByRole("button", { name: "Open Phonak official page", exact: true }).waitFor();
       await dependencyCard.getByRole("button", { name: "Later", exact: true }).waitFor();
       await page.waitForTimeout(650);
       await shot("13c-session-dependency-recommendation");

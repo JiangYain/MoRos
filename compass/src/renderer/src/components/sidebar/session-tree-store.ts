@@ -21,7 +21,11 @@ export interface SessionTreeSessionActions {
   confirm(confirmation: ThreadConfirmationState): void;
   copySessionId(session: UiSessionInfo): void;
   create(group: ClientGroup): void;
+  deleteClientConfirmed(name: string): void;
   open(session: UiSessionInfo, active: boolean): void;
+  openClientEditor(name: string): void;
+  openClientHearingHealth(name: string): void;
+  requestClientDelete(name: string): void;
   requestConfirmation(session: UiSessionInfo, action: ThreadConfirmationAction): void;
   saveClient(profile: ClientProfileDraft): void;
 }
@@ -48,11 +52,14 @@ export function useSessionTreeStore(
   const deleteSession = useCompass((state) => state.deleteSession);
   const archiveSession = useCompass((state) => state.archiveSession);
   const saveClientProfile = useCompass((state) => state.saveClientProfile);
+  const deleteClientProfile = useCompass((state) => state.deleteClientProfile);
   const assignSessionClient = useCompass((state) => state.assignSessionClient);
   const unassignSessionClient = useCompass((state) => state.unassignSessionClient);
   const setError = useCompass((state) => state.setError);
   const setSidebarOpen = useCompass((state) => state.setSidebarOpen);
   const setMainView = useCompass((state) => state.setMainView);
+  const setHearingHealthClient = useCompass((state) => state.setHearingHealthClient);
+  const setHearingHealthProfileOpen = useCompass((state) => state.setHearingHealthProfileOpen);
   const migratedAssignments = useRef(new Set<string>());
   const groups = useMemo(
     () => groupSessionsByClient(sessions, clientRegistry),
@@ -139,6 +146,28 @@ export function useSessionTreeStore(
   const saveClient = useCallback((profile: ClientProfileDraft): void => {
     ignoreCommandFailure(saveClientProfile(profile).then(interactions.clientDialog.close));
   }, [interactions.clientDialog.close, saveClientProfile]);
+  // Profile editing lives inline on the hearing health page, so both client
+  // menu entries navigate there; the editor entry also expands the panel.
+  const openClientEditor = useCallback((name: string): void => {
+    interactions.clientMenu.close();
+    closeMobile();
+    setHearingHealthClient(name);
+    setHearingHealthProfileOpen(true);
+    setMainView("hearing-health");
+  }, [closeMobile, interactions.clientMenu, setHearingHealthClient, setHearingHealthProfileOpen, setMainView]);
+  const openClientHearingHealth = useCallback((name: string): void => {
+    interactions.clientMenu.close();
+    closeMobile();
+    setHearingHealthClient(name);
+    setMainView("hearing-health");
+  }, [closeMobile, interactions.clientMenu, setHearingHealthClient, setMainView]);
+  const requestClientDelete = useCallback((name: string): void => {
+    interactions.clientMenu.close();
+    interactions.clientDelete.request(name);
+  }, [interactions.clientDelete, interactions.clientMenu]);
+  const deleteClientConfirmed = useCallback((name: string): void => {
+    ignoreCommandFailure(deleteClientProfile(name).then(interactions.clientDelete.close));
+  }, [deleteClientProfile, interactions.clientDelete.close]);
   const ownership = useMemo<SessionOwnershipCommands>(() => ({
     assign: assignSessionClient,
     unassign: unassignSessionClient,
@@ -149,7 +178,11 @@ export function useSessionTreeStore(
     confirm,
     copySessionId,
     create,
+    deleteClientConfirmed,
     open,
+    openClientEditor,
+    openClientHearingHealth,
+    requestClientDelete,
     requestConfirmation,
     saveClient,
   }), [
@@ -158,7 +191,11 @@ export function useSessionTreeStore(
     confirm,
     copySessionId,
     create,
+    deleteClientConfirmed,
     open,
+    openClientEditor,
+    openClientHearingHealth,
+    requestClientDelete,
     requestConfirmation,
     saveClient,
   ]);

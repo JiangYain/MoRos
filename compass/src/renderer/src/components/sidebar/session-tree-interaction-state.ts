@@ -12,6 +12,12 @@ export interface SessionTreeMenu {
   y: number;
 }
 
+export interface SessionTreeClientMenu {
+  clientName: string;
+  x: number;
+  y: number;
+}
+
 export interface SessionTreeMenuPosition {
   left: number;
   top: number;
@@ -23,7 +29,10 @@ export interface SessionRenameState {
 }
 
 export interface SessionTreeInteractionState {
+  clientDeleteName: string | null;
   clientDialogOpen: boolean;
+  clientMenu: SessionTreeClientMenu | null;
+  clientMenuPosition: SessionTreeMenuPosition | null;
   confirmations: ThreadConfirmations;
   menu: SessionTreeMenu | null;
   menuPosition: SessionTreeMenuPosition | null;
@@ -31,7 +40,10 @@ export interface SessionTreeInteractionState {
 }
 
 export const INITIAL_SESSION_TREE_INTERACTION_STATE: SessionTreeInteractionState = {
+  clientDeleteName: null,
   clientDialogOpen: false,
+  clientMenu: null,
+  clientMenuPosition: null,
   confirmations: {},
   menu: null,
   menuPosition: null,
@@ -39,7 +51,12 @@ export const INITIAL_SESSION_TREE_INTERACTION_STATE: SessionTreeInteractionState
 };
 
 export type SessionTreeInteractionEvent =
+  | { type: "client-delete/close" }
+  | { type: "client-delete/request"; clientName: string }
   | { type: "client-dialog/set"; open: boolean }
+  | { type: "client-menu/close" }
+  | { type: "client-menu/open"; menu: SessionTreeClientMenu }
+  | { type: "client-menu/position"; position: SessionTreeMenuPosition }
   | { type: "confirmation"; event: ThreadConfirmationEvent }
   | { type: "menu/close" }
   | { type: "menu/open"; menu: SessionTreeMenu }
@@ -54,10 +71,22 @@ export function sessionTreeInteractionReducer(
   event: SessionTreeInteractionEvent,
 ): SessionTreeInteractionState {
   switch (event.type) {
+    case "client-delete/close":
+      return state.clientDeleteName === null ? state : { ...state, clientDeleteName: null };
+    case "client-delete/request":
+      return { ...state, clientDeleteName: event.clientName };
     case "client-dialog/set":
       return state.clientDialogOpen === event.open
         ? state
         : { ...state, clientDialogOpen: event.open };
+    case "client-menu/close":
+      return state.clientMenu || state.clientMenuPosition
+        ? { ...state, clientMenu: null, clientMenuPosition: null }
+        : state;
+    case "client-menu/open":
+      return { ...state, clientMenu: event.menu, clientMenuPosition: null };
+    case "client-menu/position":
+      return state.clientMenu ? { ...state, clientMenuPosition: event.position } : state;
     case "confirmation": {
       const confirmations = threadConfirmationsReducer(state.confirmations, event.event);
       return confirmations === state.confirmations ? state : { ...state, confirmations };

@@ -1,7 +1,7 @@
 import type { UiApprovalRequest, UiThreadItem } from "../../../shared/types.ts";
 import { toolActivity, type ToolActivity } from "./threadCommands.ts";
 
-export type ThreadActivityState = "working" | "searching" | "solving" | "composing";
+export type ThreadActivityState = "working" | "searching" | "solving";
 
 export type ThreadActivity =
   | {
@@ -19,7 +19,7 @@ export type ThreadActivity =
     }
   | {
       target: "assistant-stream";
-      state: "working" | "composing";
+      state: "working";
       itemId: string;
     };
 
@@ -68,7 +68,8 @@ export function resolveThreadActivity(items: UiThreadItem[]): ThreadActivity | u
       };
     }
 
-    return { target: "assistant-stream", state: "composing", itemId: item.id };
+    // Visible streamed text is already the response-progress signal.
+    return undefined;
   }
 
   return undefined;

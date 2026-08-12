@@ -45,7 +45,7 @@ export async function runStreamingScenario({
     "",
     "The completed reasoning remains readable above the tool exploration, and the tool details can still be collapsed or expanded independently.",
     "",
-    "This longer paragraph verifies that the composing Orb remains aligned while wrapped text grows naturally in a narrow message column. Burst complete.",
+    "This longer paragraph verifies that wrapped streamed text grows naturally in a narrow message column. Burst complete.",
   ].join("\n");
   const highFrequencyDeltas = completedTail.match(/[\s\S]{1,9}/g) ?? [completedTail];
   const longSmokeAnswer = incompleteBoldDelta + incompleteFenceDelta + highFrequencyDeltas.join("");
@@ -63,7 +63,7 @@ export async function runStreamingScenario({
     document.querySelector('[data-assistant-message-id="smoke-final-answer"] .md')?.textContent?.includes("The final answer is ready")
   ));
   await finalMessage.locator("[data-sd-animate]").first().waitFor();
-  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  await assertNoActivityOrb();
   if (await page.locator(".thinking-content-text [data-sd-animate], .tool-exploration-body [data-sd-animate]").count()) {
     throw new Error("Thinking or tool Markdown received streaming word animation");
   }
@@ -98,7 +98,7 @@ export async function runStreamingScenario({
     || !reducedMotionText.includes("ready")) {
     throw new Error("Reduced motion hid active Markdown text");
   }
-  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  await assertNoActivityOrb();
   await page.emulateMedia({ reducedMotion: "no-preference" });
 
   await finalMessage.locator(".md").evaluate((root) => {
@@ -141,10 +141,10 @@ export async function runStreamingScenario({
     ...streamdownDomMetrics,
   }));
   await finalMessage.locator("[data-sd-animate]").first().waitFor();
-  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
-  await shot("12h-activity-composing-long-reply");
+  await assertNoActivityOrb();
+  await shot("12h-streaming-long-reply");
   await page.setViewportSize({ width: 560, height: 780 });
-  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  await assertNoActivityOrb();
   const narrowMarkdown = await finalMessage.evaluate((message) => ({
     clientWidth: message.clientWidth,
     scrollWidth: message.scrollWidth,
@@ -159,9 +159,9 @@ export async function runStreamingScenario({
   ) {
     throw new Error("Narrow streamed Markdown overflowed horizontally: " + JSON.stringify(narrowMarkdown));
   }
-  await shot("12i-activity-composing-long-reply-narrow");
+  await shot("12i-streaming-long-reply-narrow");
   await page.setViewportSize({ width: 1320, height: 880 });
-  await assertActivityOrb("composing", finalMessage, "Agent is composing a response");
+  await assertNoActivityOrb();
 
   await page.evaluate(() => {
     window.__compassAssistantEndStartedAt = performance.now();

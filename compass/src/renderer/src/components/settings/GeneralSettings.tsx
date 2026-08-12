@@ -1,16 +1,18 @@
-import type { CommandExplanationLanguage } from "@shared/types";
-import { APP_LANGUAGES, COMMAND_EXPLANATION_LANGUAGES } from "@shared/types";
+import type { CommandExplanationLanguage, ComposerSendKey } from "@shared/types";
+import { APP_LANGUAGES, COMMAND_EXPLANATION_LANGUAGES, COMPOSER_SEND_KEYS } from "@shared/types";
 import { MAX_QUICK_PROMPTS } from "@shared/quick-prompts";
 import { Check, ChevronDown, Plus, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { translate, type TranslationKey, useI18n } from "../../i18n";
-import { ignoreCommandFailure, useCompass } from "../../store";
+import { ignoreCommandFailure, type SettingsNavigationGuard, useCompass } from "../../store";
 import { isSettingsDropdownNavigationKey, nextSettingsDropdownIndex } from "../settings-dropdown";
 
 function QuickPromptSettings(): React.JSX.Element {
   const { language, t } = useI18n();
   const configuredPrompts = useCompass((state) => state.settings?.quickPrompts);
   const setQuickPrompts = useCompass((state) => state.setQuickPrompts);
+  const registerSettingsGuard = useCompass((state) => state.registerSettingsGuard);
+  const unregisterSettingsGuard = useCompass((state) => state.unregisterSettingsGuard);
   const localizedDefaults = useMemo(() => [translate(language, "hero.prompt1"), translate(language, "hero.prompt2"), translate(language, "hero.prompt3")], [language]);
   const savedPrompts = configuredPrompts ?? localizedDefaults;
   const savedKey = JSON.stringify(savedPrompts);
@@ -36,6 +38,20 @@ function QuickPromptSettings(): React.JSX.Element {
     setSaving(true);
     try { await setQuickPrompts(normalizedPrompts); } finally { setSaving(false); }
   };
+
+  // The guard reads live values through a ref so one stable registration per
+  // mount is enough; unregistering on unmount keeps later sections unblocked.
+  const guardStateRef = useRef({ dirty, saving, save });
+  guardStateRef.current = { dirty, saving, save };
+  useEffect(() => {
+    const guard: SettingsNavigationGuard = {
+      isBlocked: () => guardStateRef.current.dirty,
+      canSave: () => guardStateRef.current.dirty && !guardStateRef.current.saving,
+      save: () => guardStateRef.current.save(),
+    };
+    registerSettingsGuard(guard);
+    return () => unregisterSettingsGuard(guard);
+  }, [registerSettingsGuard, unregisterSettingsGuard]);
   const restoreDefaults = async (): Promise<void> => {
     if (!canRestoreDefaults || saving) return;
     if (configuredPrompts === undefined) { setDraftPrompts([...localizedDefaults]); return; }
@@ -122,13 +138,32 @@ function LanguageDropdown<T extends string>({ label, listboxId, value, options, 
   );
 }
 
+function AboutSettings(): React.JSX.Element {
+  const { t } = useI18n();
+  const version = useCompass((state) => state.version);
+  return (
+    <section className="settings-section-block" id="settings-about">
+      <div className="settings-section-title"><div><h2>{t("settings.about")}</h2></div></div>
+      <div className="settings-card">
+        <div className="settings-language-row">
+          <div className="settings-language-copy"><strong>Compass</strong><span>{t("settings.aboutDescription")}</span></div>
+          <span className="settings-about-version">{t("settings.aboutVersion", { version: version || "—" })}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function GeneralSettings(): React.JSX.Element {
   const { language, t } = useI18n();
   const commandLanguage = useCompass((state) => state.settings?.commandExplanationLanguage ?? "auto");
+  const composerSendKey = useCompass((state) => state.settings?.composerSendKey ?? "enter");
   const setLanguage = useCompass((state) => state.setLanguage);
   const setCommandLanguage = useCompass((state) => state.setCommandExplanationLanguage);
+  const setComposerSendKey = useCompass((state) => state.setComposerSendKey);
   const interfaceOptions = useMemo(() => APP_LANGUAGES.map((option) => ({ value: option, label: t(`language.${option}` as TranslationKey) })), [t]);
   const commandOptions = useMemo(() => COMMAND_EXPLANATION_LANGUAGES.map((option) => ({ value: option, label: option === "auto" ? t("settings.commandExplanationLanguageAuto") : t(`language.${option}` as TranslationKey) })), [t]);
+  const sendKeyOptions = useMemo(() => COMPOSER_SEND_KEYS.map((option) => ({ value: option, label: t(option === "enter" ? "settings.composerSendKeyEnter" : "settings.composerSendKeyShiftEnter") })), [t]);
   return (
     <div className="settings-page" id="settings-page-general">
       <header className="settings-page-head"><span className="settings-eyebrow">{t("settings.preferences")}</span><h1>{t("settings.general")}</h1><p>{t("settings.generalDescription")}</p></header>
@@ -136,9 +171,11 @@ export function GeneralSettings(): React.JSX.Element {
         <div className="settings-card">
           <div className="settings-language-row"><div className="settings-language-copy"><strong>{t("language.label")}</strong><span>{t("language.description")}</span></div><LanguageDropdown label={t("language.label")} listboxId="settings-language-listbox" value={language} options={interfaceOptions} onSelect={setLanguage} /></div>
           <div className="settings-language-row" id="settings-command-explanation-language"><div className="settings-language-copy"><strong>{t("settings.commandExplanationLanguage")}</strong><span>{t("settings.commandExplanationLanguageDescription")}</span></div><LanguageDropdown<CommandExplanationLanguage> label={t("settings.commandExplanationLanguage")} listboxId="settings-command-explanation-language-listbox" value={commandLanguage} options={commandOptions} onSelect={setCommandLanguage} /></div>
+          <div className="settings-language-row" id="settings-composer-send-key"><div className="settings-language-copy"><strong>{t("settings.composerSendKey")}</strong><span>{t("settings.composerSendKeyDescription")}</span></div><LanguageDropdown<ComposerSendKey> label={t("settings.composerSendKey")} listboxId="settings-composer-send-key-listbox" value={composerSendKey} options={sendKeyOptions} onSelect={setComposerSendKey} /></div>
         </div>
       </section>
       <div id="settings-quick-prompts"><QuickPromptSettings /></div>
+      <AboutSettings />
     </div>
   );
 }

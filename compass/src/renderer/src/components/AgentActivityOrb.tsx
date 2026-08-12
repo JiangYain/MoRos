@@ -7,7 +7,6 @@ const STATUS_KEYS: Record<ThreadActivityState, TranslationKey> = {
   working: "thread.activityStatus.working",
   searching: "thread.activityStatus.searching",
   solving: "thread.activityStatus.solving",
-  composing: "thread.activityStatus.composing",
 };
 
 export function AgentActivityOrb({

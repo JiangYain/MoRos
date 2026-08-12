@@ -18,10 +18,18 @@ import {
   persistProfileAvatar,
   persistProfileIdentity,
 } from "./store/profile-persistence";
-import type { CompassState } from "./store/state";
+import { decideSettingsNavigation } from "./store/settings-navigation";
+import type { CompassState, SettingsSection } from "./store/state";
 
 export { ignoreCommandFailure } from "./store/command";
-export type { CompassState, MainView, SettingsSection } from "./store/state";
+export type {
+  CompassState,
+  MainView,
+  PendingSettingsNavigation,
+  SettingsNavigationGuard,
+  SettingsNavigationResolution,
+  SettingsSection,
+} from "./store/state";
 
 type StoreMessageKey =
   | "avatarStorage"
@@ -92,6 +100,27 @@ export const useCompass = create<CompassState>((set, get) => {
 
   const initialIdentity = loadProfileIdentity();
 
+  // Every settings entry/exit path funnels through here so a registered
+  // leave-guard (for example unsaved quick prompts) is always consulted.
+  const requestSettingsNavigation = (settingsSection: SettingsSection | null): void => {
+    const state = get();
+    const decision = decideSettingsNavigation({
+      currentSection: state.settingsSection,
+      targetSection: settingsSection,
+      guardBlocked: Boolean(state.settingsGuard?.isBlocked()),
+    });
+    if (decision === "ignore") return;
+    if (decision === "block") {
+      set({
+        pendingSettingsNavigation: {
+          proceed: () => set({ settingsSection, pendingSettingsNavigation: null }),
+        },
+      });
+      return;
+    }
+    set({ settingsSection });
+  };
+
   return {
   ready: false,
   version: "",
@@ -110,8 +139,12 @@ export const useCompass = create<CompassState>((set, get) => {
   streaming: false,
   queue: { steering: [], followUp: [] },
   settingsSection: null,
+  settingsGuard: null,
+  pendingSettingsNavigation: null,
   sidebarOpen: false,
   mainView: "assistant",
+  hearingHealthClient: null,
+  hearingHealthProfileOpen: false,
   composerSeed: null,
   lastError: null,
   streamingBlocks: new Map(),
@@ -131,10 +164,54 @@ export const useCompass = create<CompassState>((set, get) => {
     }
   },
 
-  openSettings: (settingsSection = "general") => set({ settingsSection }),
-  closeSettings: () => set({ settingsSection: null }),
+  openSettings: (settingsSection = "general") => {
+    requestSettingsNavigation(settingsSection);
+  },
+  closeSettings: () => {
+    requestSettingsNavigation(null);
+  },
+  registerSettingsGuard: (guard) => set({ settingsGuard: guard }),
+  unregisterSettingsGuard: (guard) => set((state) => (
+    state.settingsGuard === guard
+      ? { settingsGuard: null, pendingSettingsNavigation: null }
+      : {}
+  )),
+  resolveSettingsNavigation: async (resolution) => {
+    const { pendingSettingsNavigation, settingsGuard } = get();
+    if (!pendingSettingsNavigation) return;
+    if (resolution === "stay") {
+      set({ pendingSettingsNavigation: null });
+      return;
+    }
+    if (resolution === "save") {
+      if (!settingsGuard?.canSave()) return;
+      try {
+        await settingsGuard.save();
+      } catch {
+        // The failed command already reported through the error banner.
+        set({ pendingSettingsNavigation: null });
+        return;
+      }
+    }
+    pendingSettingsNavigation.proceed();
+  },
+  armSettingsNavigation: (afterLeave) => {
+    const state = get();
+    if (state.settingsSection === null || !state.settingsGuard?.isBlocked()) return false;
+    set({
+      pendingSettingsNavigation: {
+        proceed: () => {
+          set({ settingsSection: null, pendingSettingsNavigation: null });
+          afterLeave();
+        },
+      },
+    });
+    return true;
+  },
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setMainView: (mainView) => set({ mainView }),
+  setHearingHealthClient: (hearingHealthClient) => set({ hearingHealthClient }),
+  setHearingHealthProfileOpen: (hearingHealthProfileOpen) => set({ hearingHealthProfileOpen }),
   seedComposer: (text) => set({ composerSeed: text, settingsSection: null, mainView: "assistant" }),
   clearComposerSeed: () => set({ composerSeed: null }),
   setError: (message) => set({ lastError: message }),

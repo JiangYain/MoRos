@@ -4,8 +4,10 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Ear,
   Folder,
   FolderOpen,
+  LoaderCircle,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -13,13 +15,17 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useId } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n.ts";
 import { ClientProfileDialog } from "../ClientProfileDialog.tsx";
 import { ThreadInlineConfirmation } from "../ThreadInlineConfirmation.tsx";
+import type { ClientProfileDraft } from "../client-registry.ts";
 import type { ThreadConfirmationState } from "../thread-confirmation.ts";
 import type {
+  ClientDeleteInteraction,
   ClientDialogInteraction,
+  ClientMenuInteraction,
   ConfirmationInteraction,
   MenuInteraction,
   RenameInteraction,
@@ -27,11 +33,10 @@ import type {
 import type { SessionTreeOrdering } from "./session-tree-ordering.ts";
 import {
   type ClientGroup,
-  sessionDateTime,
-  sessionRelativeAge,
   sessionTime,
   sessionTitle,
 } from "./session-tree-model.ts";
+import { sessionRowStatus } from "./session-row-status.ts";
 import type { SessionTreeSessionActions } from "./session-tree-store.ts";
 import type { SessionTreeVisibility } from "./session-tree-visibility.ts";
 
@@ -119,14 +124,17 @@ function SessionRow({
 }): React.JSX.Element {
   const { t } = useI18n();
   const title = sessionTitle(session, t("common.untitledSession"));
-  const relativeAge = sessionRelativeAge(session, t("common.now"));
+  const status = sessionRowStatus(session, t("common.now"));
   const rowClassName = [
     "file-tree-item thread-item-shell",
     active ? " active" : "",
     confirmation.state ? " confirming" : "",
     drag.dragging ? " dragging" : "",
   ].join("");
-  const tooltip = `${sessionTime(session, language, t)} · ${relativeAge} · ${title}`;
+  const statusLabel = status.kind === "running"
+    ? t("sidebar.sessionRunning")
+    : status.relativeAge;
+  const tooltip = `${sessionTime(session, language, t)} · ${statusLabel} · ${title}`;
   return (
     <div
       className={rowClassName}
@@ -189,9 +197,20 @@ function SessionRow({
             title={tooltip}
           >
             <span className="file-name">{title}</span>
-            <time className="thread-relative-time" dateTime={sessionDateTime(session)}>
-              {relativeAge}
-            </time>
+            {status.kind === "running" ? (
+              <span
+                className="thread-running-indicator"
+                role="img"
+                aria-label={t("sidebar.sessionRunning")}
+                title={t("sidebar.sessionRunning")}
+              >
+                <LoaderCircle size={13} strokeWidth={1.8} aria-hidden="true" />
+              </span>
+            ) : (
+              <time className="thread-relative-time" dateTime={status.dateTime}>
+                {status.relativeAge}
+              </time>
+            )}
           </button>
           <button
             type="button"
@@ -234,6 +253,7 @@ interface ClientGroupViewProps {
   expanded: boolean;
   group: ClientGroup;
   index: number;
+  onContextMenu?(event: React.MouseEvent): void;
   reduced: boolean | null;
   renderSession(session: UiSessionInfo): React.JSX.Element;
   revealed: boolean;
@@ -270,6 +290,7 @@ function ClientGroupView(props: ClientGroupViewProps): React.JSX.Element {
         onDragOver={props.drag.over}
         onDragLeave={props.drag.leave}
         onDrop={props.drag.drop}
+        onContextMenu={props.onContextMenu}
       >
         <button
           type="button"
@@ -364,6 +385,7 @@ type SessionTreeViewActions = Pick<
 
 interface SessionTreeViewWorkflow {
   actions: SessionTreeViewActions;
+  clientMenu: ClientMenuInteraction;
   confirmations: ConfirmationInteraction;
   menu: MenuInteraction;
   ordering: SessionTreeOrdering;
@@ -494,6 +516,11 @@ function SessionTreeGroupController({
       toggleExpanded={() => visibility.toggleClient(group.id)}
       toggleRevealed={() => visibility.toggleRevealed(group.id)}
       createSession={() => workflow.actions.create(group)}
+      onContextMenu={group.unassigned ? undefined : (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        workflow.clientMenu.open({ clientName: group.name, x: event.clientX, y: event.clientY });
+      }}
       renderSession={(session) => (
         <SessionTreeRowController
           key={session.path}
@@ -532,6 +559,7 @@ function SessionTreeGroupController({
 interface SidebarSessionTreeViewProps {
   actions: SessionTreeViewActions;
   activeSessionId?: string;
+  clientMenu: ClientMenuInteraction;
   confirmations: ConfirmationInteraction;
   groups: ClientGroup[];
   language: AppLanguage;
@@ -546,6 +574,7 @@ interface SidebarSessionTreeViewProps {
 export function SidebarSessionTreeView({
   actions,
   activeSessionId,
+  clientMenu,
   confirmations,
   groups,
   language,
@@ -566,6 +595,7 @@ export function SidebarSessionTreeView({
   }
   const workflow: SessionTreeViewWorkflow = {
     actions,
+    clientMenu,
     confirmations,
     menu,
     ordering,
@@ -640,19 +670,80 @@ export function SidebarSessionTreeView({
   );
 }
 
+function ClientDeleteConfirmation({
+  clientName,
+  onCancel,
+  onConfirm,
+}: {
+  clientName: string;
+  onCancel(): void;
+  onConfirm(): void;
+}): React.JSX.Element {
+  const { t } = useI18n();
+  const titleId = useId();
+  const bodyId = useId();
+  return (
+    <div
+      className="client-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onCancel();
+      }}
+    >
+      <div
+        className="client-delete-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+      >
+        <h2 id={titleId}>{t("client.deleteTitle", { name: clientName })}</h2>
+        <p id={bodyId}>{t("client.deleteBody", { name: clientName })}</p>
+        <div className="client-delete-actions">
+          <button type="button" className="client-profile-cancel" autoFocus onClick={onCancel}>
+            {t("common.cancel")}
+          </button>
+          <button type="button" className="client-delete-confirm" onClick={onConfirm}>
+            {t("sidebar.delete")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SidebarSessionTreeOverlays({
   actions,
+  activeSessionId,
   availableClients,
+  clientDelete,
   clientDialog,
+  clientMenu,
   menu,
 }: {
-  actions: Pick<SessionTreeSessionActions, "beginRename" | "copySessionId" | "requestConfirmation" | "saveClient">;
+  actions: Pick<
+    SessionTreeSessionActions,
+    | "beginRename"
+    | "copySessionId"
+    | "deleteClientConfirmed"
+    | "openClientEditor"
+    | "openClientHearingHealth"
+    | "requestClientDelete"
+    | "requestConfirmation"
+    | "saveClient"
+  >;
+  activeSessionId?: string;
   availableClients: string[];
+  clientDelete: ClientDeleteInteraction;
   clientDialog: ClientDialogInteraction;
+  clientMenu: ClientMenuInteraction;
   menu: MenuInteraction;
 }): React.JSX.Element {
   const { t } = useI18n();
   const menuState = menu.state;
+  const backgroundRunning = Boolean(
+    menuState?.session.isRunning && menuState.session.id !== activeSessionId,
+  );
+  const clientMenuState = clientMenu.state;
   return (
     <>
       {menuState && createPortal(
@@ -678,6 +769,8 @@ export function SidebarSessionTreeOverlays({
           <button
             type="button"
             role="menuitem"
+            disabled={backgroundRunning}
+            title={backgroundRunning ? t("sidebar.openRunningBeforeRemove") : undefined}
             onClick={() => actions.requestConfirmation(menuState.session, "archive")}
           >
             <Archive size={14} strokeWidth={1.55} />
@@ -695,12 +788,62 @@ export function SidebarSessionTreeOverlays({
             type="button"
             className="context-menu-delete"
             role="menuitem"
+            disabled={backgroundRunning}
+            title={backgroundRunning ? t("sidebar.openRunningBeforeRemove") : undefined}
             onClick={() => actions.requestConfirmation(menuState.session, "delete")}
           >
             <Trash2 size={14} strokeWidth={1.55} />
             {t("sidebar.delete")}
           </button>
         </div>,
+        document.body,
+      )}
+      {clientMenuState && createPortal(
+        <div
+          ref={clientMenu.ref}
+          className="context-menu sidebar-context-menu"
+          role="menu"
+          style={{
+            left: clientMenu.position?.left ?? clientMenuState.x,
+            top: clientMenu.position?.top ?? clientMenuState.y,
+            visibility: clientMenu.position ? "visible" : "hidden",
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => actions.openClientEditor(clientMenuState.clientName)}
+          >
+            <Pencil size={14} strokeWidth={1.55} />
+            {t("sidebar.editClient")}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => actions.openClientHearingHealth(clientMenuState.clientName)}
+          >
+            <Ear size={14} strokeWidth={1.55} />
+            {t("sidebar.clientHearingHealth")}
+          </button>
+          <button
+            type="button"
+            className="context-menu-delete"
+            role="menuitem"
+            onClick={() => actions.requestClientDelete(clientMenuState.clientName)}
+          >
+            <Trash2 size={14} strokeWidth={1.55} />
+            {t("sidebar.deleteClient")}
+          </button>
+        </div>,
+        document.body,
+      )}
+      {clientDelete.clientName && createPortal(
+        <ClientDeleteConfirmation
+          clientName={clientDelete.clientName}
+          onCancel={clientDelete.close}
+          onConfirm={() => actions.deleteClientConfirmed(clientDelete.clientName ?? "")}
+        />,
         document.body,
       )}
       {clientDialog.visible && createPortal(

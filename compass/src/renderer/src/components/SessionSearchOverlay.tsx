@@ -2,7 +2,9 @@ import { MessageSquare, Search, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { SessionContentMatch } from "@shared/types";
 import { useI18n } from "../i18n";
+import { api } from "../ipc";
 import { moveListSelection } from "./list-keyboard-navigation";
 
 export interface SessionSearchEntry {
@@ -14,12 +16,20 @@ export interface SessionSearchEntry {
   active: boolean;
 }
 
+interface SessionSearchRow extends SessionSearchEntry {
+  /** Present when the row was found through stored conversation content. */
+  snippet?: string;
+}
+
 interface SessionSearchOverlayProps {
   entries: SessionSearchEntry[];
   open: boolean;
   onClose(): void;
   onSelect(entry: SessionSearchEntry): void;
 }
+
+const CONTENT_SEARCH_MIN_QUERY = 2;
+const CONTENT_SEARCH_DEBOUNCE_MS = 250;
 
 export function SessionSearchOverlay({
   entries,
@@ -30,20 +40,62 @@ export function SessionSearchOverlay({
   const { language, t } = useI18n();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [contentMatches, setContentMatches] = useState<SessionContentMatch[]>([]);
+  const [searchingContent, setSearchingContent] = useState(false);
+  const contentRequestRef = useRef(0);
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const reduced = useReducedMotion();
-  const visible = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase(language);
-    const matches = normalized
-      ? entries.filter((entry) =>
-          `${entry.title}\n${entry.client}\n${entry.time}`
-            .toLocaleLowerCase(language)
-            .includes(normalized),
-        )
-      : entries;
-    return matches.slice(0, 12);
-  }, [entries, language, query]);
+  const trimmedQuery = query.trim();
+
+  useEffect(() => {
+    // Bumping the request id invalidates every in-flight response, so late
+    // arrivals from a previous query can never overwrite newer results.
+    const requestId = ++contentRequestRef.current;
+    if (!open || trimmedQuery.length < CONTENT_SEARCH_MIN_QUERY) {
+      setContentMatches([]);
+      setSearchingContent(false);
+      return;
+    }
+    setSearchingContent(true);
+    const timer = window.setTimeout(() => {
+      api.searchSessionContent(trimmedQuery)
+        .then((matches) => {
+          if (contentRequestRef.current !== requestId) return;
+          setContentMatches(matches);
+          setSearchingContent(false);
+        })
+        .catch(() => {
+          if (contentRequestRef.current !== requestId) return;
+          setContentMatches([]);
+          setSearchingContent(false);
+        });
+    }, CONTENT_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, trimmedQuery]);
+
+  const visible = useMemo<SessionSearchRow[]>(() => {
+    const normalized = trimmedQuery.toLocaleLowerCase(language);
+    if (!normalized) return entries;
+    const localMatches = entries.filter((entry) =>
+      `${entry.title}\n${entry.client}\n${entry.time}`
+        .toLocaleLowerCase(language)
+        .includes(normalized),
+    );
+    const seen = new Set(localMatches.map((entry) => entry.path || entry.id));
+    const contentRows: SessionSearchRow[] = [];
+    for (const match of contentMatches) {
+      const entry = entries.find(
+        (candidate) => candidate.id === match.id || candidate.path === match.path,
+      );
+      if (!entry) continue;
+      const key = entry.path || entry.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      contentRows.push({ ...entry, snippet: match.snippet });
+    }
+    return [...localMatches, ...contentRows];
+  }, [contentMatches, entries, language, trimmedQuery]);
 
   useEffect(() => {
     setSelectedIndex((current) => (
@@ -158,7 +210,9 @@ export function SessionSearchOverlay({
             </label>
 
             <div id={listId} className="session-search-results" role="listbox" aria-label={t("search.results")}>
-              <div className="session-search-caption">{query ? t("search.results") : t("search.recent")}</div>
+              <div className="session-search-caption" aria-live="polite">
+                {searchingContent ? t("search.searching") : query ? t("search.results") : t("search.recent")}
+              </div>
               {visible.map((entry, index) => (
                 <button
                   id={`${listId}-option-${index}`}
@@ -175,11 +229,14 @@ export function SessionSearchOverlay({
                   <span>
                     <strong>{entry.title}</strong>
                     <small>{entry.client}</small>
+                    {entry.snippet && <small className="session-search-snippet">{entry.snippet}</small>}
                   </span>
                   <time>{entry.time}</time>
                 </button>
               ))}
-              {visible.length === 0 && <div className="session-search-empty">{t("search.noMatches")}</div>}
+              {visible.length === 0 && !searchingContent && (
+                <div className="session-search-empty">{t("search.noMatches")}</div>
+              )}
             </div>
           </motion.section>
         </motion.div>

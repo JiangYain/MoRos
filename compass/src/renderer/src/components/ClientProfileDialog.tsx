@@ -272,7 +272,9 @@ export function ClientProfileDialog({
           </p>
           <div>
             <button type="button" className="client-profile-cancel" onClick={onClose}>{t("common.cancel")}</button>
-            <button type="submit" className="client-profile-save" disabled={!canSave}>{t("client.createProfile")}</button>
+            <button type="submit" className="client-profile-save" disabled={!canSave}>
+              {t("client.createProfile")}
+            </button>
           </div>
         </footer>
       </form>

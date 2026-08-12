@@ -23,3 +23,13 @@ export function mergeActiveSession(
   if (!found) merged.push(active);
   return merged.sort((a, b) => b.modifiedAt - a.modifiedAt);
 }
+
+export function markRunningSessions(
+  sessions: UiSessionInfo[],
+  runningSessionIds: ReadonlySet<string>,
+): UiSessionInfo[] {
+  return sessions.map((session) => ({
+    ...session,
+    isRunning: runningSessionIds.has(session.id),
+  }));
+}

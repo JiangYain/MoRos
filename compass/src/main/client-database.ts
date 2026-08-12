@@ -8,11 +8,21 @@ import {
   type ClientProfileDraft,
   type ClientRegistry,
 } from "../shared/client-registry.ts";
+import {
+  emptyAudiogramCurve,
+  normalizeAudiogramCurve,
+  normalizeClientAudiogramDraft,
+  isAudiogramTransducer,
+  type AudiogramCurve,
+  type AudiogramTransducer,
+  type ClientAudiogramDraft,
+  type ClientAudiogramRecord,
+} from "../shared/client-audiograms.ts";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const CLIENT_DATABASE_SCHEMA_VERSION = 2;
+const CLIENT_DATABASE_SCHEMA_VERSION = 3;
 const MAX_LEGACY_REGISTRY_BYTES = 8_000_000;
 
 interface ClientRow {
@@ -59,6 +69,50 @@ function clientRow(value: Record<string, unknown>): ClientRow {
 
 function normalizeSessionId(value: string): string {
   return value.trim().slice(0, 200);
+}
+
+const AUDIOGRAM_RECORDS_DDL = `
+  CREATE TABLE IF NOT EXISTS audiogram_records (
+    id INTEGER PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    record_date TEXT NOT NULL,
+    use_audiogram_right INTEGER NOT NULL DEFAULT 1 CHECK (use_audiogram_right IN (0, 1)),
+    use_audiogram_left INTEGER NOT NULL DEFAULT 1 CHECK (use_audiogram_left IN (0, 1)),
+    transducer_right TEXT NOT NULL DEFAULT 'Insert earphone',
+    transducer_left TEXT NOT NULL DEFAULT 'Insert earphone',
+    right_ac TEXT NOT NULL,
+    right_bc TEXT NOT NULL,
+    right_ucl TEXT NOT NULL,
+    left_ac TEXT NOT NULL,
+    left_bc TEXT NOT NULL,
+    left_ucl TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audiogram_records_client
+    ON audiogram_records(client_id, record_date);
+`;
+
+const AUDIOGRAM_ROW_COLUMNS = `
+  id, record_date, use_audiogram_right, use_audiogram_left,
+  transducer_right, transducer_left,
+  right_ac, right_bc, right_ucl, left_ac, left_bc, left_ucl,
+  created_at, updated_at
+`;
+
+function audiogramCurveColumn(value: unknown): AudiogramCurve {
+  try {
+    const parsed = normalizeAudiogramCurve(JSON.parse(String(value)));
+    if (parsed) return parsed;
+  } catch {
+    // Corrupt column content degrades to an empty curve instead of crashing reads.
+  }
+  return emptyAudiogramCurve();
+}
+
+function audiogramTransducerColumn(value: unknown): AudiogramTransducer {
+  return isAudiogramTransducer(value) ? value : "Insert earphone";
 }
 
 export class ClientDatabase {
@@ -130,16 +184,23 @@ export class ClientDatabase {
             value TEXT NOT NULL
           );
 
+          ${AUDIOGRAM_RECORDS_DDL}
+
           PRAGMA user_version = ${CLIENT_DATABASE_SCHEMA_VERSION};
         `);
       });
       return;
     }
 
-    // version 1 → 2: relax clients.gender to allow NULL and only female/male.
-    // Retired values ("unspecified", "non-binary") are converted to NULL.
-    // SQLite cannot alter a column constraint in place, so the clients table
-    // is rebuilt while foreign keys are briefly disabled.
+    if (version === 1) this.migrateV1ToV2();
+    this.migrateV2ToV3();
+  }
+
+  // version 1 → 2: relax clients.gender to allow NULL and only female/male.
+  // Retired values ("unspecified", "non-binary") are converted to NULL.
+  // SQLite cannot alter a column constraint in place, so the clients table
+  // is rebuilt while foreign keys are briefly disabled.
+  private migrateV1ToV2(): void {
     this.database.exec("PRAGMA foreign_keys = OFF");
     try {
       this.transaction(() => {
@@ -174,11 +235,24 @@ export class ClientDatabase {
         if (violations.length > 0) {
           throw new Error("Client database v1→v2 migration produced orphaned foreign keys.");
         }
-        this.database.exec(`PRAGMA user_version = ${CLIENT_DATABASE_SCHEMA_VERSION};`);
+        this.database.exec("PRAGMA user_version = 2;");
       });
     } finally {
       this.database.exec("PRAGMA foreign_keys = ON");
     }
+  }
+
+  // version 2 → 3: add per-client audiogram records for the hearing health
+  // workspace. Threshold curves are stored as validated JSON text columns.
+  private migrateV2ToV3(): void {
+    this.transaction(() => {
+      this.database.exec(AUDIOGRAM_RECORDS_DDL);
+      const violations = this.database.prepare("PRAGMA foreign_key_check").all();
+      if (violations.length > 0) {
+        throw new Error("Client database v2→v3 migration produced orphaned foreign keys.");
+      }
+      this.database.exec("PRAGMA user_version = 3;");
+    });
   }
 
   private transaction<T>(operation: () => T): T {
@@ -297,6 +371,57 @@ export class ClientDatabase {
     return this.getRegistry();
   }
 
+  /**
+   * Update (and possibly rename) an existing client profile. Brands, session
+   * assignments, and audiogram records reference clients.id, so a key change
+   * on the same row migrates them implicitly inside the transaction.
+   */
+  updateProfile(originalNameValue: string, value: ClientProfileDraft): ClientRegistry {
+    const originalName = normalizeClientName(originalNameValue);
+    if (!originalName) throw new Error("客户姓名不能为空。");
+    const profile = normalizeClientProfileDraft(value);
+    if (!profile) throw new Error("客户档案无效或缺少姓名。");
+    const now = Date.now();
+    this.transaction(() => {
+      const clientId = this.ensureClient(originalName, now);
+      const newKey = clientRegistryKey(profile.name);
+      const conflict = this.database.prepare(
+        "SELECT id FROM clients WHERE client_key = ? AND id != ?",
+      ).get(newKey, clientId);
+      if (conflict) throw new Error(`已存在同名客户“${profile.name}”。`);
+      this.database.prepare(`
+        UPDATE clients
+        SET client_key = ?, display_name = ?, gender = ?, age = ?, contact = ?, notes = ?,
+            has_profile = 1, updated_at = ?
+        WHERE id = ?
+      `).run(
+        newKey,
+        profile.name,
+        profile.gender,
+        profile.age,
+        profile.contact,
+        profile.notes,
+        now,
+        clientId,
+      );
+      this.replaceBrands(clientId, profile.hearingAidBrands);
+    });
+    return this.getRegistry();
+  }
+
+  /**
+   * Delete a client. Brand, session assignment, and audiogram rows cascade
+   * via their client_id foreign keys; session files themselves stay untouched.
+   */
+  deleteProfile(nameValue: string): ClientRegistry {
+    const name = normalizeClientName(nameValue);
+    if (!name) throw new Error("客户姓名不能为空。");
+    this.transaction(() => {
+      this.database.prepare("DELETE FROM clients WHERE client_key = ?").run(clientRegistryKey(name));
+    });
+    return this.getRegistry();
+  }
+
   assignSession(sessionIdValue: string, clientName: string): ClientRegistry {
     const sessionId = normalizeSessionId(sessionIdValue);
     if (!sessionId) throw new Error("Session ID 不能为空。");
@@ -318,6 +443,104 @@ export class ClientDatabase {
     if (!sessionId) throw new Error("Session ID 不能为空。");
     this.database.prepare("DELETE FROM session_client_assignments WHERE session_id = ?").run(sessionId);
     return this.getRegistry();
+  }
+
+  private audiogramFromRow(row: Record<string, unknown>, clientName: string): ClientAudiogramRecord {
+    return {
+      id: numberValue(row.id),
+      clientName,
+      date: String(row.record_date),
+      useAudiogramRight: numberValue(row.use_audiogram_right) === 1,
+      useAudiogramLeft: numberValue(row.use_audiogram_left) === 1,
+      transducerRight: audiogramTransducerColumn(row.transducer_right),
+      transducerLeft: audiogramTransducerColumn(row.transducer_left),
+      right: {
+        ac: audiogramCurveColumn(row.right_ac),
+        bc: audiogramCurveColumn(row.right_bc),
+        ucl: audiogramCurveColumn(row.right_ucl),
+      },
+      left: {
+        ac: audiogramCurveColumn(row.left_ac),
+        bc: audiogramCurveColumn(row.left_bc),
+        ucl: audiogramCurveColumn(row.left_ucl),
+      },
+      createdAt: numberValue(row.created_at),
+      updatedAt: numberValue(row.updated_at),
+    };
+  }
+
+  /** Newest first: by measurement date, then creation time, then id. */
+  listAudiograms(clientNameValue: string): ClientAudiogramRecord[] {
+    if (this.closed) return [];
+    const name = normalizeClientName(clientNameValue);
+    if (!name) return [];
+    const client = this.database.prepare(
+      "SELECT id, display_name FROM clients WHERE client_key = ?",
+    ).get(clientRegistryKey(name));
+    if (!client) return [];
+    const rows = this.database.prepare(`
+      SELECT ${AUDIOGRAM_ROW_COLUMNS}
+      FROM audiogram_records
+      WHERE client_id = ?
+      ORDER BY record_date DESC, created_at DESC, id DESC
+    `).all(numberValue(client.id));
+    return rows.map((row) => this.audiogramFromRow(row, String(client.display_name)));
+  }
+
+  /** Upsert: a null draft id inserts a new record, otherwise the record is updated in place. */
+  saveAudiogram(clientNameValue: string, value: ClientAudiogramDraft): ClientAudiogramRecord {
+    const draft = normalizeClientAudiogramDraft(value);
+    if (!draft) throw new Error("听力图记录无效。");
+    const now = Date.now();
+    let savedId = 0;
+    let displayName = "";
+    this.transaction(() => {
+      const clientId = this.ensureClient(clientNameValue, now);
+      const client = this.database.prepare("SELECT display_name FROM clients WHERE id = ?").get(clientId);
+      displayName = String(client?.display_name ?? normalizeClientName(clientNameValue));
+      const values = [
+        draft.date,
+        draft.useAudiogramRight ? 1 : 0,
+        draft.useAudiogramLeft ? 1 : 0,
+        draft.transducerRight,
+        draft.transducerLeft,
+        JSON.stringify(draft.right.ac),
+        JSON.stringify(draft.right.bc),
+        JSON.stringify(draft.right.ucl),
+        JSON.stringify(draft.left.ac),
+        JSON.stringify(draft.left.bc),
+        JSON.stringify(draft.left.ucl),
+      ];
+      if (draft.id === null) {
+        const inserted = this.database.prepare(`
+          INSERT INTO audiogram_records (
+            client_id, record_date, use_audiogram_right, use_audiogram_left,
+            transducer_right, transducer_left,
+            right_ac, right_bc, right_ucl, left_ac, left_bc, left_ucl,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(clientId, ...values, now, now);
+        savedId = numberValue(inserted.lastInsertRowid);
+      } else {
+        const updated = this.database.prepare(`
+          UPDATE audiogram_records
+          SET record_date = ?, use_audiogram_right = ?, use_audiogram_left = ?,
+              transducer_right = ?, transducer_left = ?,
+              right_ac = ?, right_bc = ?, right_ucl = ?, left_ac = ?, left_bc = ?, left_ucl = ?,
+              updated_at = ?
+          WHERE id = ? AND client_id = ?
+        `).run(...values, now, draft.id, clientId);
+        if (numberValue(updated.changes) === 0) throw new Error("找不到要更新的听力图记录。");
+        savedId = draft.id;
+      }
+    });
+    const row = this.database.prepare(`
+      SELECT ${AUDIOGRAM_ROW_COLUMNS}
+      FROM audiogram_records
+      WHERE id = ?
+    `).get(savedId);
+    if (!row) throw new Error("听力图记录保存失败。");
+    return this.audiogramFromRow(row, displayName);
   }
 
   importLegacyRegistry(serializedRegistry: string): ClientRegistry {

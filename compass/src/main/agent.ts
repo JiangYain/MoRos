@@ -14,14 +14,18 @@ import type {
   AgentUiEvent,
   AppSettingsView,
   CommandExplanationLanguage,
+  ComposerSendKey,
   DependencyId,
   DeveloperContextSnapshot,
   InitPayload,
   ModelPreferenceUpdate,
   PermissionMode,
+  QueuedMessageKind,
   RuntimePrerequisites,
+  SessionContentMatch,
   ThinkingLevel,
   UiApprovalRequest,
+  UiArchivedSessionInfo,
   UiImageAttachment,
   UiModel,
   UiProviderStatus,
@@ -33,6 +37,7 @@ import {
   DEFAULT_SUMMARY_MODEL,
   isAppLanguage,
   isCommandExplanationLanguage,
+  isComposerSendKey,
   isPermissionMode,
   isThinkingLevel,
 } from "@shared/types";
@@ -43,26 +48,29 @@ import { join } from "node:path";
 import { ApprovalController, createApprovalExplainer } from "./agent/approval-controller";
 import { AgentEventProjector } from "./agent/event-projector";
 import {
-  LifecycleCoordinator,
   type LifecycleMutation,
 } from "./agent/lifecycle-coordinator";
 import { agentMessage } from "./agent/messages";
 import { ModelCoordinator } from "./agent/model-coordinator";
 import { compensatedMutationError } from "./agent/mutation-compensation";
+import { removeQueuedSessionMessage } from "./agent/queued-messages";
 import {
   SessionLibrary,
   createSessionTitleGenerator,
   type ListedSessionPath,
   type SessionRemovalResult,
+  type SessionLibraryState,
   sameSessionPath,
 } from "./agent/session-library";
 import { SessionOwnerMutationCoordinator } from "./agent/session-owner-mutation";
+import { SessionRuntimeCoordinator } from "./agent/session-runtime-coordinator";
 import { SettingsMutationTransaction } from "./agent/settings-mutation-transaction";
 import { buildClientContext, buildLanguageContext, COMPASS_CONTEXT } from "./compass-context";
 import { buildEstimatedContextBreakdown } from "./context-usage";
 import { normalizeImages } from "./image-attachments";
 import { getRuntimePrerequisites } from "./prerequisites";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
+import { markRunningSessions, mergeActiveSession } from "./session-list";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
 import { discoverSkillDirs } from "./skills";
 import { cloneForUi, projectThread } from "./thread-projector";
@@ -70,6 +78,8 @@ import { cloneForUi, projectThread } from "./thread-projector";
 type Emit = (event: AgentUiEvent) => void;
 
 interface SessionOwnership {
+  approvals: ApprovalController;
+  events: AgentEventProjector;
   session: AgentSession;
   unsubscribe: () => void;
   loader: DefaultResourceLoader;
@@ -113,14 +123,12 @@ export class AgentService {
   private modelRuntime!: ModelRuntime;
   private modelRegistry!: ModelRegistry;
   private idCounter = 0;
-  private readonly lifecycle: LifecycleCoordinator<SessionOwnership>;
+  private readonly lifecycle: SessionRuntimeCoordinator<SessionOwnership>;
   private readonly sessionMutations: SessionOwnerMutationCoordinator<
     SessionOwnership,
     ListedSessionPath
   >;
   private readonly models: ModelCoordinator;
-  private readonly approvals: ApprovalController;
-  private readonly events: AgentEventProjector;
   private readonly sessions: SessionLibrary;
   private readonly settingsMutations: SettingsMutationTransaction;
 
@@ -131,17 +139,29 @@ export class AgentService {
     this.applyDependencyExecutableEnvironment();
     this.settingsMutations = new SettingsMutationTransaction(() => saveSettings(this.settings));
     this.modelRuntimePromise = ModelRuntime.create();
-    this.lifecycle = new LifecycleCoordinator((ownership) => {
-      this.disposeSessionOwnership(ownership);
-    }, (error) => {
-      console.error("Failed to clean up a replaced Agent session:", error);
-    }, (ownership) => {
-      this.discardSessionOwnership(ownership);
+    this.lifecycle = new SessionRuntimeCoordinator({
+      dispose: (ownership) => this.disposeSessionOwnership(ownership),
+      discardCandidate: (ownership) => this.discardSessionOwnership(ownership),
+      isRunning: (ownership) => ownership.session.isStreaming,
+      keyOf: (ownership) => ownership.session.sessionFile ?? `session:${ownership.session.sessionId}`,
+      onBackgroundChange: () => this.emit({ kind: "sessions-changed" }),
+      reportCleanupError: (error) => {
+        console.error("Failed to clean up a replaced Agent session:", error);
+      },
     });
     this.sessionMutations = new SessionOwnerMutationCoordinator({
       lifecycle: this.lifecycle,
       pathOf: (ownership) => ownership.session.sessionFile,
       samePath: sameSessionPath,
+      isRetained: (path) => this.lifecycle.background.some(
+        (ownership) => {
+          const sessionPath = ownership.session.sessionFile;
+          return Boolean(sessionPath && sameSessionPath(sessionPath, path));
+        },
+      ),
+      retainedMutationError: () => new Error(
+        agentMessage(this.settings.language, "sessionRunningInBackground"),
+      ),
       detach: (lifecycle) => this.replaceSession(lifecycle),
       restore: (lifecycle, path) => this.replaceSession(lifecycle, path),
     });
@@ -154,42 +174,13 @@ export class AgentService {
         session: this.session,
       }),
       persist: saveSettings,
-      emitStats: () => this.events.emitStats(),
+      emitStats: () => this.lifecycle.current?.events.emitStats(),
       snapshot: () => ({ settings: this.getSettingsView(), stats: this.getStats() }),
       providerAuthInfo: getProviderAuthInfo,
       providerConfigurationIssue: getProviderConfigurationIssue,
     });
-    this.approvals = new ApprovalController({
-      emit: this.emit,
-      nextId: (prefix) => this.nextId(prefix),
-      policy: () => ({
-        mode: this.settings.permissionMode,
-        workspaceDir: this.settings.workspaceDir,
-      }),
-      explain: createApprovalExplainer({
-        settings: () => this.settings,
-        registry: () => this.modelRegistry,
-        isConnectable: (model) => this.models.isConnectable(model),
-      }),
-    });
     this.sessions = new SessionLibrary({
-      state: () => {
-        const session = this.session;
-        const settings = this.lifecycle.current?.settings ?? this.settings;
-        return {
-          workspaceDir: settings.workspaceDir,
-          language: settings.language,
-          active: session
-            ? {
-                path: session.sessionFile,
-                id: session.sessionId,
-                name: session.sessionName,
-                setName: (name) => session.setSessionName(name),
-              }
-            : undefined,
-          thread: this.getThread(),
-        };
-      },
+      state: () => this.sessionLibraryState(this.lifecycle.current),
       withActiveSessionDetached: (path, mutation) =>
         this.sessionMutations.run(path, mutation),
       emitSessionsChanged: () => this.emit({ kind: "sessions-changed" }),
@@ -198,14 +189,6 @@ export class AgentService {
         registry: () => this.modelRegistry,
         isConnectable: (model) => this.models.isConnectable(model),
       }),
-    });
-    this.events = new AgentEventProjector({
-      emit: this.emit,
-      nextId: (prefix) => this.nextId(prefix),
-      language: () => this.settings.language,
-      stats: () => this.getStats(),
-      onSettled: () => this.sessions.generateMissingTitle(),
-      onSettledError: (error) => console.error("Failed to generate the session title:", error),
     });
   }
 
@@ -218,20 +201,34 @@ export class AgentService {
   }
 
   async start(options?: { sessionPath?: string }): Promise<void> {
-    await this.lifecycle.mutate(async (lifecycle) => {
-      const sessionPath = options?.sessionPath
-        ? await this.sessions.requireListedPath(options.sessionPath)
-        : undefined;
-      await this.replaceSession(lifecycle, sessionPath);
-    });
+    const sessionPath = options?.sessionPath
+      ? await this.sessions.requireListedPath(options.sessionPath)
+      : undefined;
+    await this.navigateSession(sessionPath);
   }
 
   private async createSessionOwnership(
-    generation: number,
+    _generation: number,
     sessionPath?: ListedSessionPath,
     settings: AppSettings = this.settings,
   ): Promise<SessionOwnership> {
     await this.ensureModelRuntime();
+
+    let ownership!: SessionOwnership;
+    let sessionForContext: AgentSession | undefined;
+    const approvals = new ApprovalController({
+      emit: (event) => this.emitSessionEvent(ownership, event),
+      nextId: (prefix) => this.nextId(prefix),
+      policy: () => ({
+        mode: settings.permissionMode,
+        workspaceDir: settings.workspaceDir,
+      }),
+      explain: createApprovalExplainer({
+        settings: () => ownership?.settings ?? settings,
+        registry: () => this.modelRegistry,
+        isConnectable: (model) => this.models.isConnectable(model),
+      }),
+    });
 
     const cwd = settings.workspaceDir;
     const skillDirs = [
@@ -245,12 +242,15 @@ export class AgentService {
       extensionFactories: [
         {
           name: "compass-permission-policy",
-          factory: this.approvals.extension(() => ({
+          factory: approvals.extension(() => ({
             mode: settings.permissionMode,
             workspaceDir: settings.workspaceDir,
           })),
         },
-        { name: "compass-client-context", factory: this.clientContextExtension(settings) },
+        {
+          name: "compass-client-context",
+          factory: this.clientContextExtension(settings, () => sessionForContext?.sessionId),
+        },
       ],
       skillsOverride: (base) => ({
         skills: base.skills.filter((skill) => !settings.disabledSkills.includes(skill.name)),
@@ -280,14 +280,36 @@ export class AgentService {
       modelRuntime: this.modelRuntime,
       ...(model && !sessionPath ? { model } : {}),
     });
+    sessionForContext = session;
 
-    let unsubscribe!: () => void;
+    const events = new AgentEventProjector({
+      emit: (event) => this.emitSessionEvent(ownership, event),
+      nextId: (prefix) => this.nextId(prefix),
+      language: () => ownership.settings.language,
+      stats: () => this.getStatsFor(ownership),
+      onSettled: () => this.sessions.generateMissingTitle(this.sessionLibraryState(ownership)),
+      onSettledError: (error) => console.error("Failed to generate the session title:", error),
+    });
+    ownership = {
+      approvals,
+      events,
+      session,
+      unsubscribe: () => {},
+      loader,
+      settings,
+    };
     try {
-      unsubscribe = session.subscribe((event) => {
-        if (this.lifecycle.owns(generation)) this.events.handle(event);
+      ownership.unsubscribe = session.subscribe((event) => {
+        if (!this.lifecycle.isManaged(ownership)) return;
+        events.handle(event);
+        if (event.type === "agent_settled" && !this.lifecycle.isForeground(ownership)) {
+          void this.lifecycle.settle(ownership).catch((error: unknown) => {
+            console.error("Failed to release a settled background Agent session:", error);
+          });
+        }
       });
     } catch (error) {
-      session.dispose();
+      this.discardSessionOwnership(ownership);
       throw error;
     }
     if (!sessionPath && isThinkingLevel(settings.thinkingLevel) && session.model) {
@@ -297,29 +319,63 @@ export class AgentService {
         // The selected model may not support the stored thinking level.
       }
     }
-    return { session, unsubscribe, loader, settings };
+    return ownership;
   }
 
   async shutdown(): Promise<void> {
-    await this.lifecycle.mutate(async (lifecycle) => {
-      if (lifecycle.current?.session.isStreaming) {
+    for (const ownership of this.lifecycle.managed) {
+      ownership.approvals.cancelAll("The application is shutting down before approval was granted.");
+      if (ownership.session.isStreaming) {
         try {
-          await lifecycle.current.session.abort();
+          await ownership.session.abort();
         } catch {
           // Shutdown remains best-effort.
         }
       }
-      await lifecycle.clear();
-    });
+    }
+    await this.lifecycle.clear();
   }
 
   resolveApproval(id: string, allowed: boolean): { ok: boolean; error?: string } {
-    return this.approvals.resolve(id, allowed);
+    for (const ownership of this.lifecycle.managed) {
+      const result = ownership.approvals.resolve(id, allowed);
+      if (result.ok) return result;
+    }
+    return { ok: false, error: "Approval request is no longer active." };
+  }
+
+  /**
+   * Withdraws one pending steering/follow-up message from the foreground
+   * session. Background owners keep their queues untouched; their chips are
+   * not visible, so a removal request can only target the foreground owner.
+   * On success the session emits its own queue_update, which the projector
+   * broadcasts to both renderer entries through the existing event path.
+   */
+  removeQueuedMessage(
+    kind: QueuedMessageKind,
+    index: number,
+    text: string,
+  ): { ok: boolean; error?: string } {
+    const ownership = this.lifecycle.current;
+    if (!ownership) {
+      return { ok: false, error: agentMessage(this.settings.language, "sessionNotReady") };
+    }
+    const result = removeQueuedSessionMessage(ownership.session, kind, index, text);
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: agentMessage(
+          this.settings.language,
+          result.reason === "unavailable" ? "queuedMessageRemoveFailed" : "queuedMessageNotFound",
+        ),
+      };
+    }
+    return { ok: true };
   }
 
   getStats(): AgentStats {
-    const session = this.session;
-    if (!session) {
+    const ownership = this.lifecycle.current;
+    if (!ownership) {
       return {
         sessionId: "",
         modelAuthConfigured: false,
@@ -333,6 +389,11 @@ export class AgentService {
         tokensOut: 0,
       };
     }
+    return this.getStatsFor(ownership);
+  }
+
+  private getStatsFor(ownership: SessionOwnership): AgentStats {
+    const { session } = ownership;
     const stats = session.getSessionStats();
     const context = session.getContextUsage();
     const model = session.model;
@@ -372,7 +433,7 @@ export class AgentService {
         session,
         context?.tokens ?? null,
         COMPASS_CONTEXT,
-        this.loader?.getSkills().skills ?? [],
+        ownership.loader.getSkills().skills,
       ),
       cost: stats.cost,
       tokensIn: stats.tokens.input,
@@ -381,11 +442,14 @@ export class AgentService {
   }
 
   getThread(): UiThreadItem[] {
-    return projectThread(this.session);
+    const ownership = this.lifecycle.current;
+    return ownership
+      ? ownership.events.snapshotThread(projectThread(ownership.session))
+      : [];
   }
 
   getApprovals(): UiApprovalRequest[] {
-    return this.approvals.snapshot();
+    return this.lifecycle.current?.approvals.snapshot() ?? [];
   }
 
   getSkills(): UiSkill[] {
@@ -425,8 +489,21 @@ export class AgentService {
     return this.models.providers();
   }
 
-  listSessions(): Promise<UiSessionInfo[]> {
-    return this.sessions.list();
+  async listSessions(): Promise<UiSessionInfo[]> {
+    let sessions = await this.sessions.list();
+    for (const ownership of this.lifecycle.managed) {
+      sessions = mergeActiveSession(sessions, this.sessionInfoFor(ownership));
+    }
+    const runningSessionIds = new Set(
+      this.lifecycle.managed
+        .filter((ownership) => ownership.session.isStreaming)
+        .map((ownership) => ownership.session.sessionId),
+    );
+    return markRunningSessions(sessions, runningSessionIds);
+  }
+
+  searchSessionContent(query: string): Promise<SessionContentMatch[]> {
+    return this.sessions.searchContent(query);
   }
 
   renameSession(path: string, name: string): Promise<{ ok: boolean; error?: string }> {
@@ -435,6 +512,14 @@ export class AgentService {
 
   archiveSession(path: string): Promise<SessionRemovalResult> {
     return this.sessions.archive(path);
+  }
+
+  listArchivedSessions(): Promise<UiArchivedSessionInfo[]> {
+    return this.sessions.listArchived();
+  }
+
+  restoreArchivedSession(path: string): Promise<{ ok: boolean; error?: string }> {
+    return this.sessions.restore(path);
   }
 
   deleteSession(path: string): Promise<SessionRemovalResult> {
@@ -452,6 +537,7 @@ export class AgentService {
       enabledModels: this.models.enabledKeys(),
       summaryModel: { ...(this.settings.summaryModel ?? DEFAULT_SUMMARY_MODEL) },
       ...(this.settings.quickPrompts ? { quickPrompts: [...this.settings.quickPrompts] } : {}),
+      composerSendKey: this.settings.composerSendKey,
     };
   }
 
@@ -525,11 +611,12 @@ export class AgentService {
     images?: UiImageAttachment[],
     clientMessageId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
-    const session = this.session;
-    if (!session) {
+    const ownership = this.lifecycle.current;
+    if (!ownership) {
       return { ok: false, error: agentMessage(this.settings.language, "sessionNotReady") };
     }
-    if (clientMessageId) this.events.trackUserMessage(clientMessageId);
+    const { session } = ownership;
+    if (clientMessageId) ownership.events.trackUserMessage(clientMessageId);
     try {
       const normalizedImages = normalizeImages(images, this.settings.language);
       if (session.isStreaming) {
@@ -539,14 +626,15 @@ export class AgentService {
       }
       return { ok: true };
     } catch (error) {
-      if (clientMessageId) this.events.discardUserMessage(clientMessageId);
+      if (clientMessageId) ownership.events.discardUserMessage(clientMessageId);
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async abort(): Promise<void> {
-    this.approvals.cancelAll("The task was stopped before approval was granted.");
-    await this.session?.abort();
+    const ownership = this.lifecycle.current;
+    ownership?.approvals.cancelAll("The task was stopped before approval was granted.");
+    await ownership?.session.abort();
   }
 
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }> {
@@ -705,6 +793,21 @@ export class AgentService {
     return this.getSettingsView();
   }
 
+  async setComposerSendKey(sendKey: ComposerSendKey): Promise<AppSettingsView> {
+    if (!isComposerSendKey(sendKey)) throw new Error("Invalid composer send key");
+    await this.settingsMutations.commit({
+      context: "Composer-send-key mutation",
+      capture: () => this.settings.composerSendKey,
+      mutate: () => {
+        this.settings.composerSendKey = sendKey;
+      },
+      restore: (original) => {
+        this.settings.composerSendKey = original;
+      },
+    });
+    return this.getSettingsView();
+  }
+
   async setQuickPrompts(prompts: unknown): Promise<AppSettingsView> {
     if (prompts === null) {
       await this.settingsMutations.commit({
@@ -805,11 +908,17 @@ export class AgentService {
     return `${prefix}-${Date.now().toString(36)}-${this.idCounter}`;
   }
 
-  private clientContextExtension(settings: AppSettings): ExtensionFactory {
+  private clientContextExtension(
+    settings: AppSettings,
+    sessionId: () => string | undefined,
+  ): ExtensionFactory {
     return (pi) => {
       pi.on("before_agent_start", (event) => {
         const languageContext = buildLanguageContext(settings.language);
-        const clientContext = this.currentClientContext(settings.language);
+        const currentSessionId = sessionId();
+        const clientContext = currentSessionId
+          ? buildClientContext(this.getClientRegistry(), currentSessionId, settings.language)
+          : undefined;
         return {
           systemPrompt: [event.systemPrompt, languageContext, clientContext]
             .filter(Boolean)
@@ -828,12 +937,12 @@ export class AgentService {
 
   private disposeSessionOwnership(ownership: SessionOwnership): void {
     try {
-      this.approvals.cancelAll("The session changed before approval was granted.");
+      ownership.approvals.cancelAll("The session closed before approval was granted.");
     } finally {
       try {
         this.discardSessionOwnership(ownership);
       } finally {
-        this.events.reset();
+        ownership.events.reset();
       }
     }
   }
@@ -844,6 +953,52 @@ export class AgentService {
     } finally {
       ownership.session.dispose();
     }
+  }
+
+  private emitSessionEvent(ownership: SessionOwnership, event: AgentUiEvent): void {
+    if (!ownership || !this.lifecycle.isManaged(ownership)) return;
+    if (event.kind === "sessions-changed" || this.lifecycle.isForeground(ownership)) {
+      this.emit(event);
+    }
+  }
+
+  private sessionLibraryState(ownership: SessionOwnership | undefined): SessionLibraryState {
+    const settings = ownership?.settings ?? this.settings;
+    const session = ownership?.session;
+    return {
+      workspaceDir: settings.workspaceDir,
+      language: settings.language,
+      active: session
+        ? {
+            path: session.sessionFile,
+            id: session.sessionId,
+            name: session.sessionName,
+            setName: (name) => session.setSessionName(name),
+          }
+        : undefined,
+      thread: ownership
+        ? ownership.events.snapshotThread(projectThread(session))
+        : [],
+    };
+  }
+
+  private sessionInfoFor(ownership: SessionOwnership): UiSessionInfo | undefined {
+    const state = this.sessionLibraryState(ownership);
+    const firstUser = state.thread.find((item) => item.kind === "user");
+    if (!firstUser || !state.active?.path) return undefined;
+    return {
+      path: state.active.path,
+      id: state.active.id,
+      name: state.active.name,
+      firstMessage: firstUser.text.trim()
+        || (firstUser.images?.length ? "Image attachment" : "Untitled session"),
+      createdAt: firstUser.ts,
+      modifiedAt: state.thread.reduce((latest, item) => Math.max(latest, item.ts), firstUser.ts),
+      messageCount: state.thread.filter(
+        (item) => item.kind === "user" || item.kind === "assistant",
+      ).length,
+      isRunning: ownership.session.isStreaming,
+    };
   }
 
   private appVersion(): string {
@@ -869,6 +1024,16 @@ export class AgentService {
   ): Promise<ListedSessionPath | undefined> {
     const sessionPath = lifecycle.current?.session.sessionFile;
     return sessionPath ? this.sessions.requireListedPath(sessionPath) : undefined;
+  }
+
+  private async navigateSession(sessionPath?: ListedSessionPath): Promise<void> {
+    await this.ensureModelRuntime();
+    await this.models.withStablePreferences(async () => {
+      await this.lifecycle.navigate(
+        (generation) => this.createSessionOwnership(generation, sessionPath, this.settings),
+        sessionPath,
+      );
+    });
   }
 
   private async replaceSession(

@@ -80,6 +80,83 @@ test("event projector correlates optimistic user IDs and one assistant stream", 
   ]);
 });
 
+test("thread snapshot includes the in-flight assistant when a live session is resumed", () => {
+  const projector = new AgentEventProjector({
+    emit: () => undefined,
+    nextId: (prefix) => `${prefix}-live`,
+    language: () => "en",
+    stats: () => ({ ...emptyStats, isStreaming: true }),
+    onSettled: () => {},
+  });
+  projector.handle({
+    type: "message_start",
+    message: { role: "assistant", content: [], timestamp: 20 },
+  } as never);
+  projector.handle({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: "latest partial" },
+  } as never);
+
+  assert.deepEqual(projector.snapshotThread([{
+    kind: "user",
+    id: "user-1",
+    text: "hello",
+    ts: 10,
+  }]), [
+    { kind: "user", id: "user-1", text: "hello", ts: 10 },
+    {
+      kind: "assistant",
+      id: "a-live",
+      blocks: [{ type: "text", text: "latest partial", contentIndex: 1 }],
+      streaming: true,
+      ts: 20,
+    },
+  ]);
+});
+
+test("thread snapshot includes a running tool and its latest output", () => {
+  const projector = new AgentEventProjector({
+    emit: () => undefined,
+    nextId: (prefix) => `${prefix}-live`,
+    language: () => "en",
+    stats: () => ({ ...emptyStats, isStreaming: true }),
+    onSettled: () => {},
+  });
+  projector.handle({
+    type: "tool_execution_start",
+    toolCallId: "call-1",
+    toolName: "read",
+    args: { path: "C:\\notes.md" },
+  } as never);
+  projector.handle({
+    type: "tool_execution_update",
+    toolCallId: "call-1",
+    partialResult: { content: [{ type: "text", text: "partial output" }] },
+  } as never);
+
+  const [tool] = projector.snapshotThread([]);
+  assert.ok(tool && tool.kind === "tool");
+  assert.deepEqual({
+    kind: "tool",
+    id: tool.id,
+    callId: tool.callId,
+    name: tool.name,
+    args: tool.args,
+    output: tool.output,
+    isError: tool.isError,
+    running: tool.running,
+  }, {
+    kind: "tool",
+    id: "t-live",
+    callId: "call-1",
+    name: "read",
+    args: { path: "C:\\notes.md" },
+    output: "partial output",
+    isError: false,
+    running: true,
+  });
+});
+
 test("event projector reports rejected settled effects", async () => {
   const errors: unknown[] = [];
   const projector = new AgentEventProjector({

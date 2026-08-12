@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyClientRegistry } from "../src/shared/client-registry.ts";
-import type { AgentStats, AgentUiEvent } from "../src/shared/types.ts";
+import type { AgentStats, AgentUiEvent, InitPayload } from "../src/shared/types.ts";
 import {
   projectAgentEvent,
+  projectInitPayload,
   type AgentEventState,
 } from "../src/renderer/src/store/agent-event-projection.ts";
 
@@ -74,6 +75,49 @@ test("assistant stream events project immutable ordered blocks", () => {
     ],
     streaming: true,
     ts: 1,
+  });
+});
+
+test("a resumed live assistant accepts new deltas after its init snapshot", () => {
+  const before = initialState();
+  const payload = {
+    version: "test",
+    settings: {} as never,
+    prerequisites: {} as never,
+    dependencies: before.dependencies,
+    skills: [],
+    models: [],
+    providers: [],
+    sessions: [],
+    stats: { ...stats, isStreaming: true },
+    thread: [{
+      kind: "assistant",
+      id: "assistant-live",
+      blocks: [{ type: "text", text: "latest partial", contentIndex: 1 }],
+      streaming: true,
+      ts: 20,
+    }],
+    approvals: [],
+    clientRegistry: emptyClientRegistry(),
+  } satisfies InitPayload;
+  const resumed = {
+    ...before,
+    ...projectInitPayload(payload, before.dependencies),
+  };
+  const continued = applyEvent(resumed, {
+    kind: "assistant-delta",
+    id: "assistant-live",
+    blockType: "text",
+    contentIndex: 1,
+    delta: " continued",
+  });
+
+  assert.deepEqual(continued.thread[0], {
+    kind: "assistant",
+    id: "assistant-live",
+    blocks: [{ type: "text", text: "latest partial continued", contentIndex: 1 }],
+    streaming: true,
+    ts: 20,
   });
 });
 

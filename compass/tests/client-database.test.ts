@@ -9,7 +9,7 @@ import { ClientDatabase } from "../src/main/client-database.ts";
 test("client database persists profiles and session assignments relationally", () => {
   const database = new ClientDatabase(":memory:");
   try {
-    assert.equal(database.getSchemaVersion(), 2);
+    assert.equal(database.getSchemaVersion(), 3);
     assert.deepEqual(database.getRegistry(), { clients: [], assignments: {}, profiles: {} });
 
     const withProfile = database.saveProfile({
@@ -28,6 +28,80 @@ test("client database persists profiles and session assignments relationally", (
     const assigned = database.assignSession("session-1", "王小明");
     assert.equal(assigned.assignments["session-1"], "王小明");
     assert.deepEqual(database.unassignSession("session-1").assignments, {});
+  } finally {
+    database.close();
+  }
+});
+
+test("updateProfile renames a client while keeping brands and session assignments attached", () => {
+  const database = new ClientDatabase(":memory:");
+  try {
+    database.saveProfile({
+      name: "王小明",
+      gender: "male",
+      age: 42,
+      contact: "13800000000",
+      notes: "首次验配",
+      hearingAidBrands: ["phonak"],
+    });
+    database.assignSession("session-1", "王小明");
+
+    const renamed = database.updateProfile("王小明", {
+      name: "王大明",
+      gender: "male",
+      age: 43,
+      contact: "13800000000",
+      notes: "改名后",
+      hearingAidBrands: ["widex"],
+    });
+    assert.deepEqual(renamed.clients, ["王大明"]);
+    assert.equal(renamed.profiles["王小明"], undefined);
+    assert.equal(renamed.profiles["王大明"].age, 43);
+    assert.deepEqual(renamed.profiles["王大明"].hearingAidBrands, ["widex"]);
+    // The session assignment follows the renamed row.
+    assert.equal(renamed.assignments["session-1"], "王大明");
+  } finally {
+    database.close();
+  }
+});
+
+test("updateProfile rejects renaming onto another existing client", () => {
+  const database = new ClientDatabase(":memory:");
+  try {
+    database.saveProfile({
+      name: "Alice", gender: null, age: null, contact: "", notes: "", hearingAidBrands: [],
+    });
+    database.saveProfile({
+      name: "Bob", gender: null, age: null, contact: "", notes: "", hearingAidBrands: [],
+    });
+    assert.throws(() => database.updateProfile("Alice", {
+      name: "Bob", gender: null, age: null, contact: "", notes: "", hearingAidBrands: [],
+    }), /已存在同名客户/);
+    // The failed transaction leaves both clients untouched.
+    assert.deepEqual(database.getRegistry().clients, ["Alice", "Bob"]);
+  } finally {
+    database.close();
+  }
+});
+
+test("deleteProfile removes the client, cascades brands, and releases sessions", () => {
+  const database = new ClientDatabase(":memory:");
+  try {
+    database.saveProfile({
+      name: "Alice", gender: "female", age: 68, contact: "", notes: "", hearingAidBrands: ["phonak"],
+    });
+    database.assignSession("session-1", "Alice");
+    database.assignSession("session-2", "Alice");
+
+    const registry = database.deleteProfile("Alice");
+    assert.deepEqual(registry, { clients: [], assignments: {}, profiles: {} });
+
+    // Recreating the same name starts from a clean slate.
+    const recreated = database.saveProfile({
+      name: "Alice", gender: null, age: null, contact: "", notes: "", hearingAidBrands: [],
+    });
+    assert.deepEqual(recreated.profiles.alice.hearingAidBrands, []);
+    assert.deepEqual(recreated.assignments, {});
   } finally {
     database.close();
   }
@@ -163,10 +237,10 @@ test("v1 → v2 migration preserves clients, brands, and assignments and retires
     insertAssignment.run("session-unassigned-dale", 4, now);
     seed.close();
 
-    // Reopen through ClientDatabase; this triggers the v1 → v2 migration.
+    // Reopen through ClientDatabase; this triggers the v1 → v2 → v3 chain.
     const migrated = new ClientDatabase(databasePath);
     try {
-      assert.equal(migrated.getSchemaVersion(), 2);
+      assert.equal(migrated.getSchemaVersion(), 3);
       const registry = migrated.getRegistry();
 
       // All four clients survive — IDs/names are preserved losslessly.

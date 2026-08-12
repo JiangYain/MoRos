@@ -1,11 +1,15 @@
 import { type ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import type { AppLanguage, UiSessionInfo, UiThreadItem } from "@shared/types";
+import type { AppLanguage, SessionContentMatch, UiArchivedSessionInfo, UiSessionInfo, UiThreadItem } from "@shared/types";
 import { DEFAULT_SUMMARY_MODEL } from "../../shared/types.ts";
 import { compactSkillText } from "../../shared/skill-display.ts";
-import { mkdir, rename, unlink } from "node:fs/promises";
+import { mkdir, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  SESSION_CONTENT_QUERY_MIN_LENGTH,
+  searchSessionContentFiles,
+} from "../session-content-search.ts";
 import { mergeActiveSession } from "../session-list.ts";
 import { buildSessionTitleTranscript, normalizeGeneratedSessionTitle } from "../session-title.ts";
 import type { AppSettings } from "../settings";
@@ -21,6 +25,15 @@ interface StoredSessionInfo {
   messageCount: number;
 }
 
+interface StoredArchivedSessionInfo extends StoredSessionInfo {
+  /**
+   * Filesystem change time of the archived file. Moving a file into the
+   * archive updates it on both NTFS and POSIX, so it approximates the archive
+   * moment; the session's own modified time is the fallback.
+   */
+  archivedAt: Date;
+}
+
 interface SessionDocument {
   appendSessionInfo(name: string): void;
   getSessionName(): string | undefined;
@@ -28,20 +41,45 @@ interface SessionDocument {
 
 export interface SessionStorage {
   list(workspaceDir: string): Promise<StoredSessionInfo[]>;
+  listArchived(workspaceDir: string, archiveDir: string): Promise<StoredArchivedSessionInfo[]>;
   open(path: string): SessionDocument;
   ensureDirectory(path: string): Promise<void>;
   move(source: string, target: string): Promise<void>;
   remove(path: string): Promise<void>;
+  exists(path: string): Promise<boolean>;
 }
 
 const nodeSessionStorage: SessionStorage = {
   list: (workspaceDir) => SessionManager.list(workspaceDir),
+  listArchived: async (workspaceDir, archiveDir) => {
+    // An explicit directory makes SessionManager filter entries to sessions
+    // created for this workspace; a missing directory lists as empty.
+    const sessions = await SessionManager.list(workspaceDir, archiveDir);
+    return Promise.all(sessions.map(async (info) => {
+      let archivedAt = info.modified;
+      try {
+        const stats = await stat(info.path);
+        if (stats.ctime.getTime() > archivedAt.getTime()) archivedAt = stats.ctime;
+      } catch {
+        // Keep the session's modified time when file metadata is unreadable.
+      }
+      return { ...info, archivedAt };
+    }));
+  },
   open: (path) => SessionManager.open(path),
   ensureDirectory: async (path) => {
     await mkdir(path, { recursive: true });
   },
   move: rename,
   remove: unlink,
+  exists: async (path) => {
+    try {
+      await stat(path);
+      return true;
+    } catch {
+      return false;
+    }
+  },
 };
 
 export interface ActiveSessionView {
@@ -51,7 +89,7 @@ export interface ActiveSessionView {
   setName(name: string): void;
 }
 
-interface SessionLibraryState {
+export interface SessionLibraryState {
   workspaceDir: string;
   language: AppLanguage;
   active?: ActiveSessionView;
@@ -152,6 +190,28 @@ export class SessionLibrary {
   }
 
   /**
+   * Searches the stored user/assistant text of every listed session for the
+   * query. Only files from the current workspace listing are read, keeping
+   * the canonical allow-list as the single access path.
+   */
+  async searchContent(query: string): Promise<SessionContentMatch[]> {
+    if (query.trim().length < SESSION_CONTENT_QUERY_MIN_LENGTH) return [];
+    const state = this.options.state();
+    const storedSessions = await this.storage.list(state.workspaceDir);
+    const anchorPath = storedSessions[0]?.path;
+    if (!anchorPath) return [];
+    return searchSessionContentFiles(
+      query,
+      storedSessions.map((info) => ({
+        id: info.id,
+        path: info.path,
+        modifiedAt: info.modified.getTime(),
+      })),
+      { sessionDir: canonicalPath(dirname(anchorPath)) },
+    );
+  }
+
+  /**
    * Resolves an untrusted session path to the canonical path owned by the
    * current workspace's session listing. Callers must use the returned path,
    * never the transport-provided spelling.
@@ -238,6 +298,82 @@ export class SessionLibrary {
     }
   }
 
+  /**
+   * Locates the archive directory that `archive()` moves sessions into. The
+   * session directory is anchored on listed sessions (or the active session)
+   * exactly like `resolveListedPath`, never on transport-provided input.
+   */
+  private async resolveArchiveDirectory(): Promise<
+    | { ok: true; workspaceDir: string; sessionDir: string; archiveDir: string }
+    | { ok: false; error: string }
+  > {
+    const state = this.options.state();
+    const storedSessions = await this.storage.list(state.workspaceDir);
+    const directoryAnchor = storedSessions[0]?.path ?? state.active?.path;
+    if (!directoryAnchor) {
+      return { ok: false, error: agentMessage(state.language, "sessionDirectory") };
+    }
+    const sessionDir = canonicalPath(dirname(directoryAnchor));
+    return {
+      ok: true,
+      workspaceDir: state.workspaceDir,
+      sessionDir,
+      archiveDir: join(sessionDir, "archive"),
+    };
+  }
+
+  async listArchived(): Promise<UiArchivedSessionInfo[]> {
+    const location = await this.resolveArchiveDirectory();
+    if (!location.ok) return [];
+    const archived = await this.storage.listArchived(location.workspaceDir, location.archiveDir);
+    return archived
+      .map((info) => {
+        const displayName = info.name ? compactSkillText(info.name) : undefined;
+        const firstMessage = compactSkillText(info.firstMessage);
+        return {
+          path: info.path,
+          id: info.id,
+          name: displayName
+            ? displayName.text || (displayName.skillName ? `Skill: ${displayName.skillName}` : info.name)
+            : info.name,
+          firstMessage: firstMessage.text
+            || (firstMessage.skillName ? `Skill: ${firstMessage.skillName}` : info.firstMessage),
+          archivedAt: info.archivedAt.getTime(),
+        };
+      })
+      .sort((first, second) => second.archivedAt - first.archivedAt);
+  }
+
+  async restore(path: string): Promise<MutationResult> {
+    const location = await this.resolveArchiveDirectory();
+    if (!location.ok) return location;
+    try {
+      const archived = await this.storage.listArchived(location.workspaceDir, location.archiveDir);
+      const listed = archived.find((candidate) => sameSessionPath(candidate.path, path));
+      const resolvedPath = listed ? canonicalPath(listed.path) : undefined;
+      if (!resolvedPath || !isInsideDirectory(location.archiveDir, resolvedPath)) {
+        return {
+          ok: false,
+          error: agentMessage(this.options.state().language, "sessionNotInArchive"),
+        };
+      }
+      const targetPath = join(location.sessionDir, basename(resolvedPath));
+      if (await this.storage.exists(targetPath)) {
+        // Restoring must never overwrite a live session file: rename() would
+        // silently replace an existing target on both Windows and POSIX.
+        return {
+          ok: false,
+          error: agentMessage(this.options.state().language, "restoreConflict"),
+        };
+      }
+      await this.storage.move(resolvedPath, targetPath);
+      this.options.emitSessionsChanged();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async delete(path: string): Promise<SessionRemovalResult> {
     const allowed = await this.resolveListedPath(path);
     if (!allowed.ok) return allowed;
@@ -253,8 +389,7 @@ export class SessionLibrary {
     }
   }
 
-  async generateMissingTitle(): Promise<void> {
-    const initial = this.options.state();
+  async generateMissingTitle(initial: SessionLibraryState = this.options.state()): Promise<void> {
     const sessionPath = initial.active?.path;
     if (!initial.active || !sessionPath || initial.active.name || this.titleRequests.has(sessionPath)) return;
 

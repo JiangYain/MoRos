@@ -1,13 +1,16 @@
 import {
   isAppLanguage,
   isCommandExplanationLanguage,
+  isComposerSendKey,
   isDependencyId,
   isPermissionMode,
+  isQueuedMessageKind,
   isThinkingLevel,
   type CompassBackendApi,
   type UiImageAttachment,
 } from "./types.ts";
 import { normalizeClientProfileDraft } from "./client-registry.ts";
+import { normalizeClientAudiogramDraft } from "./client-audiograms.ts";
 import { isQuickPromptList } from "./quick-prompts.ts";
 
 export type BackendMethod = keyof CompassBackendApi;
@@ -139,12 +142,36 @@ export const BACKEND_OPERATION_SPECS = {
       return [stringArg(args, 0, "id"), booleanArg(args, 1, "allowed")];
     },
   },
+  removeQueuedMessage: {
+    ipcChannel: "agent:remove-queued-message",
+    web: true,
+    decode: (args) => {
+      argumentCount(args, 3);
+      if (!isQueuedMessageKind(args[0])) throw new Error("Invalid queued message kind.");
+      const index = args[1];
+      if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
+        throw new Error("index must be a non-negative integer.");
+      }
+      return [args[0], index, stringArg(args, 2, "text")];
+    },
+  },
   newSession: { ipcChannel: "agent:new-session", web: true, decode: noArgs },
   openSession: { ipcChannel: "agent:open-session", web: true, decode: oneString("path") },
   listSessions: { ipcChannel: "sessions:list", web: true, decode: noArgs },
+  searchSessionContent: {
+    ipcChannel: "sessions:search-content",
+    web: true,
+    decode: oneString("query"),
+  },
   renameSession: { ipcChannel: "sessions:rename", web: true, decode: twoStrings("path", "name") },
   deleteSession: { ipcChannel: "sessions:delete", web: true, decode: oneString("path") },
   archiveSession: { ipcChannel: "sessions:archive", web: true, decode: oneString("path") },
+  listArchivedSessions: { ipcChannel: "sessions:list-archived", web: true, decode: noArgs },
+  restoreArchivedSession: {
+    ipcChannel: "sessions:restore-archived",
+    web: true,
+    decode: oneString("path"),
+  },
   importLegacyClientRegistry: {
     ipcChannel: "clients:import-legacy",
     web: true,
@@ -160,6 +187,22 @@ export const BACKEND_OPERATION_SPECS = {
       return [profile];
     },
   },
+  updateClientProfile: {
+    ipcChannel: "clients:update-profile",
+    web: true,
+    decode: (args) => {
+      argumentCount(args, 2);
+      const originalName = stringArg(args, 0, "originalName");
+      const profile = normalizeClientProfileDraft(args[1]);
+      if (!profile) throw new Error("profile must be a valid client profile.");
+      return [originalName, profile];
+    },
+  },
+  deleteClientProfile: {
+    ipcChannel: "clients:delete-profile",
+    web: true,
+    decode: oneString("name"),
+  },
   assignSessionClient: {
     ipcChannel: "clients:assign-session",
     web: true,
@@ -169,6 +212,22 @@ export const BACKEND_OPERATION_SPECS = {
     ipcChannel: "clients:unassign-session",
     web: true,
     decode: oneString("sessionId"),
+  },
+  listClientAudiograms: {
+    ipcChannel: "clients:list-audiograms",
+    web: true,
+    decode: oneString("clientName"),
+  },
+  saveClientAudiogram: {
+    ipcChannel: "clients:save-audiogram",
+    web: true,
+    decode: (args) => {
+      argumentCount(args, 2);
+      const clientName = stringArg(args, 0, "clientName");
+      const record = normalizeClientAudiogramDraft(args[1]);
+      if (!record) throw new Error("record must be a valid audiogram record.");
+      return [clientName, record];
+    },
   },
   setModel: { ipcChannel: "models:set", web: true, decode: twoStrings("provider", "id") },
   setModelEnabled: {
@@ -223,6 +282,15 @@ export const BACKEND_OPERATION_SPECS = {
       if (!isCommandExplanationLanguage(args[0])) {
         throw new Error("Invalid command explanation language.");
       }
+      return [args[0]];
+    },
+  },
+  setComposerSendKey: {
+    ipcChannel: "settings:set-composer-send-key",
+    web: true,
+    decode: (args) => {
+      argumentCount(args, 1);
+      if (!isComposerSendKey(args[0])) throw new Error("Invalid composer send key.");
       return [args[0]];
     },
   },

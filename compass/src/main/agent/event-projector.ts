@@ -1,6 +1,12 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import type { AgentStats, AgentUiEvent, AppLanguage } from "@shared/types";
+import type {
+  AgentStats,
+  AgentUiEvent,
+  AppLanguage,
+  UiBlock,
+  UiThreadItem,
+} from "@shared/types";
 import { compactSkillText } from "../../shared/skill-display.ts";
 import {
   blocksOf,
@@ -8,6 +14,7 @@ import {
   imagesOfContent,
   isAssistantMessage,
   isRecord,
+  isToolResultMessage,
   isUserMessage,
   textOfContent,
   usageOf,
@@ -36,6 +43,15 @@ function toolResultContent(value: unknown): ToolResultMessage["content"] | undef
  */
 export class AgentEventProjector {
   private currentAssistantId?: string;
+  private currentAssistant?: {
+    id: string;
+    blocks: Map<number, UiBlock>;
+    ts: number;
+  };
+  private readonly currentTools = new Map<
+    string,
+    Extract<UiThreadItem, { kind: "tool" }>
+  >();
   private pendingUserMessageIds: string[] = [];
   private readonly options: AgentEventProjectorOptions;
 
@@ -53,7 +69,28 @@ export class AgentEventProjector {
 
   reset(): void {
     this.currentAssistantId = undefined;
+    this.currentAssistant = undefined;
+    this.currentTools.clear();
     this.pendingUserMessageIds = [];
+  }
+
+  snapshotThread(thread: UiThreadItem[]): UiThreadItem[] {
+    const assistant = this.currentAssistant;
+    const tools = [...this.currentTools.values()].map((tool) => ({ ...tool }));
+    if (!assistant) return tools.length > 0 ? [...thread, ...tools] : thread;
+    return [
+      ...thread,
+      {
+        kind: "assistant",
+        id: assistant.id,
+        blocks: [...assistant.blocks.entries()]
+          .sort((first, second) => first[0] - second[0])
+          .map(([contentIndex, block]) => ({ ...block, contentIndex })),
+        streaming: true,
+        ts: assistant.ts,
+      },
+      ...tools,
+    ];
   }
 
   emitStats(): void {
@@ -81,10 +118,15 @@ export class AgentEventProjector {
       case "message_start":
         if (isAssistantMessage(event.message)) {
           this.currentAssistantId = this.options.nextId("a");
+          this.currentAssistant = {
+            id: this.currentAssistantId,
+            blocks: new Map(),
+            ts: event.message.timestamp ?? Date.now(),
+          };
           this.options.emit({
             kind: "assistant-start",
             id: this.currentAssistantId,
-            ts: event.message.timestamp ?? Date.now(),
+            ts: this.currentAssistant.ts,
           });
         }
         break;
@@ -92,6 +134,7 @@ export class AgentEventProjector {
         const update = event.assistantMessageEvent;
         if (!this.currentAssistantId) break;
         if (update.type === "text_delta") {
+          this.appendAssistantDelta(update.contentIndex, "text", update.delta);
           this.options.emit({
             kind: "assistant-delta",
             id: this.currentAssistantId,
@@ -100,6 +143,7 @@ export class AgentEventProjector {
             delta: update.delta,
           });
         } else if (update.type === "thinking_delta") {
+          this.appendAssistantDelta(update.contentIndex, "thinking", update.delta);
           this.options.emit({
             kind: "assistant-delta",
             id: this.currentAssistantId,
@@ -137,35 +181,66 @@ export class AgentEventProjector {
             usage: usageOf(message),
           });
           this.currentAssistantId = undefined;
+          this.currentAssistant = undefined;
           this.emitStats();
+        } else if (isToolResultMessage(message)) {
+          this.currentTools.delete(message.toolCallId);
         }
         break;
       }
-      case "tool_execution_start":
-        this.options.emit({
-          kind: "tool-start",
+      case "tool_execution_start": {
+        const tool = {
+          kind: "tool" as const,
           id: this.options.nextId("t"),
           callId: event.toolCallId,
           name: event.toolName,
           args: cloneForUi(event.args),
+          output: "",
+          isError: false,
+          running: true,
           ts: Date.now(),
+        };
+        this.currentTools.set(event.toolCallId, tool);
+        this.options.emit({
+          kind: "tool-start",
+          id: tool.id,
+          callId: tool.callId,
+          name: tool.name,
+          args: tool.args,
+          ts: tool.ts,
         });
         break;
-      case "tool_execution_update":
+      }
+      case "tool_execution_update": {
+        const output = textOfContent(toolResultContent(event.partialResult));
+        const tool = this.currentTools.get(event.toolCallId);
+        if (tool?.running) this.currentTools.set(event.toolCallId, { ...tool, output });
         this.options.emit({
           kind: "tool-update",
           callId: event.toolCallId,
-          output: textOfContent(toolResultContent(event.partialResult)),
+          output,
         });
         break;
-      case "tool_execution_end":
+      }
+      case "tool_execution_end": {
+        const output = textOfContent(toolResultContent(event.result));
+        const tool = this.currentTools.get(event.toolCallId);
+        if (tool) {
+          this.currentTools.set(event.toolCallId, {
+            ...tool,
+            output,
+            isError: event.isError,
+            running: false,
+          });
+        }
         this.options.emit({
           kind: "tool-end",
           callId: event.toolCallId,
-          output: textOfContent(toolResultContent(event.result)),
+          output,
           isError: event.isError,
         });
         break;
+      }
       case "queue_update":
         this.options.emit({
           kind: "queue-update",
@@ -219,5 +294,21 @@ export class AgentEventProjector {
     } catch (error) {
       this.options.onSettledError?.(error);
     }
+  }
+
+  private appendAssistantDelta(
+    contentIndex: number,
+    type: UiBlock["type"],
+    delta: string,
+  ): void {
+    const assistant = this.currentAssistant;
+    if (!assistant) return;
+    const existing = assistant.blocks.get(contentIndex);
+    assistant.blocks.set(
+      contentIndex,
+      existing?.type === type
+        ? { ...existing, text: existing.text + delta }
+        : { type, text: delta },
+    );
   }
 }

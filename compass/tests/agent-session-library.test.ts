@@ -39,6 +39,7 @@ function fakeStorage(
       modified: new Date(20),
       messageCount: 2,
     }],
+    listArchived: async () => [],
     open: () => ({
       appendSessionInfo: (name) => {
         persistedName = name;
@@ -55,6 +56,7 @@ function fakeStorage(
     remove: async (path) => {
       operations.push(`remove:${path}`);
     },
+    exists: async () => false,
     ...overrides,
   };
 }

@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ignoreCommandFailure, useCompass } from "../../store";
 import { useI18n } from "../../i18n";
+import { ModelBrandIcon } from "../settings/ModelArtwork";
 
 type ModelMenuView = "root" | "model" | "effort";
 type ModelSubmenuView = Exclude<ModelMenuView, "root">;
@@ -199,6 +200,11 @@ export function ModelMenu({ open, onClose, onOpenSettings, onToggle }: ModelMenu
                 );
               })}
             </svg>
+            {stats?.model && (
+              <span className="model-ring-icon" aria-hidden="true">
+                <ModelBrandIcon model={stats.model.id} provider={stats.model.provider} size={11} />
+              </span>
+            )}
           </motion.button>
         ) : (
           <motion.button

@@ -5,11 +5,13 @@ import {
   DEFAULT_SUMMARY_MODEL,
   isAppLanguage,
   isCommandExplanationLanguage,
+  isComposerSendKey,
   isDependencyId,
   isPermissionMode,
   isThinkingLevel,
   type AppLanguage,
   type CommandExplanationLanguage,
+  type ComposerSendKey,
   type DependencyId,
   type ModelSelection,
   type PermissionMode,
@@ -42,6 +44,8 @@ export interface AppSettings {
   quickPrompts?: string[];
   /** User-selected executables for dependencies that may have parallel installations. */
   dependencyExecutablePaths?: Partial<Record<DependencyId, string>>;
+  /** Key combination that sends the composer draft; the other combination inserts a newline. */
+  composerSendKey: ComposerSendKey;
 }
 
 function normalizeDependencyExecutablePaths(
@@ -90,6 +94,7 @@ export function loadSettings(): AppSettings {
     permissionMode: "full",
     enabledModels: [],
     summaryModel: { ...DEFAULT_SUMMARY_MODEL },
+    composerSendKey: "enter",
   };
   const file = settingsPath();
   const result = loadJsonFile<Partial<AppSettings>>(file, {
@@ -144,6 +149,10 @@ export function loadSettings(): AppSettings {
     }
     if (merged.thinkingLevel !== undefined && !isThinkingLevel(merged.thinkingLevel)) {
       delete merged.thinkingLevel;
+    }
+    // Settings files written before this field existed simply fall back to the default.
+    if (!isComposerSendKey(merged.composerSendKey)) {
+      merged.composerSendKey = defaults.composerSendKey;
     }
     return merged;
   } catch (error) {

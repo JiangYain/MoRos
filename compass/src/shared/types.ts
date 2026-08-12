@@ -1,4 +1,5 @@
 import type { ClientProfileDraft, ClientRegistry } from "./client-registry";
+import type { ClientAudiogramDraft, ClientAudiogramRecord } from "./client-audiograms";
 
 /**
  * Shared IPC contract between the Electron main process (Pi agent host)
@@ -38,6 +39,24 @@ export function isCommandExplanationLanguage(
 ): value is CommandExplanationLanguage {
   return typeof value === "string"
     && (COMMAND_EXPLANATION_LANGUAGES as readonly string[]).includes(value);
+}
+
+export const COMPOSER_SEND_KEYS = ["enter", "shiftEnter"] as const;
+
+/** Which key combination submits the composer draft; the other inserts a newline. */
+export type ComposerSendKey = (typeof COMPOSER_SEND_KEYS)[number];
+
+export function isComposerSendKey(value: unknown): value is ComposerSendKey {
+  return typeof value === "string" && (COMPOSER_SEND_KEYS as readonly string[]).includes(value);
+}
+
+export const QUEUED_MESSAGE_KINDS = ["steering", "followUp"] as const;
+
+/** Which pending-message queue of the live session a queued entry belongs to. */
+export type QueuedMessageKind = (typeof QUEUED_MESSAGE_KINDS)[number];
+
+export function isQueuedMessageKind(value: unknown): value is QueuedMessageKind {
+  return typeof value === "string" && (QUEUED_MESSAGE_KINDS as readonly string[]).includes(value);
 }
 
 export interface UiImageAttachment {
@@ -169,6 +188,25 @@ export interface UiSessionInfo {
   createdAt: number;
   modifiedAt: number;
   messageCount: number;
+  /** True while this session owns a foreground or background Agent run. */
+  isRunning?: boolean;
+}
+
+export interface UiArchivedSessionInfo {
+  path: string;
+  id: string;
+  name?: string;
+  firstMessage: string;
+  /** Best-effort archive timestamp derived from filesystem metadata. */
+  archivedAt: number;
+}
+
+/** One conversation whose stored user/assistant text matches a search query. */
+export interface SessionContentMatch {
+  id: string;
+  path: string;
+  /** Short plain-text excerpt around the first match inside the session file. */
+  snippet: string;
 }
 
 export interface UiUsage {
@@ -189,8 +227,8 @@ export interface UiApprovalRequest {
 }
 
 export type UiBlock =
-  | { type: "thinking"; text: string }
-  | { type: "text"; text: string };
+  | { type: "thinking"; text: string; contentIndex?: number }
+  | { type: "text"; text: string; contentIndex?: number };
 
 export type UiThreadItem =
   | { kind: "user"; id: string; text: string; skillName?: string; images?: UiImageAttachment[]; ts: number }
@@ -288,6 +326,7 @@ export interface AppSettingsView {
   enabledModels: string[];
   summaryModel: ModelSelection;
   quickPrompts?: string[];
+  composerSendKey: ComposerSendKey;
 }
 
 export interface ModelPreferenceUpdate {
@@ -437,16 +476,28 @@ export interface CompassApi {
   ): Promise<{ ok: boolean; error?: string }>;
   abort(): Promise<void>;
   resolveApproval(id: string, allowed: boolean): Promise<{ ok: boolean; error?: string }>;
+  removeQueuedMessage(
+    kind: QueuedMessageKind,
+    index: number,
+    text: string,
+  ): Promise<{ ok: boolean; error?: string }>;
   newSession(): Promise<InitPayload>;
   openSession(path: string): Promise<InitPayload>;
   listSessions(): Promise<UiSessionInfo[]>;
+  searchSessionContent(query: string): Promise<SessionContentMatch[]>;
   renameSession(path: string, name: string): Promise<{ ok: boolean; error?: string }>;
   deleteSession(path: string): Promise<{ ok: boolean; error?: string }>;
   archiveSession(path: string): Promise<{ ok: boolean; error?: string }>;
+  listArchivedSessions(): Promise<UiArchivedSessionInfo[]>;
+  restoreArchivedSession(path: string): Promise<{ ok: boolean; error?: string }>;
   importLegacyClientRegistry(serializedRegistry: string): Promise<ClientRegistry>;
   saveClientProfile(profile: ClientProfileDraft): Promise<ClientRegistry>;
+  updateClientProfile(originalName: string, profile: ClientProfileDraft): Promise<ClientRegistry>;
+  deleteClientProfile(name: string): Promise<ClientRegistry>;
   assignSessionClient(sessionId: string, clientName: string): Promise<ClientRegistry>;
   unassignSessionClient(sessionId: string): Promise<ClientRegistry>;
+  listClientAudiograms(clientName: string): Promise<ClientAudiogramRecord[]>;
+  saveClientAudiogram(clientName: string, record: ClientAudiogramDraft): Promise<ClientAudiogramRecord>;
   setModel(provider: string, id: string): Promise<{ ok: boolean; error?: string }>;
   setModelEnabled(provider: string, id: string, enabled: boolean): Promise<ModelPreferenceUpdate>;
   setSummaryModel(provider: string, id: string): Promise<AppSettingsView>;
@@ -454,6 +505,7 @@ export interface CompassApi {
   setPermissionMode(mode: PermissionMode): Promise<AppSettingsView>;
   setLanguage(language: AppLanguage): Promise<AppSettingsView>;
   setCommandExplanationLanguage(language: CommandExplanationLanguage): Promise<AppSettingsView>;
+  setComposerSendKey(sendKey: ComposerSendKey): Promise<AppSettingsView>;
   setQuickPrompts(prompts: string[] | null): Promise<AppSettingsView>;
   setApiKey(provider: string, key: string): Promise<InitPayload>;
   loginProvider(provider: string): Promise<InitPayload>;

@@ -1,13 +1,20 @@
 import type {
-  LifecycleCoordinator,
   LifecycleMutation,
 } from "./lifecycle-coordinator.ts";
 import { compensatedMutationError } from "./mutation-compensation.ts";
 
+interface SessionLifecycle<Resource> {
+  mutate<Result>(
+    mutation: (lifecycle: LifecycleMutation<Resource>) => Result | Promise<Result>,
+  ): Promise<Result>;
+}
+
 interface SessionOwnerMutationOptions<Resource, SessionPath extends string> {
-  lifecycle: LifecycleCoordinator<Resource>;
+  lifecycle: SessionLifecycle<Resource>;
   pathOf(resource: Resource): string | undefined;
   samePath(first: string, second: string): boolean;
+  isRetained?(path: SessionPath): boolean;
+  retainedMutationError?(path: SessionPath): Error;
   detach(lifecycle: LifecycleMutation<Resource>): Promise<void>;
   restore(lifecycle: LifecycleMutation<Resource>, path: SessionPath): Promise<void>;
 }
@@ -26,6 +33,10 @@ export class SessionOwnerMutationCoordinator<Resource, SessionPath extends strin
 
   run<Result>(path: SessionPath, mutation: () => Promise<Result>): Promise<Result> {
     return this.options.lifecycle.mutate(async (lifecycle) => {
+      if (this.options.isRetained?.(path)) {
+        throw this.options.retainedMutationError?.(path)
+          ?? new Error("A retained session cannot be modified while it is still running.");
+      }
       const currentPath = lifecycle.current
         ? this.options.pathOf(lifecycle.current)
         : undefined;

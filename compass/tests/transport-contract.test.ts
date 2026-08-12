@@ -22,12 +22,16 @@ const ARGUMENTS = {
   prompt: ["hello", [{ data: "AA==", mimeType: "image/png", name: "sample.png" }], "client-message-1"],
   abort: [],
   resolveApproval: ["approval-1", true],
+  removeQueuedMessage: ["steering", 0, "queued instruction"],
   newSession: [],
   openSession: ["C:\\sessions\\one.jsonl"],
   listSessions: [],
+  searchSessionContent: ["hearing aid"],
   renameSession: ["C:\\sessions\\one.jsonl", "One"],
   deleteSession: ["C:\\sessions\\one.jsonl"],
   archiveSession: ["C:\\sessions\\one.jsonl"],
+  listArchivedSessions: [],
+  restoreArchivedSession: ["C:\\sessions\\archive\\one.jsonl"],
   importLegacyClientRegistry: ["{}"],
   saveClientProfile: [{
     name: "Client A",
@@ -37,8 +41,36 @@ const ARGUMENTS = {
     notes: "",
     hearingAidBrands: ["phonak"],
   }],
+  updateClientProfile: ["Client A", {
+    name: "Client B",
+    gender: "female",
+    age: 61,
+    contact: "",
+    notes: "",
+    hearingAidBrands: ["widex"],
+  }],
+  deleteClientProfile: ["Client A"],
   assignSessionClient: ["session-1", "Client A"],
   unassignSessionClient: ["session-1"],
+  listClientAudiograms: ["Client A"],
+  saveClientAudiogram: ["Client A", {
+    id: null,
+    date: "2026-08-12",
+    useAudiogramRight: true,
+    useAudiogramLeft: false,
+    transducerRight: "Insert earphone",
+    transducerLeft: "Headphones",
+    right: {
+      ac: [10, 15, 20, 30, 40, 55, 70],
+      bc: [5, 10, 15, 25, 35, 50, null],
+      ucl: [90, 90, 95, 100, 105, 105, 110],
+    },
+    left: {
+      ac: [null, null, null, null, null, null, null],
+      bc: [null, null, null, null, null, null, null],
+      ucl: [null, null, null, null, null, null, null],
+    },
+  }],
   setModel: ["openai", "gpt-test"],
   setModelEnabled: ["openai", "gpt-test", false],
   setSummaryModel: ["openai", "gpt-test"],
@@ -46,6 +78,7 @@ const ARGUMENTS = {
   setPermissionMode: ["approve"],
   setLanguage: ["de"],
   setCommandExplanationLanguage: ["auto"],
+  setComposerSendKey: ["shiftEnter"],
   setQuickPrompts: [["First prompt"]],
   setApiKey: ["openai", "secret"],
   loginProvider: ["openai"],
@@ -104,6 +137,16 @@ test("the shared decoder validates both Electron and web arguments", () => {
   assert.throws(() => decodeBackendArguments("setLanguage", ["fr"]), /Invalid application language/);
   assert.throws(() => decodeBackendArguments("setModelEnabled", ["openai", "gpt-test", "yes"]), /enabled must be a boolean/);
   assert.throws(() => decodeBackendArguments("init", ["unexpected"]), /Expected 0 argument/);
+  assert.deepEqual(
+    decodeBackendArguments("removeQueuedMessage", ["followUp", 2, "queued text"]),
+    ["followUp", 2, "queued text"],
+  );
+  assert.throws(() => decodeBackendArguments("removeQueuedMessage", ["later", 0, "text"]), /Invalid queued message kind/);
+  assert.throws(() => decodeBackendArguments("removeQueuedMessage", ["steering", -1, "text"]), /non-negative integer/);
+  assert.throws(() => decodeBackendArguments("removeQueuedMessage", ["steering", 1.5, "text"]), /non-negative integer/);
+  assert.throws(() => decodeBackendArguments("removeQueuedMessage", ["steering", 0, 7]), /text must be a string/);
+  assert.deepEqual(decodeBackendArguments("setComposerSendKey", ["enter"]), ["enter"]);
+  assert.throws(() => decodeBackendArguments("setComposerSendKey", ["ctrlEnter"]), /Invalid composer send key/);
 });
 
 test("web handlers adapt every browser method over the backend interface", async () => {

@@ -45,6 +45,7 @@ export default function App(): React.JSX.Element {
   const openSession = useCompass((s) => s.openSession);
   const openSettings = useCompass((s) => s.openSettings);
   const closeSettings = useCompass((s) => s.closeSettings);
+  const armSettingsNavigation = useCompass((s) => s.armSettingsNavigation);
   const settingsSection = useCompass((s) => s.settingsSection);
   const sidebarOpen = useCompass((s) => s.sidebarOpen);
   const setSidebarOpen = useCompass((s) => s.setSidebarOpen);
@@ -118,16 +119,17 @@ export default function App(): React.JSX.Element {
       openSettings(target.section);
       return;
     }
-    if (target.kind === "hearing-health") {
-      closeSettings();
-      setMainView("hearing-health");
-      return;
-    }
+    const afterLeave = (): Promise<boolean> | void => {
+      setMainView(target.kind === "hearing-health" ? "hearing-health" : "assistant");
+      if (target.kind === "session") return openSession(target.path);
+      if (target.kind === "workspace") return newSession();
+    };
+    // Unsaved settings edits keep the whole navigation pending until the
+    // guard dialog is resolved; nothing may run early in the background.
+    if (armSettingsNavigation(() => void afterLeave())) return;
     closeSettings();
-    setMainView("assistant");
-    if (target.kind === "session") return openSession(target.path);
-    return newSession();
-  }, [closeSettings, newSession, openSession, openSettings, setMainView]);
+    return afterLeave();
+  }, [armSettingsNavigation, closeSettings, newSession, openSession, openSettings, setMainView]);
 
   const navigateHistory = useCallback((offset: -1 | 1): void => {
     const previousIndex = historyIndexRef.current;
@@ -205,7 +207,22 @@ export default function App(): React.JSX.Element {
   }, [currentNavigationTarget, ready, syncNavigationAvailability]);
 
   useEffect(() => {
+    const onNavigationMouseUp = (event: MouseEvent): void => {
+      if (event.button !== 3 && event.button !== 4) return;
+      event.preventDefault();
+      navigateHistory(event.button === 3 ? -1 : 1);
+    };
+    window.addEventListener("mouseup", onNavigationMouseUp);
+    return () => window.removeEventListener("mouseup", onNavigationMouseUp);
+  }, [navigateHistory]);
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        navigateHistory(event.key === "ArrowLeft" ? -1 : 1);
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === ",") {
         event.preventDefault();
         openSettings();
@@ -213,8 +230,12 @@ export default function App(): React.JSX.Element {
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
+        const startNewSession = (): void => {
+          ignoreCommandFailure(newSession());
+        };
+        if (armSettingsNavigation(startNewSession)) return;
         closeSettings();
-        ignoreCommandFailure(newSession());
+        startNewSession();
         return;
       }
       if (
@@ -222,15 +243,19 @@ export default function App(): React.JSX.Element {
         (event.key.toLowerCase() === "k" || event.key.toLowerCase() === "p")
       ) {
         event.preventDefault();
+        const openSessionSearch = (): void => {
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.dispatchEvent(new Event("compass:open-session-search"));
+          }));
+        };
+        if (armSettingsNavigation(openSessionSearch)) return;
         closeSettings();
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          window.dispatchEvent(new Event("compass:open-session-search"));
-        }));
+        openSessionSearch();
         return;
       }
       if (event.key !== "Escape") return;
       if (document.querySelector(
-        ".session-search-overlay, .client-dialog-backdrop, .profile-menu, .sidebar-context-menu, .thread-inline-confirmation, .popover",
+        ".session-search-overlay, .client-dialog-backdrop, .profile-menu, .sidebar-context-menu, .thread-inline-confirmation, .popover, .settings-guard-backdrop",
       )) return;
       if (settingsSection) {
         closeSettings();
@@ -240,7 +265,7 @@ export default function App(): React.JSX.Element {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeSettings, newSession, openSettings, setSidebarOpen, settingsSection, sidebarOpen]);
+  }, [armSettingsNavigation, closeSettings, navigateHistory, newSession, openSettings, setSidebarOpen, settingsSection, sidebarOpen]);
 
   return (
     <div className="app-frame">

@@ -203,6 +203,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     prompt: (text, images, clientMessageId) => service.prompt(text, images, clientMessageId),
     abort: () => service.abort(),
     resolveApproval: async (id, allowed) => service.resolveApproval(id, allowed),
+    removeQueuedMessage: async (kind, index, text) => service.removeQueuedMessage(kind, index, text),
     newSession: async () => {
       await service.start();
       return buildAndPublish({ allowStale: true });
@@ -212,6 +213,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
       return buildAndPublish({ allowStale: true });
     },
     listSessions: () => service.listSessions(),
+    searchSessionContent: (query) => service.searchSessionContent(query),
     renameSession: (path, name) => service.renameSession(path, name),
     deleteSession: async (path) => {
       return completeSessionRemoval(
@@ -225,14 +227,23 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
         sessionRemovalCompletion,
       );
     },
+    listArchivedSessions: () => service.listArchivedSessions(),
+    restoreArchivedSession: (path) => service.restoreArchivedSession(path),
     importLegacyClientRegistry: async (serializedRegistry) =>
       publishClientRegistry(clientDatabase.importLegacyRegistry(serializedRegistry)),
     saveClientProfile: async (profile) =>
       publishClientRegistry(clientDatabase.saveProfile(profile)),
+    updateClientProfile: async (originalName, profile) =>
+      publishClientRegistry(clientDatabase.updateProfile(originalName, profile)),
+    deleteClientProfile: async (name) =>
+      publishClientRegistry(clientDatabase.deleteProfile(name)),
     assignSessionClient: async (sessionId, clientName) =>
       publishClientRegistry(clientDatabase.assignSession(sessionId, clientName)),
     unassignSessionClient: async (sessionId) =>
       publishClientRegistry(clientDatabase.unassignSession(sessionId)),
+    listClientAudiograms: async (clientName) => clientDatabase.listAudiograms(clientName),
+    saveClientAudiogram: async (clientName, record) =>
+      clientDatabase.saveAudiogram(clientName, record),
     setModel: (provider, id) => modelMutations.setModel(provider, id),
     setModelEnabled: (provider, id, enabled) =>
       modelMutations.setModelEnabled(provider, id, enabled),
@@ -246,6 +257,7 @@ export function createCompassBackendApi(options: CompassBackendOptions): Compass
     setLanguage: async (language) => service.setLanguage(language),
     setCommandExplanationLanguage: async (language) =>
       service.setCommandExplanationLanguage(language),
+    setComposerSendKey: async (sendKey) => service.setComposerSendKey(sendKey),
     setQuickPrompts: async (prompts) => service.setQuickPrompts(prompts),
     setApiKey: (provider, key) =>
       modelMutations.mutateAndPublish(() => service.setApiKey(provider, key)),

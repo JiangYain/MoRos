@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { UiSessionInfo } from "../src/shared/types.ts";
-import { mergeActiveSession } from "../src/main/session-list.ts";
+import { markRunningSessions, mergeActiveSession } from "../src/main/session-list.ts";
 
 const session = (overrides: Partial<UiSessionInfo> = {}): UiSessionInfo => ({
   path: "C:\\sessions\\one.jsonl",
@@ -29,4 +29,23 @@ test("merges active metadata into an already persisted session", () => {
   assert.equal(result[0].firstMessage, "first");
   assert.equal(result[0].modifiedAt, 40);
   assert.equal(result[0].messageCount, 5);
+});
+
+test("marks every live foreground or background session as running", () => {
+  const sessions = [
+    session({ id: "foreground" }),
+    session({ id: "background", path: "C:\\sessions\\background.jsonl" }),
+    session({ id: "idle", path: "C:\\sessions\\idle.jsonl", isRunning: true }),
+  ];
+
+  const result = markRunningSessions(sessions, new Set(["foreground", "background"]));
+
+  assert.deepEqual(
+    result.map(({ id, isRunning }) => ({ id, isRunning })),
+    [
+      { id: "foreground", isRunning: true },
+      { id: "background", isRunning: true },
+      { id: "idle", isRunning: false },
+    ],
+  );
 });

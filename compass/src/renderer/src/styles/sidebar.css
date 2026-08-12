@@ -387,6 +387,12 @@ body.sidebar-resizing * {
   white-space: nowrap;
 }
 
+.session-search-result .session-search-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-search-empty {
   min-height: 110px;
   display: grid;
@@ -882,21 +888,44 @@ body.sidebar-resizing * {
   font-weight: 500;
 }
 
-.thread-relative-time {
+.thread-relative-time,
+.thread-running-indicator {
   position: absolute;
   right: 0;
   width: 28px;
+  flex: 0 0 auto;
+  min-width: 0;
+  text-align: center;
+  transition: opacity 0.12s var(--ease-out-power3);
+}
+
+.thread-relative-time {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 300;
   color: var(--color-text-tertiary);
   opacity: 0.75;
-  flex: 0 0 auto;
-  min-width: 0;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  text-align: center;
-  transition: opacity 0.12s var(--ease-out-power3);
+}
+
+.thread-running-indicator {
+  display: grid;
+  place-items: center;
+  color: var(--color-accent);
+  opacity: 0.9;
+}
+
+@keyframes thread-running-indicator-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .thread-running-indicator svg {
+    animation: thread-running-indicator-spin 0.85s linear infinite;
+  }
 }
 
 .thread-file-item.active .thread-relative-time {
@@ -941,7 +970,10 @@ body.sidebar-resizing * {
 
 .thread-item-shell:hover .thread-relative-time,
 .thread-item-shell:focus-within .thread-relative-time,
-.thread-item-shell.confirming .thread-relative-time {
+.thread-item-shell.confirming .thread-relative-time,
+.thread-item-shell:hover .thread-running-indicator,
+.thread-item-shell:focus-within .thread-running-indicator,
+.thread-item-shell.confirming .thread-running-indicator {
   opacity: 0;
 }
 
@@ -1178,8 +1210,13 @@ body.sidebar-resizing * {
   transition: background 0.12s var(--ease-out-power3);
 }
 
-.sidebar-context-menu button:hover {
+.sidebar-context-menu button:hover:not(:disabled) {
   background: var(--color-surface);
+}
+
+.sidebar-context-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
 }
 
 .sidebar-context-menu button svg {
@@ -1948,4 +1985,68 @@ body.sidebar-resizing * {
   .client-profile-dialog > footer {
     align-items: flex-end;
   }
+}
+
+/* ============================================================
+   CLIENT DELETE CONFIRMATION — small card on the dialog backdrop
+   ============================================================ */
+.client-delete-card {
+  width: min(360px, calc(100vw - 40px));
+  padding: 16px 16px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--border-radius-md);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-dialog);
+}
+
+.client-delete-card h2 {
+  margin: 0 0 6px;
+  color: var(--color-text-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.client-delete-card p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.client-delete-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.client-delete-actions button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  background: none;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* One class stronger than `.client-delete-actions button`, which would
+   otherwise strip the danger background from the confirm button. */
+.client-delete-actions .client-delete-confirm {
+  background: var(--color-danger);
+  color: var(--color-on-accent);
+  transition: opacity 0.12s var(--ease-out-power3);
+}
+
+.client-delete-actions .client-delete-confirm:hover {
+  opacity: 0.9;
+}
+
+.client-delete-actions .client-delete-confirm:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-border-focus);
 }

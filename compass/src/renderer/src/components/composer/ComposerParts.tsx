@@ -1,7 +1,9 @@
-import type { UiSkill } from "@shared/types";
+import type { QueuedMessageKind, UiSkill } from "@shared/types";
 import { Box, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
 import { useI18n } from "../../i18n";
+import { ImageLightbox } from "../ImageLightbox";
 import type { ComposerAttachment } from "./composer-attachments";
 
 export interface SlashCommandItem {
@@ -10,17 +12,48 @@ export interface SlashCommandItem {
   description: string;
 }
 
-export function QueueChips({ steering, followUp }: { steering: string[]; followUp: string[] }): React.JSX.Element | null {
+export function QueueChips({
+  steering,
+  followUp,
+  onRecall,
+  onWithdraw,
+}: {
+  steering: string[];
+  followUp: string[];
+  /** Withdraw the queued message and restore its text into the draft. */
+  onRecall: (kind: QueuedMessageKind, index: number, message: string) => void;
+  /** Withdraw the queued message without touching the draft. */
+  onWithdraw: (kind: QueuedMessageKind, index: number, message: string) => void;
+}): React.JSX.Element | null {
   const { t } = useI18n();
   if (steering.length === 0 && followUp.length === 0) return null;
+  const chip = (kind: QueuedMessageKind, message: string, index: number): React.JSX.Element => (
+    <span className="queue-chip" key={`${kind === "steering" ? "s" : "f"}-${index}`}>
+      <button
+        type="button"
+        className="queue-chip-body"
+        title={t("composer.queueRecall")}
+        aria-label={t("composer.queueRecall")}
+        onClick={() => onRecall(kind, index, message)}
+      >
+        <span className="tag">{t(kind === "steering" ? "composer.steer" : "composer.followUp")}</span>
+        <span className="txt">{message}</span>
+      </button>
+      <button
+        type="button"
+        className="queue-chip-remove"
+        title={t("composer.queueWithdraw")}
+        aria-label={t("composer.queueWithdraw")}
+        onClick={() => onWithdraw(kind, index, message)}
+      >
+        <X size={12} strokeWidth={2} aria-hidden="true" />
+      </button>
+    </span>
+  );
   return (
     <div className="queue-chips">
-      {steering.map((message, index) => (
-        <span className="queue-chip" key={`s-${index}`}><span className="tag">{t("composer.steer")}</span><span className="txt">{message}</span></span>
-      ))}
-      {followUp.map((message, index) => (
-        <span className="queue-chip" key={`f-${index}`}><span className="tag">{t("composer.followUp")}</span><span className="txt">{message}</span></span>
-      ))}
+      {steering.map((message, index) => chip("steering", message, index))}
+      {followUp.map((message, index) => chip("followUp", message, index))}
     </div>
   );
 }
@@ -77,17 +110,38 @@ export function SelectedSkill({ skill, onRemove }: { skill: UiSkill | null; onRe
 
 export function ComposerAttachments({ attachments, onRemove }: { attachments: ComposerAttachment[]; onRemove: (id: string) => void }): React.JSX.Element | null {
   const { t } = useI18n();
+  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   if (attachments.length === 0) return null;
   return (
     <div className="composer-attachments">
-      {attachments.map((image, index) => (
-        <div className="composer-attachment" key={image.id}>
-          <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name ?? t("composer.attachment", { number: index + 1 })} />
-          <button type="button" aria-label={t("composer.removeImage", { number: index + 1 })} onClick={() => onRemove(image.id)}>
-            <X size={12} strokeWidth={2} />
-          </button>
-        </div>
-      ))}
+      {attachments.map((image, index) => {
+        const src = `data:${image.mimeType};base64,${image.data}`;
+        const alt = image.name ?? t("composer.attachment", { number: index + 1 });
+        return (
+          <div className="composer-attachment" key={image.id}>
+            {/* The legacy `.composer-attachment button` selector styles the remove
+                control, so the preview trigger stays on the image itself. */}
+            <img
+              src={src}
+              alt={alt}
+              role="button"
+              tabIndex={0}
+              aria-label={t("common.viewImage")}
+              onClick={() => setPreview({ src, alt })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setPreview({ src, alt });
+                }
+              }}
+            />
+            <button type="button" aria-label={t("composer.removeImage", { number: index + 1 })} onClick={() => onRemove(image.id)}>
+              <X size={12} strokeWidth={2} />
+            </button>
+          </div>
+        );
+      })}
+      {preview && <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />}
     </div>
   );
 }

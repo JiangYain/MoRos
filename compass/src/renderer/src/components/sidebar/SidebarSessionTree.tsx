@@ -25,6 +25,7 @@ export function SidebarSessionTree(): React.JSX.Element {
       <SidebarSessionTreeView
         actions={store.actions}
         activeSessionId={store.activeSessionId}
+        clientMenu={interactions.clientMenu}
         confirmations={interactions.confirmations}
         groups={ordering.groups}
         language={store.language}
@@ -37,8 +38,11 @@ export function SidebarSessionTree(): React.JSX.Element {
       />
       <SidebarSessionTreeOverlays
         actions={store.actions}
+        activeSessionId={store.activeSessionId}
         availableClients={store.availableClients}
+        clientDelete={interactions.clientDelete}
         clientDialog={interactions.clientDialog}
+        clientMenu={interactions.clientMenu}
         menu={interactions.menu}
       />
     </>

@@ -54,6 +54,21 @@ function blocksToArray(streaming: StreamingAssistantState): UiBlock[] {
     .map(([, block]) => ({ ...block }));
 }
 
+function streamingBlocksFromThread(thread: UiThreadItem[]): Map<string, StreamingAssistantState> {
+  const streamingBlocks = new Map<string, StreamingAssistantState>();
+  for (const item of thread) {
+    if (item.kind !== "assistant" || !item.streaming) continue;
+    streamingBlocks.set(item.id, {
+      id: item.id,
+      blocks: new Map(item.blocks.map((block, index) => [
+        block.contentIndex ?? index,
+        { ...block },
+      ])),
+    });
+  }
+  return streamingBlocks;
+}
+
 export function projectInitPayload(
   payload: InitPayload,
   currentDependencies: DependencySnapshot,
@@ -74,7 +89,7 @@ export function projectInitPayload(
     clientRegistry: payload.clientRegistry,
     streaming: payload.stats.isStreaming,
     queue: { steering: [], followUp: [] },
-    streamingBlocks: new Map(),
+    streamingBlocks: streamingBlocksFromThread(payload.thread),
   };
 }
 

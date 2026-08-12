@@ -1,20 +1,29 @@
-export type TransducerType =
-  | "Insert earphone"
-  | "Headphones"
-  | "Bone conductor"
-  | "Sound field";
+import {
+  AUDIOGRAM_FREQUENCIES,
+  emptyAudiogramEarThresholds,
+  type AudiogramEarThresholds,
+  type AudiogramMarker,
+  type AudiogramPoint,
+  type AudiogramTransducer,
+  type ClientAudiogramDraft,
+  type ClientAudiogramRecord,
+} from "../../../../shared/client-audiograms.ts";
 
+export type TransducerType = AudiogramTransducer;
 export type CurveType = "AC" | "BC" | "UCL";
 export type EarSide = "right" | "left";
+export type EarThresholds = AudiogramEarThresholds;
+export type { AudiogramMarker, AudiogramPoint };
 
-export interface EarThresholds {
-  ac: (number | null)[];
-  bc: (number | null)[];
-  ucl: (number | null)[];
-}
-
+/**
+ * Renderer working copy of a client audiogram. Unsaved records carry a null
+ * database id; `key` stays stable across the save round-trip so selection and
+ * React identity survive the id assignment.
+ */
 export interface AudiogramRecord {
-  id: string;
+  key: string;
+  id: number | null;
+  /** ISO calendar date (yyyy-mm-dd). */
   date: string;
   useAudiogramRight: boolean;
   useAudiogramLeft: boolean;
@@ -24,84 +33,100 @@ export interface AudiogramRecord {
   left: EarThresholds;
 }
 
-export const FREQUENCIES = [125, 250, 500, 1000, 2000, 4000, 8000] as const;
+export const FREQUENCIES = AUDIOGRAM_FREQUENCIES;
+/** Octave columns carry the solid grid lines and axis labels. */
+export const OCTAVE_FREQUENCIES = [125, 250, 500, 1000, 2000, 4000, 8000] as const;
+/** Dashed guide columns; 1.5/3/6 kHz are also plottable, 750 Hz is not. */
 export const INTER_OCTAVES = [750, 1500, 3000, 6000] as const;
-const CURVE_KEYS: Record<CurveType, keyof EarThresholds> = {
+export const CURVE_KEYS: Record<CurveType, keyof EarThresholds> = {
   AC: "ac",
   BC: "bc",
   UCL: "ucl",
 };
-export const EMPTY_THRESHOLDS: EarThresholds = {
-  ac: [null, null, null, null, null, null, null],
-  bc: [null, null, null, null, null, null, null],
-  ucl: [null, null, null, null, null, null, null],
-};
 
-export const INITIAL_RECORDS: AudiogramRecord[] = [
-  {
-    id: "rec-1",
-    date: "2026/07/29",
-    useAudiogramRight: true,
-    useAudiogramLeft: true,
-    transducerRight: "Insert earphone",
-    transducerLeft: "Insert earphone",
-    right: {
-      ac: [15, 20, 25, 35, 45, 60, 75],
-      bc: [10, 15, 20, 30, 40, 55, null],
-      ucl: [90, 95, 100, 100, 105, 110, 110],
-    },
-    left: {
-      ac: [20, 20, 30, 35, 50, 65, 80],
-      bc: [15, 15, 25, 30, 45, 60, null],
-      ucl: [95, 95, 100, 105, 105, 110, 115],
-    },
-  },
-  {
-    id: "rec-2",
-    date: "2025/11/15",
-    useAudiogramRight: true,
-    useAudiogramLeft: true,
-    transducerRight: "Insert earphone",
-    transducerLeft: "Insert earphone",
-    right: {
-      ac: [15, 15, 20, 30, 40, 55, 70],
-      bc: [10, 10, 15, 25, 35, 50, null],
-      ucl: [90, 90, 95, 100, 100, 105, 110],
-    },
-    left: {
-      ac: [15, 20, 25, 30, 45, 60, 75],
-      bc: [10, 15, 20, 25, 40, 55, null],
-      ucl: [90, 95, 95, 100, 105, 105, 110],
-    },
-  },
-];
+/** Local calendar date so "today" matches the operator's clock, not UTC. */
+export function isoDateToday(now = new Date()): string {
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+let draftSequence = 0;
 
 export function createAudiogramRecord(now = new Date()): AudiogramRecord {
+  draftSequence += 1;
   return {
-    id: `rec-${now.getTime()}`,
-    date: now.toISOString().split("T")[0].replace(/-/g, "/"),
+    key: `draft-${now.getTime()}-${draftSequence}`,
+    id: null,
+    date: isoDateToday(now),
     useAudiogramRight: true,
     useAudiogramLeft: true,
     transducerRight: "Insert earphone",
     transducerLeft: "Insert earphone",
-    right: {
-      ac: [10, 10, 15, 20, 25, 30, 35],
-      bc: [5, 5, 10, 15, 20, 25, null],
-      ucl: [90, 90, 95, 100, 105, 105, 110],
-    },
-    left: {
-      ac: [10, 15, 15, 20, 25, 35, 40],
-      bc: [5, 10, 10, 15, 20, 30, null],
-      ucl: [90, 95, 95, 100, 105, 110, 110],
-    },
+    right: cloneEmptyThresholds(),
+    left: cloneEmptyThresholds(),
   };
 }
 
-export function calculateSii(thresholds: (number | null)[]): number {
-  const values = thresholds.filter((value): value is number => value !== null);
+function cloneCurve(curve: (AudiogramPoint | null)[]): (AudiogramPoint | null)[] {
+  return curve.map((point) => (point ? { ...point } : null));
+}
+
+function cloneThresholds(value: EarThresholds): EarThresholds {
+  return { ac: cloneCurve(value.ac), bc: cloneCurve(value.bc), ucl: cloneCurve(value.ucl) };
+}
+
+export function cloneEmptyThresholds(): EarThresholds {
+  return emptyAudiogramEarThresholds();
+}
+
+export function audiogramRecordFromClient(record: ClientAudiogramRecord): AudiogramRecord {
+  return {
+    key: `db-${record.id}`,
+    id: record.id,
+    date: record.date,
+    useAudiogramRight: record.useAudiogramRight,
+    useAudiogramLeft: record.useAudiogramLeft,
+    transducerRight: record.transducerRight,
+    transducerLeft: record.transducerLeft,
+    right: cloneThresholds(record.right),
+    left: cloneThresholds(record.left),
+  };
+}
+
+export function audiogramDraftFromRecord(record: AudiogramRecord): ClientAudiogramDraft {
+  return {
+    id: record.id,
+    date: record.date,
+    useAudiogramRight: record.useAudiogramRight,
+    useAudiogramLeft: record.useAudiogramLeft,
+    transducerRight: record.transducerRight,
+    transducerLeft: record.transducerLeft,
+    right: cloneThresholds(record.right),
+    left: cloneThresholds(record.left),
+  };
+}
+
+export function calculateSii(thresholds: (AudiogramPoint | null)[]): number {
+  const values = thresholds
+    .filter((point): point is AudiogramPoint => point !== null)
+    .map((point) => point.db);
   if (values.length === 0) return 0;
   const audibility = values.reduce((sum, value) => sum + Math.max(0, 100 - value), 0);
   return Math.round((audibility / (values.length * 100)) * 100);
+}
+
+function withCurve(
+  record: AudiogramRecord,
+  ear: EarSide,
+  curve: CurveType,
+  update: (values: (AudiogramPoint | null)[]) => (AudiogramPoint | null)[],
+): AudiogramRecord {
+  const curveKey = CURVE_KEYS[curve];
+  return {
+    ...record,
+    [ear]: { ...record[ear], [curveKey]: update(cloneCurve(record[ear][curveKey])) },
+  };
 }
 
 export function updateThreshold(
@@ -111,22 +136,62 @@ export function updateThreshold(
   frequencyIndex: number,
   clickedDb: number,
 ): AudiogramRecord {
-  const curveKey = CURVE_KEYS[curve];
-  const values = [...record[ear][curveKey]];
-  const existing = values[frequencyIndex];
-  values[frequencyIndex] = existing !== null && Math.abs(existing - clickedDb) < 4
-    ? null
-    : clickedDb;
-  return {
-    ...record,
-    [ear]: { ...record[ear], [curveKey]: values },
-  };
+  return withCurve(record, ear, curve, (values) => {
+    const existing = values[frequencyIndex];
+    values[frequencyIndex] = existing !== null && Math.abs(existing.db - clickedDb) < 4
+      ? null
+      : { db: clickedDb, marker: existing?.marker ?? "unmasked" };
+    return values;
+  });
 }
 
-export function cloneEmptyThresholds(): EarThresholds {
+export function removeThresholdPoint(
+  record: AudiogramRecord,
+  ear: EarSide,
+  curve: CurveType,
+  frequencyIndex: number,
+): AudiogramRecord {
+  if (record[ear][CURVE_KEYS[curve]][frequencyIndex] === null) return record;
+  return withCurve(record, ear, curve, (values) => {
+    values[frequencyIndex] = null;
+    return values;
+  });
+}
+
+export function setThresholdMarker(
+  record: AudiogramRecord,
+  ear: EarSide,
+  curve: CurveType,
+  frequencyIndex: number,
+  marker: AudiogramMarker,
+): AudiogramRecord {
+  const existing = record[ear][CURVE_KEYS[curve]][frequencyIndex];
+  if (!existing || existing.marker === marker) return record;
+  return withCurve(record, ear, curve, (values) => {
+    values[frequencyIndex] = { db: existing.db, marker };
+    return values;
+  });
+}
+
+export function clearCurve(
+  record: AudiogramRecord,
+  ear: EarSide,
+  curve: CurveType,
+): AudiogramRecord {
+  if (record[ear][CURVE_KEYS[curve]].every((point) => point === null)) return record;
+  return withCurve(record, ear, curve, (values) => values.map(() => null));
+}
+
+/** Copies one ear's curve onto the other ear, replacing its points. */
+export function copyCurveToOtherEar(
+  record: AudiogramRecord,
+  fromEar: EarSide,
+  curve: CurveType,
+): AudiogramRecord {
+  const toEar: EarSide = fromEar === "right" ? "left" : "right";
+  const curveKey = CURVE_KEYS[curve];
   return {
-    ac: [...EMPTY_THRESHOLDS.ac],
-    bc: [...EMPTY_THRESHOLDS.bc],
-    ucl: [...EMPTY_THRESHOLDS.ucl],
+    ...record,
+    [toEar]: { ...record[toEar], [curveKey]: cloneCurve(record[fromEar][curveKey]) },
   };
 }

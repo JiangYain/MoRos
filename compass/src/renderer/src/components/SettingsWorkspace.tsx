@@ -1,8 +1,9 @@
-import { ArrowLeft, Box, PackageCheck, Palette, Puzzle, Search, Settings2, UserRound } from "lucide-react";
+import { Archive, ArrowLeft, Box, PackageCheck, Palette, Puzzle, Search, Settings2, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type TranslationKey, useI18n } from "../i18n";
 import { type SettingsSection, useCompass } from "../store";
 import { AppearanceSettings } from "./settings/AppearanceSettings";
+import { ArchiveSettings } from "./settings/ArchiveSettings";
 import { DependenciesSettings } from "./settings/DependenciesSettings";
 import { GeneralSettings } from "./settings/GeneralSettings";
 import { ModelsSettings } from "./settings/ModelsSettings";
@@ -21,6 +22,7 @@ const NAV_CATEGORIES: Array<{
   ] },
   { titleKey: "settings.category.system", items: [
     { id: "dependencies", icon: PackageCheck, labelKey: "settings.nav.dependencies" },
+    { id: "archive", icon: Archive, labelKey: "settings.nav.archive" },
   ] },
   { titleKey: "settings.category.ai", items: [
     { id: "models", icon: Box, labelKey: "settings.nav.models" },
@@ -36,8 +38,10 @@ function buildSearchTargets(t: ReturnType<typeof useI18n>["t"]): SettingsSearchT
     { sectionId: "models", targetId: "settings-page-models", title: t("settings.nav.models"), description: t("settings.nav.modelsDescription"), keywords: "provider model settings" },
     { sectionId: "skills", targetId: "settings-page-skills", title: t("settings.nav.skills"), description: t("settings.nav.skillsDescription"), keywords: "skill settings" },
     { sectionId: "dependencies", targetId: "settings-page-dependencies", title: t("settings.nav.dependencies"), description: t("settings.nav.dependenciesDescription"), keywords: "dependency runtime fitting software driver git bash target connexx compass gps noahlink 驱动 验配软件 依赖" },
+    { sectionId: "archive", targetId: "settings-page-archive", title: t("settings.nav.archive"), description: t("settings.nav.archiveDescription"), keywords: "archive archived session restore 归档 归档箱 封存 恢复 还原 会话 对话" },
     { sectionId: "general", targetId: "settings-language", title: t("language.label"), description: t("language.description"), keywords: "language locale i18n" },
     { sectionId: "general", targetId: "settings-command-explanation-language", title: t("settings.commandExplanationLanguage"), description: t("settings.commandExplanationLanguageDescription"), keywords: "command explanation approval summary language 命令 说明 语言" },
+    { sectionId: "general", targetId: "settings-composer-send-key", title: t("settings.composerSendKey"), description: t("settings.composerSendKeyDescription"), keywords: "enter shift send newline composer 发送 换行 回车" },
     { sectionId: "general", targetId: "settings-quick-prompts", title: t("settings.quickPrompts"), description: t("settings.quickPromptsDescription", { max: 5 }), keywords: "prompt shortcut" },
     { sectionId: "appearance", targetId: "settings-theme", title: t("settings.colorTheme"), description: t("settings.appearanceDescription"), keywords: "theme light dark system" },
     { sectionId: "profile", targetId: "settings-profile-identity", title: t("settings.profile"), description: t("settings.nav.profileDescription"), keywords: "name username avatar identity" },
@@ -47,6 +51,7 @@ function buildSearchTargets(t: ReturnType<typeof useI18n>["t"]): SettingsSearchT
     { sectionId: "dependencies", targetId: "settings-dependencies-runtime", title: t("settings.dependenciesCategory.runtime"), description: t("settings.dependenciesCategory.runtimeDescription"), keywords: "git bash runtime shell" },
     { sectionId: "dependencies", targetId: "settings-dependencies-fitting", title: t("settings.dependenciesCategory.fitting"), description: t("settings.dependenciesCategory.fittingDescription"), keywords: "phonak target signia connexx widex compass gps fitting" },
     { sectionId: "dependencies", targetId: "settings-dependencies-driver", title: t("settings.dependenciesCategory.driver"), description: t("settings.dependenciesCategory.driverDescription"), keywords: "himsa noahlink wireless driver" },
+    { sectionId: "general", targetId: "settings-about", title: t("settings.about"), description: t("settings.aboutDescription"), keywords: "about version compass build 关于 版本" },
   ];
 }
 
@@ -57,6 +62,7 @@ function SettingsSectionView({ section }: { section: SettingsSection }): React.J
     case "models": return <ModelsSettings />;
     case "skills": return <SkillsSettings />;
     case "dependencies": return <DependenciesSettings />;
+    case "archive": return <ArchiveSettings />;
     default: return <GeneralSettings />;
   }
 }
@@ -66,6 +72,9 @@ export function SettingsWorkspace(): React.JSX.Element {
   const section = useCompass((state) => state.settingsSection) ?? "general";
   const openSettings = useCompass((state) => state.openSettings);
   const closeSettings = useCompass((state) => state.closeSettings);
+  const pendingNavigation = useCompass((state) => state.pendingSettingsNavigation);
+  const settingsGuard = useCompass((state) => state.settingsGuard);
+  const resolveSettingsNavigation = useCompass((state) => state.resolveSettingsNavigation);
   const [search, setSearch] = useState("");
   const [pendingTarget, setPendingTarget] = useState<SettingsSearchMatch | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
@@ -100,6 +109,23 @@ export function SettingsWorkspace(): React.JSX.Element {
     highlightTimeoutRef.current = window.setTimeout(clearHighlight, 1600);
   }, [clearHighlight, pendingTarget, section]);
   useEffect(() => clearHighlight, [clearHighlight]);
+
+  const stayInEditor = useCallback((): void => {
+    // An armed search jump must not fire later if the user chooses to stay.
+    setPendingTarget(null);
+    void resolveSettingsNavigation("stay");
+  }, [resolveSettingsNavigation]);
+
+  useEffect(() => {
+    if (!pendingNavigation) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      stayInEditor();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [pendingNavigation, stayInEditor]);
 
   return (
     <div className="settings-workspace">
@@ -164,6 +190,42 @@ export function SettingsWorkspace(): React.JSX.Element {
         </nav>
       </aside>
       <main className="settings-main"><SettingsSectionView section={section} /></main>
+      {pendingNavigation && (
+        <div
+          className="settings-guard-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) stayInEditor();
+          }}
+        >
+          <section
+            className="settings-guard-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-guard-title"
+            aria-describedby="settings-guard-body"
+          >
+            <h2 id="settings-guard-title">{t("settings.quickPromptsUnsavedTitle")}</h2>
+            <p id="settings-guard-body">{t("settings.quickPromptsUnsavedBody")}</p>
+            <div className="settings-guard-actions">
+              <button type="button" className="settings-small-btn" autoFocus onClick={stayInEditor}>
+                {t("settings.quickPromptsUnsavedStay")}
+              </button>
+              <button type="button" className="settings-small-btn" onClick={() => void resolveSettingsNavigation("discard")}>
+                {t("settings.quickPromptsUnsavedDiscard")}
+              </button>
+              <button
+                type="button"
+                className="settings-small-btn primary"
+                disabled={!settingsGuard?.canSave()}
+                onClick={() => void resolveSettingsNavigation("save")}
+              >
+                {t("settings.quickPromptsUnsavedSave")}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

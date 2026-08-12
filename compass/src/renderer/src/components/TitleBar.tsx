@@ -35,6 +35,7 @@ export function TitleBar({
   const openPath = useCompass((state) => state.openPath);
   const openSettings = useCompass((state) => state.openSettings);
   const closeSettings = useCompass((state) => state.closeSettings);
+  const armSettingsNavigation = useCompass((state) => state.armSettingsNavigation);
   const sidebarOpen = useCompass((state) => state.sidebarOpen);
   const setSidebarOpen = useCompass((state) => state.setSidebarOpen);
 
@@ -62,23 +63,32 @@ export function TitleBar({
     action();
   };
 
-  const startNewSession = (): void => {
+  // Composite menu actions leave Settings first; the leave-guard may hold the
+  // follow-up until the user resolves unsaved quick-prompt changes.
+  const leaveSettingsThen = (action: () => void): void => {
+    if (armSettingsNavigation(action)) return;
     closeSettings();
-    ignoreCommandFailure(newSession());
+    action();
+  };
+
+  const startNewSession = (): void => {
+    leaveSettingsThen(() => ignoreCommandFailure(newSession()));
   };
 
   const focusComposer = (): void => {
-    closeSettings();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
-    }));
+    leaveSettingsThen(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+      }));
+    });
   };
 
   const openSessionSearch = (): void => {
-    closeSettings();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      window.dispatchEvent(new Event("compass:open-session-search"));
-    }));
+    leaveSettingsThen(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("compass:open-session-search"));
+      }));
+    });
   };
 
   const refreshDeveloperContext = (): void => {

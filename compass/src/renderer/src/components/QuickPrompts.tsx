@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCompass } from "../store";
@@ -143,6 +144,17 @@ export function QuickPrompts(): React.JSX.Element {
         <span className="quick-prompts-status" aria-live="polite">
           {t("settings.quickPromptsPosition", { current: currentIndex + 1, total: prompts.length })}
         </span>
+      )}
+      {prompts.length > 1 && (
+        <button
+          type="button"
+          className="quick-prompts-next"
+          aria-label={t("settings.quickPromptsNext")}
+          title={t("settings.quickPromptsNext")}
+          onClick={() => switchBy(1)}
+        >
+          <ChevronRight size={13} strokeWidth={1.7} aria-hidden />
+        </button>
       )}
     </div>
   );

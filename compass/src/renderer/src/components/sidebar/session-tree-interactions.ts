@@ -7,6 +7,7 @@ import {
 import {
   INITIAL_SESSION_TREE_INTERACTION_STATE,
   type SessionRenameState,
+  type SessionTreeClientMenu,
   type SessionTreeMenu,
   type SessionTreeMenuPosition,
   sessionTreeInteractionReducer,
@@ -43,8 +44,24 @@ export interface ClientDialogInteraction {
   visible: boolean;
 }
 
+export interface ClientMenuInteraction {
+  close(): void;
+  open(menu: SessionTreeClientMenu): void;
+  position: SessionTreeMenuPosition | null;
+  ref: React.RefObject<HTMLDivElement | null>;
+  state: SessionTreeClientMenu | null;
+}
+
+export interface ClientDeleteInteraction {
+  clientName: string | null;
+  close(): void;
+  request(clientName: string): void;
+}
+
 export interface SessionTreeInteractions {
+  clientDelete: ClientDeleteInteraction;
   clientDialog: ClientDialogInteraction;
+  clientMenu: ClientMenuInteraction;
   confirmations: ConfirmationInteraction;
   menu: MenuInteraction;
   rename: RenameInteraction;
@@ -57,6 +74,7 @@ export function useSessionTreeInteractions(): SessionTreeInteractions {
   );
   const renameInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const clientMenuRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     if (!state.menu || !menuRef.current) return;
@@ -72,17 +90,34 @@ export function useSessionTreeInteractions(): SessionTreeInteractions {
     });
   }, [state.menu]);
 
+  useLayoutEffect(() => {
+    if (!state.clientMenu || !clientMenuRef.current) return;
+    const padding = 8;
+    const bounds = clientMenuRef.current.getBoundingClientRect();
+    dispatch({
+      type: "client-menu/position",
+      position: {
+        left: Math.max(padding, Math.min(state.clientMenu.x, window.innerWidth - bounds.width - padding)),
+        top: Math.max(padding, Math.min(state.clientMenu.y, window.innerHeight - bounds.height - padding)),
+      },
+    });
+  }, [state.clientMenu]);
+
   useEffect(() => {
-    const closeMenu = (): void => dispatch({ type: "menu/close" });
+    const closeMenus = (): void => {
+      dispatch({ type: "menu/close" });
+      dispatch({ type: "client-menu/close" });
+    };
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
-      closeMenu();
+      closeMenus();
+      dispatch({ type: "client-delete/close" });
       dispatch({ type: "confirmation", event: { type: "clear-idle" } });
     };
-    document.addEventListener("mousedown", closeMenu);
+    document.addEventListener("mousedown", closeMenus);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", closeMenu);
+      document.removeEventListener("mousedown", closeMenus);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
@@ -122,12 +157,20 @@ export function useSessionTreeInteractions(): SessionTreeInteractions {
     dispatch({ type: "menu/open", menu });
   }, []);
   const closeMenu = useCallback(() => dispatch({ type: "menu/close" }), []);
+  const openClientMenu = useCallback((menu: SessionTreeClientMenu) => {
+    dispatch({ type: "client-menu/open", menu });
+  }, []);
+  const closeClientMenu = useCallback(() => dispatch({ type: "client-menu/close" }), []);
   const openClientDialog = useCallback(() => {
     dispatch({ type: "client-dialog/set", open: true });
   }, []);
   const closeClientDialog = useCallback(() => {
     dispatch({ type: "client-dialog/set", open: false });
   }, []);
+  const requestClientDelete = useCallback((clientName: string) => {
+    dispatch({ type: "client-delete/request", clientName });
+  }, []);
+  const closeClientDelete = useCallback(() => dispatch({ type: "client-delete/close" }), []);
 
   const rename = useMemo<RenameInteraction>(() => ({
     state: state.rename,
@@ -151,14 +194,28 @@ export function useSessionTreeInteractions(): SessionTreeInteractions {
     open: openMenu,
     close: closeMenu,
   }), [closeMenu, openMenu, state.menu, state.menuPosition]);
+  const clientMenu = useMemo<ClientMenuInteraction>(() => ({
+    state: state.clientMenu,
+    position: state.clientMenuPosition,
+    ref: clientMenuRef,
+    open: openClientMenu,
+    close: closeClientMenu,
+  }), [closeClientMenu, openClientMenu, state.clientMenu, state.clientMenuPosition]);
   const clientDialog = useMemo<ClientDialogInteraction>(() => ({
     visible: state.clientDialogOpen,
     open: openClientDialog,
     close: closeClientDialog,
   }), [closeClientDialog, openClientDialog, state.clientDialogOpen]);
+  const clientDelete = useMemo<ClientDeleteInteraction>(() => ({
+    clientName: state.clientDeleteName,
+    request: requestClientDelete,
+    close: closeClientDelete,
+  }), [closeClientDelete, requestClientDelete, state.clientDeleteName]);
 
-  return useMemo(() => ({ rename, confirmations, menu, clientDialog }), [
+  return useMemo(() => ({ rename, confirmations, menu, clientMenu, clientDialog, clientDelete }), [
+    clientDelete,
     clientDialog,
+    clientMenu,
     confirmations,
     menu,
     rename,

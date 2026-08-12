@@ -221,21 +221,14 @@ test("maps an empty streaming assistant to working", () => {
   });
 });
 
-test("maps ordinary streaming text to composing", () => {
+test("does not show an activity orb once ordinary response text is streaming", () => {
   const activity = resolveThreadActivity([{
     ...assistant("a1"),
-    blocks: [
-      { type: "thinking", text: "Plan" },
-      { type: "text", text: "The response has started." },
-    ],
+    blocks: [{ type: "text", text: "The response has started." }],
     streaming: true,
   }]);
 
-  assert.deepEqual(activity, {
-    target: "assistant-stream",
-    state: "composing",
-    itemId: "a1",
-  });
+  assert.equal(activity, undefined);
 });
 
 test("selects only the newest pending approval explanation when the thread is idle", () => {

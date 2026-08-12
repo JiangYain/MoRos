@@ -2,7 +2,7 @@
 
 > - **定位**：本文件是新会话的项目上下文入口和当前实现索引，不是宣传材料、需求承诺或安全认证。
 > - **适用范围**：仓库根目录、`compass/` 应用、两个外部验配软件 Skill、调查资产、测试、CI 与宣传站点部署文件。
-> - **最后核验日期**：2026-08-10
+> - **最后核验日期**：2026-08-12
 > - **核验基线**：本轮改动开始前的 `origin/main` 完整提交 `d498cc14e8ad3abdad33af7a823e792ba48a1eb5`
 > - **维护责任**：凡修改架构、契约、持久化、命令、环境变量、语言、Provider、Skill、Pi pin、CI、部署或打包流程的提交，其作者与评审者应同步更新本文件并刷新核验 SHA。
 > - **事实规则**：当前代码、[`compass/package.json`](compass/package.json)、锁文件、[`.gitmodules`](.gitmodules)、子模块 gitlink 和 [CI](.github/workflows/ci.yml) 优先；测试与脚本其次；技术文档再次；[`Compass提案.md`](Compass提案.md)、`Compass_intro*.html` 与部署页面只说明历史背景或产品愿景。冲突时以当前代码为准。
@@ -14,16 +14,17 @@
 当前已经实现：
 
 - Electron main + preload + React renderer，并提供同一套 [`CompassApi`](compass/src/shared/types.ts) 给桌面 IPC 和本机 Web RPC；
-- Pi Agent 会话、流式文本/思考/工具事件、图片附件、会话列表、自动标题、模型/Provider 认证、权限审批和 Skill 动态发现；
-- Streamdown 流式 Markdown、按动画帧合并高频 delta，以及工具/思考/正文共享的单一活动 Orb；
+- Pi Agent 会话、流式文本/思考/工具事件、图片附件、会话列表、自动标题、模型/Provider 认证、权限审批和 Skill 动态发现；运行中的会话可在新建/打开其他会话后留在后台继续执行；
+- Streamdown 流式 Markdown、按动画帧合并高频 delta，以及工具/思考/回复开始前等待共享的单一活动 Orb；正文开始输出后不再显示 Orb；
 - 客户档案、助听器品牌和“会话—客户”正式归属的 SQLite 持久化；
 - Phonak Target 与 Widex COMPASS GPS 的 Windows UI 自动化 Skill；
 - Git/Bash、验配软件和 Noahlink Wireless driver 的本机检测与安装进度；
-- 简体中文、繁体中文、英语、德语，浅色/深色/跟随系统主题。
+- 简体中文、繁体中文、英语、德语，浅色/深色/跟随系统主题；
+- 设置内归档箱（查看/恢复归档会话）、客户档案的编辑与删除（侧栏客户右键菜单）、听力健康听力图的 SQLite 持久化（schema v3，与客户关联）、会话正文内容搜索、排队消息撤回/回填、可配置的 Enter/Shift+Enter 发送方式、消息与附件图片放大预览、Alt+←/→ 与鼠标侧键历史导航、错误横幅自动消失、设置内"关于"版本信息、Quick Prompts 未保存离开拦截与 Next 切换。
 
 不要误解为已实现：
 
-- `hearing-health` 目前只是占位页面，不是完整听力健康工作台；
+- `hearing-health` 已支持选定客户的双耳听力图编辑并持久化到 SQLite，但仍不是完整临床听力健康工作台；
 - Agent 是辅助执行与记录机制，不替代临床判断，也不是自主诊断系统；
 - Web 入口只监听 loopback，依赖正在运行的 Electron 主进程，不是云端、多用户或远程服务；
 - `npm run build` 只生成 `compass/out/`，仓库没有已提交的、可复现的 Windows Setup 打包命令，也没有可验证的应用 R2 发布流程；
@@ -94,7 +95,7 @@ npm run build
 
 | 当前已实现 | 明确不是当前事实 |
 | --- | --- |
-| 单一主进程中的 Pi Agent 会话与模型调用 | 云端托管、多用户隔离、远程 Web 服务 |
+| 单一主进程中的 Pi Agent 会话与模型调用；一个前台会话可与多个仍在运行的后台会话共存 | 云端托管、多用户隔离、远程 Web 服务 |
 | Electron 与浏览器共享同一后端状态和事件 | 两个独立 Agent 或跨机器同步 |
 | 客户主档及会话归属的本地 SQLite | 医疗信息系统、完整病历或诊断数据库 |
 | 工具审批与工作区路径判断 | 操作系统级沙箱或完备安全策略 |
@@ -135,7 +136,7 @@ flowchart LR
   API["CompassBackendApi<br/>统一后端操作"]
   WEB["loopback HTTP server<br/>RPC + SSE + static"]
   AGENT["AgentService"]
-  PI["Pi Agent Runtime<br/>AgentSession / ModelRuntime"]
+  PI["Pi Agent Runtime<br/>前台 + 运行中后台 AgentSession / ModelRuntime"]
   PROVIDER["模型 Provider<br/>外部网络"]
   SKILLS["workspace / additionalSkillPaths<br/>SKILL.md + scripts"]
   SETTINGS["Electron userData<br/>compass-settings.json"]
@@ -165,7 +166,7 @@ flowchart LR
 
 - [`startApplication`](compass/src/main/index.ts) 只创建一组 `AgentService`、`ClientDatabase`、`DependencyManager` 和 `CompassBackendApi`。Electron 窗口与浏览器不是两套后端。
 - 桌面通过 [`compass/src/preload/index.ts`](compass/src/preload/index.ts) 的 `contextBridge` 使用 IPC；浏览器通过 [`createWebApi`](compass/src/renderer/src/web-api.ts) 使用 `/api/rpc`，二者都实现 [`CompassApi`](compass/src/shared/types.ts) 契约。
-- 主进程的 `emitAgentEvent` 同时发送 Electron `agent:event` 和 Web server 订阅事件；Web 转为 SSE。桌面/Web 若同时打开，会看到同一活动会话的事件。
+- 主进程的 `emitAgentEvent` 同时发送 Electron `agent:event` 和 Web server 订阅事件；Web 转为 SSE。桌面/Web 若同时打开，会看到同一前台会话的事件。后台会话只广播会话列表刷新，不把其消息、工具或审批增量投影进当前 Thread。
 - 设置、客户数据库、Pi 认证与 Pi 会话是四个不同存储。不要把某一存储备份当作完整备份。
 
 ### 4.1 消息、工具与审批时序
@@ -219,7 +220,8 @@ sequenceDiagram
 
 - [`store.prompt`](compass/src/renderer/src/store.ts) 先乐观显示用户消息，RPC 失败时回滚；主进程用 `clientMessageId` 对齐随后到达的真实事件。
 - 活动会话正在流式时，[`AgentService.prompt`](compass/src/main/agent.ts) 使用 Pi 的 `streamingBehavior: "steer"`，不是创建第二个会话。
-- 工具执行事件由 [`AgentService.onSessionEvent`](compass/src/main/agent.ts) 投影成 [`AgentUiEvent`](compass/src/shared/types.ts)；[`Thread`](compass/src/renderer/src/components/Thread.tsx) 只展示投影结果。
+- 每个 live session 都有独立的 [`AgentEventProjector`](compass/src/main/agent/event-projector.ts) 与审批控制器；只有前台 owner 的消息、工具和审批事件投影成可见 [`AgentUiEvent`](compass/src/shared/types.ts)，后台 owner 只触发会话列表刷新，同时在自己的 projector 中维护紧凑的流式助手/工具快照。[`Thread`](compass/src/renderer/src/components/Thread.tsx) 因而不会混入其他会话的增量。
+- 新建或打开其他会话时，[`SessionRuntimeCoordinator`](compass/src/main/agent/session-runtime-coordinator.ts) 会把仍在运行的前台 owner 留在后台；重新选择该会话会提升同一个 live owner，不会打开第二个 JSONL writer，并把 projector 的实时快照合并进初始化 Thread。renderer 会从快照重建流式 block 索引，因此最新部分回答立即可见，后续 delta 仍可续接。后台运行在 `agent_settled` 后释放。
 - 自动标题在 `agent_settled` 后 best-effort 调用所选 summary model；这可能发出额外真实模型请求和产生费用。
 
 ## 5. 构建与启动生命周期
@@ -264,7 +266,7 @@ sequenceDiagram
 
 - 中止进行中的 Provider 登录；
 - 取消依赖安装任务；
-- 中止正在流式的 Agent，并取消待审批请求、释放 Pi session；
+- 中止所有前台/后台仍在流式的 Agent，并取消各自待审批请求、释放全部 Pi session；
 - 关闭 SSE 客户端和 Web server；
 - 对文件数据库尝试 `wal_checkpoint(TRUNCATE)` 后关闭 SQLite。
 
@@ -274,8 +276,9 @@ sequenceDiagram
 
 | 模块 / symbol | 输入 → 输出 | 持久化或副作用 | 容易出错的边界 |
 | --- | --- | --- | --- |
-| [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、依赖可执行文件环境变量、真实模型请求 | 恢复旧会话时沿用会话模型；自动标题与审批说明会另发请求；审批结束会取消尚未完成的说明请求；切换工作区会创建新会话 |
-| [`SessionManager.create/open`](compass/src/main/agent.ts) + [`session-library.ts`](compass/src/main/agent/session-library.ts) | workspace 或 session path → 活动 Pi session | JSONL append、rename/archive/delete | 打开、归档、删除都先按当前 workspace 已列出会话做 canonical allow-list 校验；活动会话移除先转移生命周期所有权，失败时恢复；成功后以内部 session ID 清理客户归属但不向 renderer 泄露该 ID |
+| [`AgentService`](compass/src/main/agent.ts) | 设置、客户注册表、Pi 事件 → `InitPayload`、线程、stats、`AgentUiEvent` | Pi JSONL、Compass settings、依赖可执行文件环境变量、真实模型请求 | 前台与运行中后台 owner 各自拥有 event projector、审批和 runtime settings；只有前台事件进入 Thread；恢复旧会话时沿用会话模型；自动标题与审批说明会另发请求；切换工作区会创建新会话 |
+| [`SessionRuntimeCoordinator`](compass/src/main/agent/session-runtime-coordinator.ts) | 新建/打开/重入会话 → 前台 owner + keyed 后台 owner 集合 | 保留或释放 live Pi session | 导航只保留仍在运行的旧 owner；重入提升原 owner；普通配置替换继续使用强单 owner 清理；后台完成与应用关闭必须释放资源 |
+| [`SessionManager.create/open`](compass/src/main/agent.ts) + [`session-library.ts`](compass/src/main/agent/session-library.ts) | workspace 或 session path → 活动 Pi session | JSONL append、rename/archive/delete | 打开、归档、删除都先按当前 workspace 已列出会话做 canonical allow-list 校验；活动前台会话移除先转移生命周期所有权，失败时恢复；仍在后台运行的会话拒绝直接归档/删除，避免文件操作与 live writer 冲突；成功后以内部 session ID 清理客户归属但不向 renderer 泄露该 ID |
 | [`projectThread`](compass/src/main/thread-projector.ts) | Pi messages/tool results → `UiThreadItem[]` | 无独立存储 | UI thread 是投影，不是第二份会话数据库 |
 | [`generateMissingSessionTitle`](compass/src/main/agent.ts) | 已完成线程 + summary model → session name | 写 Pi session info；网络/费用 | best-effort；失败不会阻断对话，不应假设每个会话都有标题 |
 | [`normalizeImages`](compass/src/main/image-attachments.ts) | UI base64 图片 → Pi attachment | 请求体/内存、模型请求与 Pi session 内容 | 最多 8 张、单张 10 MiB、解码后总计 24 MiB；Web 的 26 MB JSON 上限会被 base64 膨胀提前触发 |
@@ -290,7 +293,7 @@ sequenceDiagram
 
 `CompassBackendApi` 是业务组合层；IPC 和 Web 只应做参数校验、传输和事件桥接。新增行为时避免在两个传输适配中复制业务逻辑。
 
-会话 owner 由 [`LifecycleCoordinator`](compass/src/main/agent/lifecycle-coordinator.ts) 串行管理并采用 create-before-swap：候选创建失败时旧 session 保持可用，成功切换后才屏蔽旧回调并清理旧 owner。每个 owner 绑定独立 runtime settings；workspace、Skill 目录与禁用 Skill 先以 staged config 创建候选，候选 ready 后通过同步 `beforePublish` 在同一事件循环提交 settings 文件、发布内存设置并立即 swap owner，因此旧 Prompt/Approval 不会在候选期提前读到新 workspace。非模型设置通过 [`SettingsMutationTransaction`](compass/src/main/agent/settings-mutation-transaction.ts) 以字段级快照串行提交，统一协调内存、原子 settings 文件和 live-session/environment 副作用；任何阶段失败会补偿恢复，并保留主错误与所有补偿错误。
+底层会话 owner 仍由 [`LifecycleCoordinator`](compass/src/main/agent/lifecycle-coordinator.ts) 串行管理并采用 create-before-swap：候选创建失败时旧 session 保持可用，成功切换后才屏蔽旧前台回调。[`SessionRuntimeCoordinator`](compass/src/main/agent/session-runtime-coordinator.ts) 在其上区分导航与强替换：新建/打开会话时，若旧 owner 仍在运行就按 session path 留在后台；再次打开会直接提升该 owner，后台完成后释放；设置重配置等非导航替换仍清理旧前台 owner。每个 owner 绑定独立 event projector、审批控制器、resource loader 和 runtime settings，因此后台事件不会污染前台 Thread，待审批请求也不会因单纯切换会话而被取消。workspace、Skill 目录与禁用 Skill 先以 staged config 创建候选，候选 ready 后通过同步 `beforePublish` 在同一事件循环提交 settings 文件、发布内存设置并立即 swap owner，因此旧 Prompt/Approval 不会在候选期提前读到新 workspace。非模型设置通过 [`SettingsMutationTransaction`](compass/src/main/agent/settings-mutation-transaction.ts) 以字段级快照串行提交，统一协调内存、原子 settings 文件和 live-session/environment 副作用；任何阶段失败会补偿恢复，并保留主错误与所有补偿错误。
 
 ## 7. 渲染层、状态与双入口
 
@@ -299,17 +302,17 @@ sequenceDiagram
 [`App`](compass/src/renderer/src/App.tsx) 管理两种 `MainView`：
 
 - `assistant`：空线程显示 [`Hero`](compass/src/renderer/src/components/Hero.tsx) 与 [`QuickPrompts`](compass/src/renderer/src/components/QuickPrompts.tsx)；有消息、审批或依赖提示时显示 [`Thread`](compass/src/renderer/src/components/Thread.tsx)；底部始终是 [`Composer`](compass/src/renderer/src/components/Composer.tsx)。
-- `hearing-health`：显示 [`HearingHealthWorkspace`](compass/src/renderer/src/components/HearingHealthWorkspace.tsx)，当前为占位实现。
+- `hearing-health`：显示 [`HearingHealthWorkspace`](compass/src/renderer/src/components/HearingHealthWorkspace.tsx)：选定客户后编辑双耳听力图（AC/BC/UCL、换能器、日期、历史记录），改动防抖持久化到 SQLite 并与客户档案关联；客户资料的编辑内联在该页面（"编辑资料"展开面板，无独立模态），侧栏客户右键菜单可直接进入；新建客户仍使用 `ClientProfileDialog`。use_audiogram 字段保留在数据库但当前 UI 不展示。
 
-[`Sidebar`](compass/src/renderer/src/components/Sidebar.tsx) 负责新建/搜索会话、客户与日期归组、正式归属操作、重命名/归档/删除、主视图切换和本地操作员菜单。`Ctrl/Cmd+,` 打开设置，`Ctrl/Cmd+N` 新会话，`Ctrl/Cmd+K` 或 `Ctrl/Cmd+P` 打开会话搜索。宽度可拖动并写 localStorage；小于 760px 时变为遮罩式侧栏。
+[`Sidebar`](compass/src/renderer/src/components/Sidebar.tsx) 负责新建/搜索会话、客户与日期归组、正式归属操作、重命名/归档/删除、主视图切换和本地操作员菜单。客户分组行支持右键菜单：编辑资料、打开听力健康、删除客户（删除走应用内确认，级联清理归属与听力记录，其会话回到"未关联客户"）。会话搜索除标题/客户/时间外还经防抖调用 main 侧正文搜索（`searchSessionContent`），结果列表可滚动、不再截断为 12 条。`UiSessionInfo.isRunning` 为真时，会话行右侧用旋转指示器替代相对时间；reduced-motion 下保留静态状态图标。后台运行会话的归档/删除入口会禁用，必须先进入该会话。`Ctrl/Cmd+,` 打开设置，`Ctrl/Cmd+N` 新会话，`Ctrl/Cmd+K` 或 `Ctrl/Cmd+P` 打开会话搜索。宽度可拖动并写 localStorage；小于 760px 时变为遮罩式侧栏。
 
 [`SettingsWorkspace`](compass/src/renderer/src/components/SettingsWorkspace.tsx) 的 `SettingsSection` 为：
 
-`general`、`appearance`、`profile`、`models`、`skills`、`dependencies`。
+`general`、`appearance`、`profile`、`models`、`skills`、`dependencies`、`archive`。
 
-其中包括界面语言、Command 说明语言、Quick Prompts、主题、操作员资料、Provider 认证、启用模型、标题 summary model、Skill 目录/开关、依赖项状态/安装。Command 说明语言默认跟随界面语言，也可独立指定为简体中文、繁体中文、英语或德语。工作区和权限模式都不在 Settings 页面：工作区从 [`Composer`](compass/src/renderer/src/components/Composer.tsx) 的 workspace 操作入口更换，权限模式由同一区域的 [`PermissionMenu`](compass/src/renderer/src/components/composer/PermissionMenu.tsx) 修改；两者都会持久化。
+其中包括界面语言、Command 说明语言、Composer 发送方式（Enter/Shift+Enter）、Quick Prompts、"关于"版本信息、主题、操作员资料、Provider 认证、启用模型、标题 summary model、Skill 目录/开关、依赖项状态/安装、归档箱（查看/恢复已归档会话）。Quick Prompts 编辑器有未保存更改时，任何离开设置的路径都会先弹出保存/放弃/继续编辑的确认模态。Command 说明语言默认跟随界面语言，也可独立指定为简体中文、繁体中文、英语或德语。工作区和权限模式都不在 Settings 页面：工作区从 [`Composer`](compass/src/renderer/src/components/Composer.tsx) 的 workspace 操作入口更换，权限模式由同一区域的 [`PermissionMenu`](compass/src/renderer/src/components/composer/PermissionMenu.tsx) 修改；两者都会持久化。
 
-[`Thread`](compass/src/renderer/src/components/Thread.tsx) 使用 [`Streamdown`](compass/src/renderer/src/components/Markdown.tsx) 渲染 Markdown。只有最新的普通流式正文启用新词淡入，历史、Thinking、工具与 Skill 保持静态；reduced-motion 只关闭动画，不关闭不完整 Markdown 修复。[`agent-event-batcher.ts`](compass/src/renderer/src/agent-event-batcher.ts) 按 animation frame 合并兼容 delta，并在 `assistant-end`、切换会话、取消和完整状态刷新等生命周期屏障前同步冲刷或丢弃。工具、Thinking、正文和审批说明通过 [`threadActivity.ts`](compass/src/renderer/src/components/threadActivity.ts) 竞争唯一活动 Orb。
+[`Thread`](compass/src/renderer/src/components/Thread.tsx) 使用 [`Streamdown`](compass/src/renderer/src/components/Markdown.tsx) 渲染 Markdown。只有最新的普通流式正文启用新词淡入，历史、Thinking、工具与 Skill 保持静态；reduced-motion 只关闭动画，不关闭不完整 Markdown 修复。[`agent-event-batcher.ts`](compass/src/renderer/src/agent-event-batcher.ts) 按 animation frame 合并兼容 delta，并在 `assistant-end`、切换会话、取消和完整状态刷新等生命周期屏障前同步冲刷或丢弃。工具、Thinking、回复开始前等待和审批说明通过 [`threadActivity.ts`](compass/src/renderer/src/components/threadActivity.ts) 竞争唯一活动 Orb；普通正文一旦开始输出，就只保留 Streamdown 的文本反馈，不再挂载活动 Orb。
 
 [`ContextUsageSurface`](compass/src/renderer/src/components/composer/ContextUsage.tsx) 展示 [`context-usage.ts`](compass/src/main/context-usage.ts) 生成的估算明细。Pi 提供总上下文 Token 与窗口大小，Compass 用文本长度近似各部分成本，再用最大余数法把 12 类结果缩放到该权威总数；因此分类值用于定位占用来源，不是 Provider tokenizer 的逐块精确计费。六类固定上下文是 System Prompt、Rules、Skills、Tool Definitions、MCP & dynamic tools、Subagent definitions；六类运行上下文是 Conversation、Read、Write、Edit、Bash、Other tools。工具 schema 仍计入对应固定定义，assistant `toolCall` 参数与 `toolResult` 内容按工具名计入运行分类；Grep/Find/LS、MCP、子 Agent 与未知工具的运行内容进入 Other tools，普通用户/助手文本与 Thinking 留在 Conversation。`ContextUsageBreakdown.details` 进一步保留每个分类的来源项：Skill/工具定义使用名称，Conversation 按消息拆分，Read/Write/Edit 按文件路径、Bash 按命令、Other tools 按工具调用拆分；第二轮最大余数缩放保证任一分类的来源项之和严格等于该分类值。`details` 保持可选，以兼容升级前的 stats 快照，renderer 会为缺少细则的非零分类生成单项回退。明细在宽屏为两个各六行的分组，760px 以下叠成单栏；12 个分类行和总览环段均可点击进入该分类的来源占比环，环心按钮返回总览。环图为每个非零分段提供可悬停、可聚焦的 Token/占比 Tooltip，并在空间允许时只为占比最大的两个非零分段绘制细折线类别标签；560px 以下隐藏折线以避免挤压，但分类明细和分段焦点信息仍保留。鼠标按下环段不会把焦点留在 SVG 上，避免原生矩形聚焦框；键盘聚焦和 Enter/Space 钻取路径仍完整保留。总览的 12 个分段节点始终稳定挂载，首次展示、分类切换和后续统计变化都使用 720ms 弹性三次贝塞尔过渡。Context Usage surface 参与正常布局，不再绝对定位覆盖 Thread；[`Thread`](compass/src/renderer/src/components/Thread.tsx) 监听可视区高度变化，只在用户原本贴底时持续显示最新内容，阅读历史时保留原滚动位置。
 
@@ -319,7 +322,7 @@ sequenceDiagram
 
 - 初始化：`ready`、version、settings、skills、models、providers、prerequisites、dependencies；
 - Agent：stats、thread、approvals、streaming blocks、queue、lastError；
-- 会话：sessions、活动 session、乐观新会话/消息；
+- 会话：sessions（含前台/后台运行状态）、活动 session、乐观新会话/消息；
 - 客户：`ClientRegistry` 与 session assignment；
 - UI：settings section、main view、sidebar、composer seed、依赖提示；
 - 本地资料：operator identity/avatar。
@@ -342,7 +345,7 @@ sequenceDiagram
 | 新用户文案 | `renderer/src/i18n.ts`；若来自 main，还搜索 `compass-context.ts`、`agent.ts`、`compass-api.ts`、`auth-login-controller.ts`、`prerequisites.ts` 的语言表 |
 | 新主页面 | `store.ts` 的 `MainView`、`App.tsx`、`Sidebar.tsx`、导航历史、样式与 smoke |
 | 新侧栏行为 | `Sidebar.tsx`、相关纯函数/测试、`sidebar.css`、会话/客户契约 |
-| 流式块/事件 | `shared/types.ts`、`AgentService.onSessionEvent`、`store.applyEvent`、`Thread.tsx`、desktop/Web event tests |
+| 流式块/事件 | `shared/types.ts`、`agent/event-projector.ts`、`AgentService.emitSessionEvent`、`store.applyEvent`、`Thread.tsx`、desktop/Web event tests |
 
 ## 8. 核心领域模型与术语
 
@@ -356,7 +359,7 @@ sequenceDiagram
 | 线程项目 | [`UiThreadItem`](compass/src/shared/types.ts)：user、assistant、tool、notice | 是 Pi message 的 UI 投影，不独立持久化 |
 | 消息块 | `UiBlock`：text/thinking；工具是单独 thread item | Pi 原始 content 可能更丰富 |
 | 工具调用 | Pi tool call 投影为 tool start/update/end | Skill 是资源/指令包，不等于一次 tool call |
-| 审批请求 | `UiApprovalRequest`，最多等待 10 分钟 | 只在当前进程内 pending；切会话/停止会取消 |
+| 审批请求 | 每个 live session 独立持有的 `UiApprovalRequest`，最多等待 10 分钟 | 只在当前进程内 pending；单纯切换会话会保留，停止该任务、session dispose 或应用关闭会取消 |
 | Model | Provider 下的具体模型：能力、上下文窗、reasoning/images | enabled model、default model、summary model 是不同选择 |
 | Provider | Pi 模型目录中的服务提供方及认证策略 | `provider-auth-registry.json` 不是 Provider 目录本身 |
 | `ThinkingLevel` | `off/minimal/low/medium/high/xhigh/max` | 模型不一定支持全部等级；Pi 可降级或拒绝 |
@@ -372,8 +375,8 @@ sequenceDiagram
 
 | 存储 | 内容 | 默认位置 / 覆盖 |
 | --- | --- | --- |
-| Compass settings | language、commandExplanationLanguage、workspace、额外/禁用 Skill、permission、default/summary/enabled model、thinking、Quick Prompts | Electron userData 下 `compass-settings.json`；Windows 通常为 `%APPDATA%\compass\compass-settings.json`；整个 userData 可由 `COMPASS_USER_DATA_DIR` 覆盖 |
-| 客户 SQLite | clients、brands、session assignments、migration metadata | userData 下 `compass.sqlite3`；`COMPASS_DATABASE_PATH` 可单独覆盖，测试可设 `:memory:` |
+| Compass settings | language、commandExplanationLanguage、composerSendKey、workspace、额外/禁用 Skill、permission、default/summary/enabled model、thinking、Quick Prompts | Electron userData 下 `compass-settings.json`；Windows 通常为 `%APPDATA%\compass\compass-settings.json`；整个 userData 可由 `COMPASS_USER_DATA_DIR` 覆盖 |
+| 客户 SQLite | clients、brands、session assignments、audiogram records、migration metadata | userData 下 `compass.sqlite3`；`COMPASS_DATABASE_PATH` 可单独覆盖，测试可设 `:memory:` |
 | Pi 认证/模型配置 | Provider API key 或 OAuth credential、`models.json`、model store | 默认 `~/.pi/agent/`；`PI_CODING_AGENT_DIR` 覆盖整个 Pi agent dir |
 | Pi 会话 | append-only JSONL、标题与会话元信息 | 默认 `~/.pi/agent/sessions/--<encoded-workspace>--/*.jsonl`；Compass 的 `SessionManager.create(cwd)` 随 `PI_CODING_AGENT_DIR` 移动 |
 | renderer localStorage | 主题、操作员头像/身份、侧栏宽度、侧栏会话排序；旧客户键只用于迁移 | 各 renderer origin/profile 自己保存；桌面与浏览器不共享；见下表 |
@@ -383,20 +386,21 @@ sequenceDiagram
 
 ### 9.2 SQLite schema、迁移与备份
 
-[`ClientDatabase`](compass/src/main/client-database.ts) 当前 `PRAGMA user_version = 2`：
+[`ClientDatabase`](compass/src/main/client-database.ts) 当前 `PRAGMA user_version = 3`：
 
 | 表 | 用途 |
 | --- | --- |
 | `clients` | 规范化 key、显示名、性别、年龄、联系方式、备注、profile flag、时间戳 |
 | `client_hearing_aid_brands` | client 的多选品牌，复合主键，级联删除 |
 | `session_client_assignments` | Pi session ID → client，带 `assigned_at` |
+| `audiogram_records` | 客户听力图记录：双耳 AC/BC/UCL 各 7 频点（JSON 列，写入校验）、换能器、use 标志、日期；外键随客户级联删除 |
 | `app_metadata` | 例如旧 localStorage 导入时间 |
 
 策略：
 
 - `foreign_keys=ON`、`busy_timeout=5000`、`synchronous=NORMAL`；
 - 文件数据库使用 WAL；多表操作使用 `BEGIN IMMEDIATE`，异常回滚；
-- v1→v2 重建 `clients`，只保留 `female/male`，其他旧性别变为 `NULL`，并做 `foreign_key_check`；
+- v1→v2 重建 `clients`，只保留 `female/male`，其他旧性别变为 `NULL`，并做 `foreign_key_check`；v2→v3 在事务内新建 `audiogram_records` 并再次 `foreign_key_check`；迁移为逐版本链式执行；
 - renderer 启动时读取旧键 `compass.clients.v1`，主进程在单个事务内导入；成功后删除旧键。无法删除时再次导入仍应幂等；
 - 正常关闭 checkpoint。最安全备份方式是先正常退出 Compass，再复制 `compass.sqlite3`；若必须在线复制，需要把数据库及当时的 `-wal`、`-shm` 作为一致集合处理。
 
@@ -464,6 +468,7 @@ Pi CLI 还认识 `PI_CODING_AGENT_SESSION_DIR`，但 Compass 当前直接调用 
 - 用 `ModelRuntime` / `ModelRegistry` 提供 Provider、模型和认证；
 - 用 `DefaultResourceLoader` 加载 workspace、additional Skill、Compass permission extension、客户/语言 context extension 和 [`COMPASS_CONTEXT`](compass/src/main/compass-context.ts) persona；
 - 新会话 `SessionManager.create(cwd)`，恢复会话 `SessionManager.open(path)`；
+- 新建/打开其他会话时保留仍在运行的旧 owner，并在重新选择时复用；后台 owner 的事件与审批状态和前台隔离；
 - 把 Pi `AgentSessionEvent` 转为 UI 事件，用 [`thread-projector.ts`](compass/src/main/thread-projector.ts) 转换历史消息；
 - 保存默认/启用/summary model 与 thinking 偏好，但恢复旧会话时不强行覆盖该会话已经记录的模型。
 
@@ -540,7 +545,7 @@ Compass UI 的 `setApiKey` 和 OAuth login 最终写入 Pi credential store（�
 | shell | 每次询问 | 只有窄正则可证明为只读、且无重定向/管道/命令替换等元字符时直接允许，否则询问 | 直接允许 |
 | 其他/动态工具 | 询问 | 询问，除非未来策略能证明只读 | 直接允许 |
 
-审批等待最多 10 分钟；停止任务、切换会话或 session dispose 会拒绝未决请求。
+审批等待最多 10 分钟；单纯切换会话不会取消该会话的未决审批，重新进入后仍可处理；停止对应任务、session dispose 或应用关闭会拒绝未决请求。
 
 重要限制：
 
@@ -703,7 +708,7 @@ Phonak Target 可以并行安装多个版本。Dependencies 卡片展示候选�
 
 ## 17. 测试与 CI 版图
 
-当前 [`compass/tests/`](compass/tests/) 有 55 个 `*.test.ts` 文件；2026-08-10 整库验收时，`npm run test:unit` 报告 252/252 通过。它们覆盖：
+当前 [`compass/tests/`](compass/tests/) 有 65 个 `*.test.ts` 文件；2026-08-12 在当前工作树进行本机整库验收时，`npm run test:unit` 报告 314/314 通过。测试文件数和用例数会随着项目更新而变化；上述数字仅是该核验基线的快照，后续判断应以当前检出的测试代码和实际运行 `npm run test:unit` 的结果为准。
 
 | 类别 | 代表测试 |
 | --- | --- |
@@ -716,9 +721,9 @@ Phonak Target 可以并行安装多个版本。Dependencies 卡片展示候选�
 | Settings 搜索/下拉 | `settings-search`、`settings-dropdown` |
 | 键盘无障碍 | `keyboard-radiogroup`、`list-keyboard-navigation` |
 | 操作员资料/主题 | `profile-persistence`、`theme` |
-| 会话、生命周期与模型事务 | `session-list`、`session-title`、`optimistic-session`、`agent-lifecycle-coordinator`、`agent-runtime-generation`、`agent-session-library`、`agent-model-coordinator` |
+| 会话、生命周期与模型事务 | `session-list`、`session-title`、`optimistic-session`、`agent-lifecycle-coordinator`、`session-runtime-coordinator`、`agent-runtime-generation`、`agent-session-library`、`agent-model-coordinator` |
 | Skill / slash token | `skill-display`、`slash-token` |
-| 侧栏、store 与工作区 | `sidebar-width`、`sidebar-session-tree-controller`、`store-command`、`store-profile-persistence`、`workspace-path-copy` |
+| 侧栏、store 与工作区 | `sidebar-width`、`sidebar-session-status`、`sidebar-session-tree-controller`、`store-command`、`store-profile-persistence`、`workspace-path-copy` |
 | Thread | command groups、confirmation、scroll |
 | 设置事务/持久化、传输与语言契约 | `agent-settings-mutation`、`settings-persistence`、`transport-contract`、`i18n-completeness` |
 | Context Usage | `context-usage`、`context-usage-ring` 的 12 类分流、细则守恒与两项标注布局 |
@@ -806,12 +811,14 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 3. **历史文档漂移（本分支已修正文案）**：任务基线的 README/Provider audit 使用过期 Pi identifiers 或旧认证说明；本分支已把这两份 Markdown 最小更正为当前 gitlink/package 与 credential ownership 规则。后续 Pi 更新仍需防止再次漂移。
 4. **可移植性**：Phonak Skill 的部分命令示例仍带机器特定绝对路径；新增或整理示例时应改为仓库相对/环境变量写法。
 5. **多入口一致性**：若干设置 mutation 不广播完整状态，桌面与 Web 同时打开时 UI 可能暂时陈旧。
-6. **客户数据生命周期**：SQLite 与 Pi JSONL/图片是本地明文数据；仓库没有客户删除、自动备份、保留或应用层加密流程。
+6. **客户数据生命周期**：SQLite 与 Pi JSONL/图片是本地明文数据；客户删除已有 UI 与级联清理（归属、品牌、听力记录），但仍没有自动备份、保留策略或应用层加密流程。
 7. **audit 提示路径**：`audit-providers.mjs` 当前部分“下一步配置”控制台提示仍写旧的 Pi auth 路径；真实默认位置以 `getAgentDir()/auth.json`，即 `~/.pi/agent/auth.json` 为准。
 8. **Pi build cache**：`prepare-pi-source` marker 基于 Pi revision 与 recipe，但未包含 Node 版本、平台和完整工具链；跨环境复用已有 `dist` 时应主动重建验证。
 9. **Target 版本边界**：Dependency catalog 推荐 Target 11.1，而当前 Phonak Skill 的调查/校准证据针对内部 Target 12 构建；兼容性不能互相推导。
 
 本轮已关闭的旧问题：unit tests 与 smoke 已进入 workflow 阻断检查；Hearing Health 已实现可编辑的双耳听力图与 SII/历史控制；session path allow-list、create-before-swap、活动会话移除恢复和 assignment 清理已落地；自动下载完整性、ZIP 边界与不可逆安装状态已加固，无法核验的厂商包改为只开官网；settings 已改为可恢复的原子持久化，非模型设置 mutation 也具备内存/磁盘/live effect 补偿。
+
+2026-08-12 一轮 UI/UX 修复关闭的问题：归档会话不可见/不可恢复（新增设置归档箱与 `listArchivedSessions`/`restoreArchivedSession`）；客户档案不可编辑/删除（`updateClientProfile`/`deleteClientProfile` + 侧栏客户右键菜单）；听力健康数据不持久化、听力图点击落点偏移、图表颜色不随主题（schema v3 + `chart-geometry` 纯函数 + CSS 变量主题化）；会话搜索仅匹配标题且截断 12 条（`searchSessionContent` 正文搜索）；排队消息不可撤回（`removeQueuedMessage` + chip 回填）；错误横幅常驻（8 秒自动消失，悬停暂停）；Quick Prompts 草稿离开丢失（导航守卫模态）；About 无版本信息；Enter/Shift+Enter 发送方式可配置（`composerSendKey`）；图片无放大预览（ImageLightbox）；后退/前进无 Alt+←/→ 与鼠标侧键。
 
 ### 21.2 已知设计取舍 / 风险边界
 
@@ -870,6 +877,7 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`electron.vite.config.ts`](compass/electron.vite.config.ts) | 三目标构建、dev ports/proxy | 启动、端口、build |
 | [`src/main/index.ts`](compass/src/main/index.ts) | 生命周期、window、IPC/Web、shutdown | 应用启动/关闭、desktop/Web |
 | [`src/main/agent.ts`](compass/src/main/agent.ts) | Pi session、模型、event、Skill、审批 | Agent/会话/Provider/权限 |
+| [`src/main/agent/session-runtime-coordinator.ts`](compass/src/main/agent/session-runtime-coordinator.ts) | 前台/运行中后台 session owner 的导航、提升与释放 | 会话切换、并行运行、后台清理 |
 | [`src/main/compass-api.ts`](compass/src/main/compass-api.ts) | 共享后端业务 API | 新 IPC/RPC、设置、客户、依赖 |
 | [`src/main/web-server.ts`](compass/src/main/web-server.ts) | loopback static/RPC/SSE/security | Web、端口、安全边界 |
 | [`src/main/client-database.ts`](compass/src/main/client-database.ts) | SQLite schema/migration/transaction | 客户与持久化 |
@@ -879,6 +887,9 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`src/main/context-usage.ts`](compass/src/main/context-usage.ts) | 12 类上下文 Token 估算、工具运行内容分流与总数缩放 | Context Usage 分类或统计契约 |
 | [`src/main/dependency-manager.ts`](compass/src/main/dependency-manager.ts) | 检测、下载、安装、进度 | 依赖项/Windows |
 | [`src/main/skills.ts`](compass/src/main/skills.ts) | Skill discovery | Skill 找不到/新增 |
+| [`src/main/session-content-search.ts`](compass/src/main/session-content-search.ts) | 会话 JSONL 正文搜索（大小写不敏感、4MB/200 条上限） | 会话搜索行为 |
+| [`src/main/agent/queued-messages.ts`](compass/src/main/agent/queued-messages.ts) | 排队消息精确撤回（探测 Pi 内部队列结构，Pi 升级需复查） | 队列撤回、Pi 更新 |
+| [`src/shared/client-audiograms.ts`](compass/src/shared/client-audiograms.ts) | 听力图共享类型、频点/范围常量与校验 | 听力健康数据契约 |
 | [`src/shared/types.ts`](compass/src/shared/types.ts) | IPC/RPC/event/domain 契约 | 跨 main/renderer 变更 |
 | [`src/shared/client-registry.ts`](compass/src/shared/client-registry.ts) | 客户类型/normalization | 客户字段/迁移 |
 | [`src/preload/index.ts`](compass/src/preload/index.ts) | desktop bridge | IPC 方法 |
@@ -890,6 +901,7 @@ CI 真相（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）：
 | [`src/renderer/src/components/Markdown.tsx`](compass/src/renderer/src/components/Markdown.tsx) / [`threadMarkdown.ts`](compass/src/renderer/src/components/threadMarkdown.ts) | Streamdown 适配、流式/静态与 reduced-motion 语义 | Markdown、流式动画、安全 |
 | [`src/renderer/src/agent-event-batcher.ts`](compass/src/renderer/src/agent-event-batcher.ts) / [`components/threadActivity.ts`](compass/src/renderer/src/components/threadActivity.ts) | 高频 delta 批处理与唯一活动 Orb 选择 | 流式性能、活动状态 |
 | [`src/renderer/src/components/Sidebar.tsx`](compass/src/renderer/src/components/Sidebar.tsx) | 会话/客户/导航 | 会话列表和归属 |
+| [`src/renderer/src/components/sidebar/session-row-status.ts`](compass/src/renderer/src/components/sidebar/session-row-status.ts) | 会话行时间/运行状态投影 | 侧栏运行指示器、相对时间 |
 | [`src/renderer/src/components/SettingsWorkspace.tsx`](compass/src/renderer/src/components/SettingsWorkspace.tsx) | 设置 UI | Provider/模型/Skill/依赖/语言 |
 | [`src/renderer/src/i18n.ts`](compass/src/renderer/src/i18n.ts) | 四语言 dictionary | 用户文案 |
 | [`src/renderer/src/styles/global.css`](compass/src/renderer/src/styles/global.css) | 主题 token 和 app shell | 视觉/主题/响应式 |

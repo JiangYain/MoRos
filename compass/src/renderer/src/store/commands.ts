@@ -1,4 +1,5 @@
 import { modelSelectionKey } from "../../../shared/types.ts";
+import { clientRegistryKey } from "../../../shared/client-registry.ts";
 import type { StoreApi } from "zustand/vanilla";
 import { api, clearPendingAgentEvents } from "../ipc.ts";
 import {
@@ -28,8 +29,11 @@ type CompassCommandActions = Pick<
   | "assignSessionClient"
   | "boot"
   | "cancelDependencyInstall"
+  | "deleteClientProfile"
   | "deleteSession"
   | "installDependency"
+  | "listArchivedSessions"
+  | "listClientAudiograms"
   | "loginProvider"
   | "newSession"
   | "openPath"
@@ -38,16 +42,20 @@ type CompassCommandActions = Pick<
   | "refreshDependencies"
   | "refreshSessions"
   | "removeApiKey"
+  | "removeQueuedMessage"
   | "removeSkillDir"
   | "renameSession"
   | "resetDependencyExecutable"
   | "resolveApproval"
+  | "restoreArchivedSession"
   | "runPrerequisiteAction"
+  | "saveClientAudiogram"
   | "saveClientProfile"
   | "selectDependencyExecutable"
   | "send"
   | "setApiKey"
   | "setCommandExplanationLanguage"
+  | "setComposerSendKey"
   | "setLanguage"
   | "setModel"
   | "setModelEnabled"
@@ -58,6 +66,7 @@ type CompassCommandActions = Pick<
   | "setThinkingLevel"
   | "setWorkspaceDir"
   | "unassignSessionClient"
+  | "updateClientProfile"
 >;
 
 interface CompassCommandOptions {
@@ -149,6 +158,20 @@ export function createCompassCommandActions({
       });
     },
 
+    removeQueuedMessage: async (kind, index, text) => {
+      try {
+        await runCommand(async () => {
+          const result = await api.removeQueuedMessage(kind, index, text);
+          requireCommandSuccess(result, message("commandFailed"));
+        });
+        return true;
+      } catch {
+        // runCommand already surfaced the failure through lastError; callers
+        // only need to know whether the draft backfill may proceed.
+        return false;
+      }
+    },
+
     newSession: async () => {
       clearPendingAgentEvents();
       try {
@@ -200,9 +223,41 @@ export function createCompassCommandActions({
       get().applyInit(payload);
     }),
 
+    listArchivedSessions: () => runCommand(() => api.listArchivedSessions()),
+
+    restoreArchivedSession: (path) => runCommand(async () => {
+      // A successful restore emits sessions-changed from the main process,
+      // which already refreshes the sidebar session list.
+      const result = await api.restoreArchivedSession(path);
+      requireCommandSuccess(result, message("commandFailed"));
+    }),
+
     saveClientProfile: (profile) => runCommand(async () => {
       const clientRegistry = await api.saveClientProfile(profile);
       set({ clientRegistry });
+    }),
+
+    updateClientProfile: (originalName, profile) => runCommand(async () => {
+      const clientRegistry = await api.updateClientProfile(originalName, profile);
+      set((current) => ({
+        clientRegistry,
+        // Follow a rename so the hearing health workspace keeps showing the client.
+        hearingHealthClient: current.hearingHealthClient
+          && clientRegistryKey(current.hearingHealthClient) === clientRegistryKey(originalName)
+          ? profile.name
+          : current.hearingHealthClient,
+      }));
+    }),
+
+    deleteClientProfile: (name) => runCommand(async () => {
+      const clientRegistry = await api.deleteClientProfile(name);
+      set((current) => ({
+        clientRegistry,
+        hearingHealthClient: current.hearingHealthClient
+          && clientRegistryKey(current.hearingHealthClient) === clientRegistryKey(name)
+          ? null
+          : current.hearingHealthClient,
+      }));
     }),
 
     assignSessionClient: (sessionId, clientName) => runCommand(async () => {
@@ -214,6 +269,12 @@ export function createCompassCommandActions({
       const clientRegistry = await api.unassignSessionClient(sessionId);
       set({ clientRegistry });
     }),
+
+    listClientAudiograms: (clientName) => runCommand(() => api.listClientAudiograms(clientName)),
+
+    saveClientAudiogram: (clientName, record) => runCommand(
+      () => api.saveClientAudiogram(clientName, record),
+    ),
 
     setModel: (provider, id) => runCommand(async () => {
       const result = await api.setModel(provider, id);
@@ -288,6 +349,11 @@ export function createCompassCommandActions({
 
     setCommandExplanationLanguage: (language) => runCommand(async () => {
       const settings = await api.setCommandExplanationLanguage(language);
+      set({ settings });
+    }),
+
+    setComposerSendKey: (sendKey) => runCommand(async () => {
+      const settings = await api.setComposerSendKey(sendKey);
       set({ settings });
     }),
 
