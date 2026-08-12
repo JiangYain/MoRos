@@ -348,7 +348,8 @@ export function HearingHealthWorkspace(): React.JSX.Element {
     const target = records.find((record) => record.key === recordKey);
     if (!target) return;
     // Drop any queued debounce save so it cannot re-insert the deleted record.
-    if (pendingSave.current?.record.key === recordKey) {
+    const dropQueuedSave = (): void => {
+      if (pendingSave.current?.record.key !== recordKey) return;
       pendingSave.current = null;
       if (saveTimer.current !== null) {
         window.clearTimeout(saveTimer.current);
@@ -357,31 +358,40 @@ export function HearingHealthWorkspace(): React.JSX.Element {
       if (activeSaveCount.current === 0) {
         setSaveStatus((current) => (current === "pending" ? "idle" : current));
       }
-    }
-    const remaining = records.filter((record) => record.key !== recordKey);
-    if (remaining.length === 0) {
-      const fresh = createAudiogramRecord();
-      setRecords([fresh]);
-      setActiveRecordKey(fresh.key);
-    } else {
-      setRecords(remaining);
-      if (activeRecordKey === recordKey) setActiveRecordKey(remaining[0].key);
-    }
+    };
+    dropQueuedSave();
     const clientName = selectedClient;
     const knownId = target.id ?? savedIds.current.get(recordKey);
+    // Created outside the state updater so a StrictMode double invocation
+    // cannot mint two different replacement records.
+    const fresh = createAudiogramRecord();
+    const removeLocally = (): void => {
+      setRecords((current) => {
+        const remaining = current.filter((record) => record.key !== recordKey);
+        if (remaining.length === current.length) return current;
+        return remaining.length > 0 ? remaining : [fresh];
+      });
+      // Clearing a stale active key makes the selection fall back to the
+      // first remaining record.
+      setActiveRecordKey((current) => (current === recordKey ? null : current));
+    };
     // The delete queues behind in-flight saves, so an insert that is still
     // assigning this record's database id completes (and publishes the id
-    // into savedIds) before the row is removed again.
+    // into savedIds) before the row is removed again. Stored records leave
+    // the local list only after the backend delete succeeded; on failure the
+    // record stays listed so the deletion can be retried. Records that never
+    // reached the database are removed locally right away.
     saveChain.current = saveChain.current
       .then(async () => {
         const persistedId = savedIds.current.get(recordKey) ?? knownId;
+        if (persistedId !== undefined) await deleteClientAudiogram(clientName, persistedId);
+        dropQueuedSave();
         savedIds.current.delete(recordKey);
-        if (persistedId === undefined) return;
-        await deleteClientAudiogram(clientName, persistedId);
+        removeLocally();
       })
       // Failures already reached the global error banner via the store command.
       .catch(() => undefined);
-  }, [activeRecordKey, deleteClientAudiogram, records, selectedClient, status]);
+  }, [deleteClientAudiogram, records, selectedClient, status]);
 
   const clearEar = useCallback((ear: EarSide) => {
     applyRecordUpdate((record) => ({ ...record, [ear]: cloneEmptyThresholds() }));
