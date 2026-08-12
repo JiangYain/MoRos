@@ -77,6 +77,42 @@
   display: none;
 }
 
+.sidebar-rail {
+  display: none;
+}
+
+/* 18px top padding centers the first 26px button on the same line as the
+   expanded brand row (8px nav padding + 46px row height). */
+.sidebar.collapsed .sidebar-rail {
+  padding: 18px 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-rail-button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: var(--border-radius-control);
+  corner-shape: var(--corner-shape-continuous);
+  display: grid;
+  place-items: center;
+  color: var(--color-text-secondary);
+  transition: background 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.sidebar-rail-button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar-rail-button:active {
+  background: var(--color-surface-active);
+  color: var(--color-text-primary);
+}
+
 body.sidebar-resizing,
 body.sidebar-resizing * {
   cursor: col-resize !important;
@@ -1925,6 +1961,11 @@ body.sidebar-resizing * {
   }
 
   .sidebar-resizer {
+    display: none;
+  }
+
+  /* Overlay mode has no collapsed state, so the icon rail never shows. */
+  .sidebar.collapsed .sidebar-rail {
     display: none;
   }
 

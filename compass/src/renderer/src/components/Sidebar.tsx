@@ -1,4 +1,4 @@
-import { Ear, Puzzle, Search, SquarePen } from "lucide-react";
+import { Ear, Puzzle, Search, Settings, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { ignoreCommandFailure, useCompass } from "../store";
@@ -52,6 +52,11 @@ export function Sidebar(): React.JSX.Element {
         if (entry.active) setMainView("assistant");
         else ignoreCommandFailure(openSession(entry.path));
       }} />
+      <div className="sidebar-rail">
+        <button type="button" className="sidebar-rail-button" aria-label={t("sidebar.new")} title={t("sidebar.new")} onClick={() => { ignoreCommandFailure(newSession()); }}><SquarePen size={16} strokeWidth={1.65} aria-hidden="true" /></button>
+        <button type="button" className="sidebar-rail-button" aria-label={t("sidebar.search")} title={t("sidebar.search")} aria-expanded={searchOpen} aria-controls="session-search-dialog" onClick={() => setSearchOpen(true)}><Search size={16} strokeWidth={1.65} aria-hidden="true" /></button>
+        <button type="button" className="sidebar-rail-button" aria-label={t("sidebar.settings")} title={t("sidebar.settings")} onClick={() => openSettings()}><Settings size={16} strokeWidth={1.65} aria-hidden="true" /></button>
+      </div>
       <nav className="sidebar-nav" aria-label="Compass">
         <div className="sidebar-brand-row">
           <div className="sidebar-brand-name" aria-label="Compass."><span>Compass</span><span className="sidebar-brand-dot">.</span></div>
