@@ -547,6 +547,9 @@ const zhCN = {
   "settings.about": "关于",
   "settings.aboutDescription": "当前安装的 Compass 应用版本。",
   "settings.aboutVersion": "版本 {version}",
+  "workspace.changeConfirmTitle": "更换工作区？",
+  "workspace.changeConfirmBody": "当前任务仍在运行。更换工作区会中止本次任务，是否继续？",
+  "workspace.changeConfirmConfirm": "继续",
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
@@ -962,6 +965,9 @@ const zhTW = {
   "settings.about": "關於",
   "settings.aboutDescription": "目前安裝的 Compass 應用程式版本。",
   "settings.aboutVersion": "版本 {version}",
+  "workspace.changeConfirmTitle": "更換工作區？",
+  "workspace.changeConfirmBody": "目前工作仍在執行。變更工作區會中止這項工作，是否繼續？",
+  "workspace.changeConfirmConfirm": "繼續",
 } satisfies Dictionary;
 
 const en = {
@@ -1240,6 +1246,9 @@ const en = {
   "settings.about": "About",
   "settings.aboutDescription": "The installed Compass application version.",
   "settings.aboutVersion": "Version {version}",
+  "workspace.changeConfirmTitle": "Change workspace?",
+  "workspace.changeConfirmBody": "A task is still running. Changing the workspace will stop it. Continue?",
+  "workspace.changeConfirmConfirm": "Continue",
 } satisfies Dictionary;
 
 const de = {
@@ -1522,6 +1531,9 @@ const de = {
   "settings.about": "Über",
   "settings.aboutDescription": "Die installierte Compass-Anwendungsversion.",
   "settings.aboutVersion": "Version {version}",
+  "workspace.changeConfirmTitle": "Arbeitsbereich wechseln?",
+  "workspace.changeConfirmBody": "Eine Aufgabe wird noch ausgeführt. Beim Wechsel des Arbeitsbereichs wird sie beendet. Fortfahren?",
+  "workspace.changeConfirmConfirm": "Fortfahren",
 } satisfies Dictionary;
 
 const dictionaries = { "zh-CN": zhCN, "zh-TW": zhTW, en, de } satisfies Record<AppLanguage, Dictionary>;
