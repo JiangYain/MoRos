@@ -146,8 +146,8 @@ export function useSessionTreeStore(
   const saveClient = useCallback((profile: ClientProfileDraft): void => {
     ignoreCommandFailure(saveClientProfile(profile).then(interactions.clientDialog.close));
   }, [interactions.clientDialog.close, saveClientProfile]);
-  // Profile editing lives inline on the hearing health page, so both client
-  // menu entries navigate there; the editor entry also expands the panel.
+  // Profile editing lives on the hearing health page, so both client menu
+  // entries navigate there; the editor entry also opens the profile dialog.
   const openClientEditor = useCallback((name: string): void => {
     interactions.clientMenu.close();
     closeMobile();

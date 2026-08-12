@@ -105,7 +105,7 @@ export interface CompassState {
   mainView: MainView;
   /** Client shown by the hearing health workspace (null falls back to the active session's client). */
   hearingHealthClient: string | null;
-  /** Whether the inline client profile editor on the hearing health page is expanded. */
+  /** Whether the client profile dialog on the hearing health page is open. */
   hearingHealthProfileOpen: boolean;
   /** One-shot content the composer should insert (for example, /skill:name). */
   composerSeed: ComposerSeed | null;
