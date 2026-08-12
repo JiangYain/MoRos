@@ -12,6 +12,7 @@ import { clampThinkingLevel, type AuthInteraction } from "@earendil-works/pi-ai"
 import type {
   AgentStats,
   AgentUiEvent,
+  ApprovalScope,
   AppSettingsView,
   CommandExplanationLanguage,
   ComposerSendKey,
@@ -336,9 +337,9 @@ export class AgentService {
     await this.lifecycle.clear();
   }
 
-  resolveApproval(id: string, allowed: boolean): { ok: boolean; error?: string } {
+  resolveApproval(id: string, allowed: boolean, scope?: ApprovalScope): { ok: boolean; error?: string } {
     for (const ownership of this.lifecycle.managed) {
-      const result = ownership.approvals.resolve(id, allowed);
+      const result = ownership.approvals.resolve(id, allowed, scope);
       if (result.ok) return result;
     }
     return { ok: false, error: "Approval request is no longer active." };

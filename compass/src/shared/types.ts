@@ -215,6 +215,15 @@ export interface UiUsage {
   cost: number;
 }
 
+export const APPROVAL_SCOPES = ["once", "session"] as const;
+
+/** How long an approval decision applies: this call only, or every later call of the same tool within the live session. */
+export type ApprovalScope = (typeof APPROVAL_SCOPES)[number];
+
+export function isApprovalScope(value: unknown): value is ApprovalScope {
+  return typeof value === "string" && (APPROVAL_SCOPES as readonly string[]).includes(value);
+}
+
 export interface UiApprovalRequest {
   id: string;
   toolName: string;
@@ -475,7 +484,11 @@ export interface CompassApi {
     clientMessageId?: string,
   ): Promise<{ ok: boolean; error?: string }>;
   abort(): Promise<void>;
-  resolveApproval(id: string, allowed: boolean): Promise<{ ok: boolean; error?: string }>;
+  resolveApproval(
+    id: string,
+    allowed: boolean,
+    scope?: ApprovalScope,
+  ): Promise<{ ok: boolean; error?: string }>;
   removeQueuedMessage(
     kind: QueuedMessageKind,
     index: number,

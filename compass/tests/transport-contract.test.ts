@@ -21,7 +21,7 @@ const ARGUMENTS = {
   getDeveloperContext: [],
   prompt: ["hello", [{ data: "AA==", mimeType: "image/png", name: "sample.png" }], "client-message-1"],
   abort: [],
-  resolveApproval: ["approval-1", true],
+  resolveApproval: ["approval-1", true, "session"],
   removeQueuedMessage: ["steering", 0, "queued instruction"],
   newSession: [],
   openSession: ["C:\\sessions\\one.jsonl"],
@@ -147,6 +147,18 @@ test("the shared decoder validates both Electron and web arguments", () => {
   assert.throws(() => decodeBackendArguments("removeQueuedMessage", ["steering", 0, 7]), /text must be a string/);
   assert.deepEqual(decodeBackendArguments("setComposerSendKey", ["enter"]), ["enter"]);
   assert.throws(() => decodeBackendArguments("setComposerSendKey", ["ctrlEnter"]), /Invalid composer send key/);
+  assert.deepEqual(
+    decodeBackendArguments("resolveApproval", ["approval-1", true]),
+    ["approval-1", true, undefined],
+  );
+  assert.deepEqual(
+    decodeBackendArguments("resolveApproval", ["approval-1", true, "session"]),
+    ["approval-1", true, "session"],
+  );
+  assert.throws(
+    () => decodeBackendArguments("resolveApproval", ["approval-1", true, "forever"]),
+    /scope must be "once" or "session"/,
+  );
 });
 
 test("web handlers adapt every browser method over the backend interface", async () => {

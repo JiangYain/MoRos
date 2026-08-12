@@ -19,7 +19,7 @@ export function ApprovalRequest({
 }): React.JSX.Element {
   const { t } = useI18n();
   const resolveApproval = useCompass((state) => state.resolveApproval);
-  const [responding, setResponding] = useState<"allow" | "deny" | null>(null);
+  const [responding, setResponding] = useState<"allow" | "allow-session" | "deny" | null>(null);
   const commandText = summarizeThreadArgs(request.args) || request.detail.split(/\r?\n/).slice(1).join(" ");
   const explanation = request.explanation?.trim();
   const explanationState = explanation
@@ -32,10 +32,16 @@ export function ApprovalRequest({
   const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const metaKeyLabel = isMac ? "⌘↵" : "Ctrl+↵";
 
-  const respond = useCallback((allowed: boolean): void => {
+  const respond = useCallback((decision: "allow" | "allow-session" | "deny"): void => {
     if (responding !== null) return;
-    setResponding(allowed ? "allow" : "deny");
-    ignoreCommandFailure(resolveApproval(request.id, allowed).finally(() => setResponding(null)));
+    setResponding(decision);
+    ignoreCommandFailure(
+      resolveApproval(
+        request.id,
+        decision !== "deny",
+        decision === "allow-session" ? "session" : "once",
+      ).finally(() => setResponding(null)),
+    );
   }, [responding, request.id, resolveApproval]);
 
   useEffect(() => {
@@ -53,12 +59,12 @@ export function ApprovalRequest({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        respond(true);
+        respond("allow");
       } else if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        respond(false);
+        respond("deny");
       }
     };
     window.addEventListener("keydown", handleKeyDown, true);
@@ -91,16 +97,24 @@ export function ApprovalRequest({
           type="button"
           className="approval-deny"
           disabled={responding !== null}
-          onClick={() => respond(false)}
+          onClick={() => respond("deny")}
         >
           <span>{responding === "deny" ? t("thread.denying") : t("thread.deny")}</span>
           {shortcutActive && <kbd className="approval-kbd">Esc</kbd>}
         </button>
         <button
           type="button"
+          className="approval-allow-session"
+          disabled={responding !== null}
+          onClick={() => respond("allow-session")}
+        >
+          <span>{responding === "allow-session" ? t("thread.allowing") : t("thread.allowSession")}</span>
+        </button>
+        <button
+          type="button"
           className="approval-allow"
           disabled={responding !== null}
-          onClick={() => respond(true)}
+          onClick={() => respond("allow")}
         >
           <span>{responding === "allow" ? t("thread.allowing") : t("thread.allowOnce")}</span>
           {shortcutActive && <kbd className="approval-kbd">{metaKeyLabel}</kbd>}

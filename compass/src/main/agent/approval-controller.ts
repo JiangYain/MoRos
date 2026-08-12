@@ -7,6 +7,7 @@ import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
   AgentUiEvent,
   AppLanguage,
+  ApprovalScope,
   PermissionMode,
   UiApprovalRequest,
 } from "@shared/types";
@@ -57,6 +58,8 @@ const APPROVAL_EXPLANATION_LANGUAGES: Record<AppLanguage, string> = {
  */
 export class ApprovalController {
   private readonly pending = new Map<string, PendingApproval>();
+  /** Tools the operator allowed for the rest of this live session; never persisted. */
+  private readonly sessionAllowedTools = new Set<string>();
   private readonly options: ApprovalControllerOptions;
 
   constructor(options: ApprovalControllerOptions) {
@@ -76,6 +79,7 @@ export class ApprovalController {
           event.input,
         );
         if (!approval) return undefined;
+        if (this.sessionAllowedTools.has(event.toolName)) return undefined;
         return this.request(approval.message, approval.detail, event.toolName, event.input);
       });
     };
@@ -85,7 +89,11 @@ export class ApprovalController {
     return [...this.pending.values()].map(({ request }) => ({ ...request }));
   }
 
-  resolve(id: string, allowed: boolean): { ok: boolean; error?: string } {
+  resolve(id: string, allowed: boolean, scope: ApprovalScope = "once"): { ok: boolean; error?: string } {
+    if (allowed && scope === "session") {
+      const pending = this.pending.get(id);
+      if (pending) this.sessionAllowedTools.add(pending.request.toolName);
+    }
     const resolved = this.finish(
       id,
       allowed ? undefined : { block: true, reason: "The operator denied this action." },

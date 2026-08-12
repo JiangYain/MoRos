@@ -281,8 +281,8 @@ export function createCompassCommandActions({
       requireCommandSuccess(result, message("commandFailed"));
     }),
 
-    resolveApproval: (id, allowed) => runCommand(async () => {
-      const result = await api.resolveApproval(id, allowed);
+    resolveApproval: (id, allowed, scope) => runCommand(async () => {
+      const result = await api.resolveApproval(id, allowed, scope);
       requireCommandSuccess(result, message("approvalInactive"));
     }),
 

@@ -1,11 +1,13 @@
 import {
   isAppLanguage,
+  isApprovalScope,
   isCommandExplanationLanguage,
   isComposerSendKey,
   isDependencyId,
   isPermissionMode,
   isQueuedMessageKind,
   isThinkingLevel,
+  type ApprovalScope,
   type CompassBackendApi,
   type UiImageAttachment,
 } from "./types.ts";
@@ -60,6 +62,13 @@ function optionalStringArg(args: readonly unknown[], index: number, label: strin
 function booleanArg(args: readonly unknown[], index: number, label: string): boolean {
   const value = args[index];
   if (typeof value !== "boolean") throw new Error(`${label} must be a boolean.`);
+  return value;
+}
+
+function optionalApprovalScopeArg(args: readonly unknown[], index: number): ApprovalScope | undefined {
+  const value = args[index];
+  if (value === undefined || value === null) return undefined;
+  if (!isApprovalScope(value)) throw new Error('scope must be "once" or "session".');
   return value;
 }
 
@@ -138,8 +147,12 @@ export const BACKEND_OPERATION_SPECS = {
     ipcChannel: "agent:resolve-approval",
     web: true,
     decode: (args) => {
-      argumentCount(args, 2);
-      return [stringArg(args, 0, "id"), booleanArg(args, 1, "allowed")];
+      argumentCount(args, 2, 3);
+      return [
+        stringArg(args, 0, "id"),
+        booleanArg(args, 1, "allowed"),
+        optionalApprovalScopeArg(args, 2),
+      ];
     },
   },
   removeQueuedMessage: {

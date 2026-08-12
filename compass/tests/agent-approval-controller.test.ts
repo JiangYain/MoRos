@@ -54,6 +54,77 @@ test("approval controller owns request, explanation, and decision ordering", asy
   });
 });
 
+test("session-scoped approval lets later calls of the same tool skip review", async () => {
+  const events: AgentUiEvent[] = [];
+  let idCounter = 0;
+  const controller = new ApprovalController({
+    emit: (event) => events.push(event),
+    nextId: () => `approval-${++idCounter}`,
+    policy: () => ({ mode: "ask", workspaceDir: "C:\\workspace" }),
+    explain: async () => undefined,
+  });
+  const handleToolCall = installToolCallHandler(controller);
+
+  const first = handleToolCall({
+    toolName: "shell_command",
+    input: { command: "git status --short" },
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(controller.resolve("approval-1", true, "session"), { ok: true });
+  assert.equal(await first, undefined);
+
+  const repeat = await handleToolCall({
+    toolName: "shell_command",
+    input: { command: "git diff" },
+  });
+  assert.equal(repeat, undefined);
+  assert.deepEqual(controller.snapshot(), []);
+  assert.equal(
+    events.filter((event) => event.kind === "approval-request").length,
+    1,
+  );
+
+  const other = handleToolCall({
+    toolName: "write_file",
+    input: { path: "notes.txt" },
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(controller.snapshot().length, 1);
+  assert.deepEqual(controller.resolve("approval-2", false), { ok: true });
+  assert.deepEqual(await other, {
+    block: true,
+    reason: "The operator denied this action.",
+  });
+});
+
+test("once-scoped approval keeps requiring review for the same tool", async () => {
+  const events: AgentUiEvent[] = [];
+  let idCounter = 0;
+  const controller = new ApprovalController({
+    emit: (event) => events.push(event),
+    nextId: () => `approval-${++idCounter}`,
+    policy: () => ({ mode: "ask", workspaceDir: "C:\\workspace" }),
+    explain: async () => undefined,
+  });
+  const handleToolCall = installToolCallHandler(controller);
+
+  const first = handleToolCall({
+    toolName: "shell_command",
+    input: { command: "git status --short" },
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(controller.resolve("approval-1", true), { ok: true });
+  assert.equal(await first, undefined);
+
+  void handleToolCall({
+    toolName: "shell_command",
+    input: { command: "git diff" },
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(controller.snapshot().length, 1);
+  assert.deepEqual(controller.resolve("approval-2", true), { ok: true });
+});
+
 test("approval controller bypasses policy-safe tools without creating state", async () => {
   const events: AgentUiEvent[] = [];
   const controller = new ApprovalController({
