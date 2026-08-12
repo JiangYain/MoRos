@@ -1,8 +1,9 @@
 import type { UiThreadItem } from "@shared/types";
-import { Box, ChevronRight } from "lucide-react";
+import { Box, ChevronRight, Pencil, RotateCcw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { ignoreCommandFailure, useCompass } from "../../store";
 import { AgentActivityOrb } from "../AgentActivityOrb";
 import { CopyButton } from "../CopyButton";
 import { ImageLightbox } from "../ImageLightbox";
@@ -124,8 +125,16 @@ function SkillBlock({
   );
 }
 
+/** Rebuilds the prompt text a user item was sent with, including its skill invocation. */
+function userPromptText(item: Extract<UiThreadItem, { kind: "user" }>): string {
+  return item.skillName
+    ? `/skill:${item.skillName}${item.text.trim() ? ` ${item.text.trim()}` : ""}`
+    : item.text;
+}
+
 export function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }): React.JSX.Element {
   const { t } = useI18n();
+  const seedComposer = useCompass((state) => state.seedComposer);
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   return (
     <motion.div className="msg-user" data-thread-prompt-id={item.id} {...THREAD_ENTRANCE}>
@@ -161,6 +170,15 @@ export function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "use
       ) : item.text.trim() ? (
         <div className="text msg-user-bubble">{item.text}</div>
       ) : null}
+      <button
+        type="button"
+        className="msg-user-edit-button"
+        aria-label={t("thread.editPrompt")}
+        title={t("thread.editPrompt")}
+        onClick={() => seedComposer(userPromptText(item), item.images)}
+      >
+        <Pencil size={13} strokeWidth={1.75} aria-hidden />
+      </button>
     </motion.div>
   );
 }
@@ -177,6 +195,8 @@ export function AssistantMessage({
   markdownTarget?: ActiveMarkdownTarget;
 }): React.JSX.Element {
   const { t } = useI18n();
+  const streaming = useCompass((state) => state.streaming);
+  const send = useCompass((state) => state.send);
   // Fast Refresh can briefly retain a pre-migration assistant item while the
   // store module is being replaced. Keep the thread renderable during that
   // hand-off instead of crashing the entire workspace on a missing `blocks`.
@@ -205,6 +225,31 @@ export function AssistantMessage({
   const streamActivity = activity?.itemId === item.id && activity.target === "assistant-stream"
     ? activity
     : undefined;
+  const showRetry = !streaming && Boolean(item.errorMessage || aborted);
+  const retry = (): void => {
+    // Resend the closest user prompt that precedes this assistant message.
+    const thread = useCompass.getState().thread;
+    const selfIndex = thread.findIndex((entry) => entry.id === item.id);
+    for (let index = selfIndex - 1; index >= 0; index -= 1) {
+      const entry = thread[index];
+      if (entry.kind === "user") {
+        ignoreCommandFailure(send(userPromptText(entry), entry.images));
+        return;
+      }
+    }
+  };
+  const retryButton = showRetry ? (
+    <button
+      type="button"
+      className="msg-retry-button"
+      aria-label={t("thread.retry")}
+      title={t("thread.retry")}
+      onClick={retry}
+    >
+      <RotateCcw size={12} strokeWidth={1.75} aria-hidden />
+      <span>{t("thread.retry")}</span>
+    </button>
+  ) : null;
 
   return (
     <motion.div className="msg-assistant" data-assistant-message-id={item.id} {...THREAD_ENTRANCE}>
@@ -240,8 +285,18 @@ export function AssistantMessage({
           className={`assistant-stream-activity${displayBlocks.length ? " has-content" : ""}`}
         />
       )}
-      {item.errorMessage && !aborted && <div className="msg-error">{item.errorMessage}</div>}
-      {aborted && <div className="notice-row warn">{t("thread.aborted")}</div>}
+      {item.errorMessage && !aborted && (
+        <div className="msg-error">
+          {item.errorMessage}
+          {retryButton}
+        </div>
+      )}
+      {aborted && (
+        <div className="notice-row warn">
+          {t("thread.aborted")}
+          {retryButton}
+        </div>
+      )}
       {!item.streaming && copyText && (
         <CopyButton className="assistant-copy-button" label={t("thread.copyReply")} text={copyText} />
       )}

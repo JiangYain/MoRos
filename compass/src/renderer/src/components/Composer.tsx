@@ -36,8 +36,11 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const abort = useCompass((state) => state.abort);
   const openSettings = useCompass((state) => state.openSettings);
   const removeQueuedMessage = useCompass((state) => state.removeQueuedMessage);
+  const setComposerDraft = useCompass((state) => state.setComposerDraft);
+  const clearComposerDraft = useCompass((state) => state.clearComposerDraft);
   const composerSendKey = useCompass((state) => state.settings?.composerSendKey ?? "enter");
 
+  const sessionKey = stats?.sessionId ?? "pending";
   const [text, setText] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<UiSkill | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -51,15 +54,37 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const imageInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
+  const sessionKeyRef = useRef(sessionKey);
+
+  // Hydrate the composer from the per-session draft table on mount and on
+  // session switches. Drafts are read through getState() so this effect only
+  // re-runs when the session key itself changes.
+  useEffect(() => {
+    sessionKeyRef.current = sessionKey;
+    const store = useCompass.getState();
+    const draft = store.composerDrafts[sessionKey];
+    setText(draft?.text ?? "");
+    setAttachments(draft?.attachments ?? []);
+    setSelectedSkill(
+      draft?.skillName
+        ? store.skills.find((skill) => skill.name === draft.skillName && skill.enabled) ?? null
+        : null,
+    );
+  }, [sessionKey]);
 
   useEffect(() => {
     if (composerSeed === null) return;
-    const invocation = parseSkillInvocation(composerSeed);
+    const invocation = parseSkillInvocation(composerSeed.text);
     const seededSkill = invocation
       ? skills.find((skill) => skill.name === invocation.name && skill.enabled) ?? null
       : null;
     setSelectedSkill(seededSkill);
-    setText(seededSkill && invocation ? invocation.argumentsText : composerSeed);
+    setText(seededSkill && invocation ? invocation.argumentsText : composerSeed.text);
+    setAttachments(
+      (composerSeed.images ?? [])
+        .slice(0, 8)
+        .map((image) => ({ ...image, id: crypto.randomUUID() })),
+    );
     clearComposerSeed();
     requestAnimationFrame(() => {
       const node = textareaRef.current;
@@ -68,6 +93,19 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
       node.setSelectionRange(node.value.length, node.value.length);
     });
   }, [composerSeed, clearComposerSeed, skills]);
+
+  // Mirror every local edit back into the draft table so the draft survives
+  // unmounts (for example while the settings surface is open). This effect
+  // never fires on the render that swaps sessionKey (its deps are unchanged
+  // there), and the ref keeps async updates writing to the session they
+  // belong to instead of a freshly switched one.
+  useEffect(() => {
+    setComposerDraft(sessionKeyRef.current, {
+      text,
+      attachments,
+      skillName: selectedSkill?.name ?? null,
+    });
+  }, [text, attachments, selectedSkill, setComposerDraft]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -240,6 +278,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     setText("");
     setSelectedSkill(null);
     setAttachments([]);
+    clearComposerDraft(sessionKeyRef.current);
     const promptText = selectedSkill
       ? `/skill:${selectedSkill.name}${trimmed ? ` ${trimmed}` : ""}`
       : trimmed;

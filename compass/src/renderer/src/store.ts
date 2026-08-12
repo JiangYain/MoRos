@@ -24,6 +24,8 @@ import type { CompassState, SettingsSection } from "./store/state";
 export { ignoreCommandFailure } from "./store/command";
 export type {
   CompassState,
+  ComposerDraft,
+  ComposerSeed,
   MainView,
   PendingSettingsNavigation,
   SettingsNavigationGuard,
@@ -146,6 +148,7 @@ export const useCompass = create<CompassState>((set, get) => {
   hearingHealthClient: null,
   hearingHealthProfileOpen: false,
   composerSeed: null,
+  composerDrafts: {},
   lastError: null,
   streamingBlocks: new Map(),
   dismissedDependencyPrompts: {},
@@ -212,8 +215,24 @@ export const useCompass = create<CompassState>((set, get) => {
   setMainView: (mainView) => set({ mainView }),
   setHearingHealthClient: (hearingHealthClient) => set({ hearingHealthClient }),
   setHearingHealthProfileOpen: (hearingHealthProfileOpen) => set({ hearingHealthProfileOpen }),
-  seedComposer: (text) => set({ composerSeed: text, settingsSection: null, mainView: "assistant" }),
+  seedComposer: (text, images) => set({ composerSeed: { text, images }, settingsSection: null, mainView: "assistant" }),
   clearComposerSeed: () => set({ composerSeed: null }),
+  setComposerDraft: (key, draft) => set((state) => {
+    const empty = !draft.text && draft.attachments.length === 0 && !draft.skillName;
+    if (empty) {
+      if (!(key in state.composerDrafts)) return state;
+      const composerDrafts = { ...state.composerDrafts };
+      delete composerDrafts[key];
+      return { composerDrafts };
+    }
+    return { composerDrafts: { ...state.composerDrafts, [key]: draft } };
+  }),
+  clearComposerDraft: (key) => set((state) => {
+    if (!(key in state.composerDrafts)) return state;
+    const composerDrafts = { ...state.composerDrafts };
+    delete composerDrafts[key];
+    return { composerDrafts };
+  }),
   setError: (message) => set({ lastError: message }),
   setProfileAvatar: (profileAvatar) => {
     if (!persistProfileAvatar(profileAvatar)) {
