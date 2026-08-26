@@ -1,0 +1,52 @@
+/* ============================================================
+   MISC
+   ============================================================ */
+.fade-rule {
+  height: 0.5px;
+  background: var(--color-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --sidebar-w: 248px;
+  }
+}
+
+@media (max-width: 760px) {
+  .titlebar-brand {
+    width: 34px;
+  }
+
+  .global-menu {
+    padding-left: 0;
+  }
+
+  .global-menu-trigger {
+    padding-inline: 7px;
+  }
+
+  .win-btn {
+    width: 38px;
+  }
+}
+@media (max-width: 560px) {
+  .global-menu-group:nth-child(2),
+  .global-menu-group:nth-child(4) {
+    display: none;
+  }
+
+  .thread-inner {
+    padding: 1.4rem 1.1rem 1rem;
+    gap: 1.35rem;
+  }
+}

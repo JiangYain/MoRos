@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://compass4devpost.obscurus.tech/sitemap.xml

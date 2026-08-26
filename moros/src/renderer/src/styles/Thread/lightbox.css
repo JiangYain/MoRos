@@ -1,0 +1,39 @@
+/* ---------------- image lightbox */
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--color-image-overlay);
+}
+
+.image-lightbox img {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: var(--border-radius-md);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.image-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: 50%;
+  background: var(--color-elevated);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-popover);
+}
+
+.image-lightbox-close:hover {
+  color: var(--color-text-primary);
+}

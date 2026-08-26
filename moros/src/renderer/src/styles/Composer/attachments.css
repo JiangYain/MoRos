@@ -1,0 +1,89 @@
+.composer-image-input {
+  display: none;
+}
+
+.composer-attachments {
+  min-height: 74px;
+  padding: 12px max(14px, calc((100% - var(--composer-max-w)) / 2 + 14px)) 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.composer-attachment {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  position: relative;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: 10px;
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-precise);
+}
+
+.composer-attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.composer-attachment button {
+  width: 20px;
+  height: 20px;
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: 50%;
+  background: var(--color-elevated);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-popover);
+}
+
+.composer-attachment button:hover {
+  color: var(--color-text-primary);
+  transform: scale(1.04);
+}
+
+.composer-attachment img[role="button"] {
+  cursor: zoom-in;
+}
+
+.composer-attachment img[role="button"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 56%, transparent);
+  outline-offset: 2px;
+}
+
+.quick-prompts-status {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.quick-prompts-next {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-left: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--border-radius-xs);
+  corner-shape: var(--corner-shape-continuous);
+  color: var(--color-text-secondary);
+  transition: color 0.14s var(--ease-out-power3);
+}
+
+.quick-prompts-next:hover,
+.quick-prompts-next:focus-visible {
+  color: var(--color-text-primary);
+}

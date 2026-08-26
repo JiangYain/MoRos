@@ -1,0 +1,318 @@
+.file-children .file-item {
+  background: transparent;
+  width: calc(100% - 16px);
+  margin: 0 8px;
+}
+
+.thread-item-shell {
+  position: relative;
+  margin: 0 8px;
+}
+
+.thread-item-shell.dragging {
+  opacity: 0.38;
+}
+
+.thread-item-shell.dragging .thread-file-item {
+  cursor: grabbing;
+}
+
+.file-children .thread-item-shell .thread-file-item {
+  width: 100%;
+  margin: 0;
+}
+
+.thread-file-item {
+  min-height: 28px;
+  padding: 4px 32px 4px 30px;
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+}
+
+.thread-file-item .file-name {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.thread-file-item.active .file-name {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.thread-relative-time,
+.thread-running-indicator {
+  position: absolute;
+  right: 0;
+  width: 28px;
+  flex: 0 0 auto;
+  min-width: 0;
+  text-align: center;
+  transition: opacity 0.12s var(--ease-out-power3);
+}
+
+.thread-relative-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.thread-running-indicator {
+  display: grid;
+  place-items: center;
+  color: var(--color-accent);
+  opacity: 0.9;
+}
+
+@keyframes thread-running-indicator-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .thread-running-indicator svg {
+    animation: thread-running-indicator-spin 0.85s linear infinite;
+  }
+}
+
+.thread-file-item.active .thread-relative-time {
+  color: var(--color-text-secondary);
+}
+
+.thread-file-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.thread-file-item.active {
+  background: #e9e9e9;
+}
+
+:root[data-theme="dark"] .thread-file-item.active {
+  background: var(--color-surface-active);
+}
+
+.thread-file-item.renaming {
+  cursor: default;
+  padding: 3px 3px 3px 28px;
+  gap: 3px;
+}
+
+.thread-more-button {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3), background 0.12s var(--ease-out-power3);
+}
+
+.thread-item-shell:hover .thread-more-button,
+.thread-item-shell:focus-within .thread-more-button,
+.thread-more-button[aria-expanded="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.thread-item-shell:hover .thread-relative-time,
+.thread-item-shell:focus-within .thread-relative-time,
+.thread-item-shell.confirming .thread-relative-time,
+.thread-item-shell:hover .thread-running-indicator,
+.thread-item-shell:focus-within .thread-running-indicator,
+.thread-item-shell.confirming .thread-running-indicator {
+  opacity: 0;
+}
+
+.thread-item-shell.confirming .thread-more-button {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thread-more-button:hover,
+.thread-more-button:focus-visible {
+  background: var(--color-surface-active);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.thread-rename-input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-size: 12.5px;
+  font-weight: 400;
+  outline: none;
+  box-shadow: none;
+}
+
+.thread-rename-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.thread-rename-actions button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+}
+
+.thread-rename-actions button:hover,
+.thread-rename-actions button:focus-visible {
+  background: var(--color-surface-active);
+  color: var(--color-text-primary);
+}
+
+.thread-inline-confirmation {
+  --thread-confirm-bg: #f5f5f5;
+  --thread-confirm-border: var(--color-border-subtle);
+  --thread-confirm-danger: var(--color-accent);
+  --thread-confirm-text: var(--color-text-secondary);
+  --thread-confirm-track: var(--color-surface-active);
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+
+.thread-inline-confirmation-panel {
+  width: 100%;
+  height: 100%;
+  min-height: 28px;
+  padding: 1px 6px 1px 8px;
+  border: 1px solid var(--thread-confirm-border);
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--thread-confirm-bg);
+  color: var(--thread-confirm-text);
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+:root[data-theme="dark"] .thread-inline-confirmation {
+  --thread-confirm-bg: var(--color-surface-hover);
+  --thread-confirm-border: var(--color-border-subtle);
+  --thread-confirm-danger: var(--color-accent);
+  --thread-confirm-text: var(--color-text-secondary);
+  --thread-confirm-track: rgba(255, 255, 255, 0.08);
+}
+
+.thread-confirmation-countdown {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  overflow: visible;
+}
+
+.thread-confirmation-countdown-track,
+.thread-confirmation-countdown-progress {
+  fill: none;
+  stroke-width: 1.5px;
+}
+
+.thread-confirmation-countdown-track {
+  stroke: var(--thread-confirm-track);
+}
+
+.thread-confirmation-countdown-progress {
+  stroke: var(--thread-confirm-danger);
+  stroke-linecap: round;
+  stroke-dasharray: 42.42;
+  stroke-dashoffset: 0;
+  transform: rotate(-90deg);
+  transform-origin: 9px 9px;
+  animation: thread-confirmation-countdown 5s linear forwards;
+}
+
+.thread-confirmation-countdown text {
+  fill: var(--thread-confirm-text);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  dominant-baseline: central;
+  text-anchor: middle;
+}
+
+.thread-confirmation-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 6px;
+}
+
+.thread-confirmation-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.thread-confirmation-actions .undo-btn {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 10px;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+}
+
+.thread-confirmation-actions .undo-btn:hover {
+  opacity: 0.8;
+}
+
+.thread-confirmation-actions button:disabled {
+  opacity: 0.52;
+  pointer-events: none;
+}
+
+.thread-confirmation-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes thread-confirmation-countdown {
+  to {
+    stroke-dashoffset: 42.42;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-confirmation-countdown-progress {
+    animation: none;
+  }
+}

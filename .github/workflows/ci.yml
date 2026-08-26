@@ -18,7 +18,7 @@ concurrency:
 
 defaults:
   run:
-    working-directory: compass
+    working-directory: moros
 
 jobs:
   # 必跑检查：安装、类型检查、单元/行为测试、Provider 审计和构建。
@@ -40,8 +40,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: |
-            compass/package-lock.json
-            compass/vendor/pi/package-lock.json
+            moros/package-lock.json
+            moros/vendor/pi/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -76,8 +76,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: |
-            compass/package-lock.json
-            compass/vendor/pi/package-lock.json
+            moros/package-lock.json
+            moros/vendor/pi/package-lock.json
 
       # Electron 43 的二进制在首次使用时才下载（~120MB），缓存 @electron/get
       # 的下载目录，避免每次 CI 都从 GitHub Releases 重新拉取
@@ -85,7 +85,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/electron
-          key: electron-${{ runner.os }}-${{ hashFiles('compass/package-lock.json') }}
+          key: electron-${{ runner.os }}-${{ hashFiles('moros/package-lock.json') }}
           restore-keys: electron-${{ runner.os }}-
 
       # xvfb：Electron 无法真 headless，需要虚拟显示（runner 镜像通常自带，装一次求稳）
@@ -115,6 +115,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-screenshots
-          path: compass/smoke-out/
+          path: moros/smoke-out/
           if-no-files-found: ignore
           retention-days: 7

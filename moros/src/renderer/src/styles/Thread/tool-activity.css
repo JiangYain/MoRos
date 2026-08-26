@@ -1,0 +1,293 @@
+/* ---------------- unified tool activity groups */
+.tool-exploration {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 2px 0;
+}
+
+.tool-exploration-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.25rem 0;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-align: left;
+  transition: color 0.14s var(--ease-out-power3);
+}
+
+.tool-exploration-toggle:hover,
+.tool-exploration.running .tool-exploration-toggle {
+  color: var(--color-text-primary);
+}
+
+.tool-exploration-label {
+  color: inherit;
+}
+
+.tool-exploration.running .tool-exploration-chevron {
+  color: color-mix(in srgb, var(--color-accent) 68%, var(--color-text-tertiary));
+}
+
+.tool-exploration-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  transition: transform 0.22s var(--ease-out-power3);
+}
+
+.tool-exploration-chevron.open {
+  transform: rotate(90deg);
+}
+
+.tool-exploration-body-clip {
+  width: 100%;
+  overflow: hidden;
+}
+
+.tool-exploration-body {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.12rem;
+  margin: 0.34rem 0 0;
+  padding: 0 0 0 1.55rem;
+}
+
+.tool-exploration-body > .tool-activity-group {
+  width: 100%;
+}
+
+.tool-activity-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.tool-activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.2rem 0;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-align: left;
+  transition: color 0.14s var(--ease-out-power3);
+}
+
+.tool-activity-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.tool-activity-group.running .tool-activity-toggle {
+  color: var(--color-text-primary);
+}
+
+.tool-activity-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  transition: transform 0.22s var(--ease-out-power3);
+}
+
+.tool-activity-chevron.open {
+  transform: rotate(90deg);
+}
+
+.tool-activity-list-clip {
+  width: 100%;
+  overflow: hidden;
+}
+
+.tool-activity-list {
+  width: 100%;
+  margin: 0.34rem 0 0;
+  padding: 0 0 0 1.55rem;
+  list-style: none;
+}
+
+.tool-activity-entry {
+  min-width: 0;
+  padding: 0.28rem 0;
+}
+
+.tool-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.tool-activity-row.clickable {
+  cursor: pointer;
+  user-select: none;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 6px 2px 4px;
+  margin: -2px -6px -2px -4px;
+  border-radius: var(--border-radius-xs);
+  transition: background 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.tool-activity-row.clickable:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-secondary);
+}
+
+.tool-activity-row.clickable:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+}
+
+.tool-activity-row > svg {
+  flex: 0 0 auto;
+}
+
+.tool-activity-state {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+}
+
+.tool-activity-entry.error .tool-activity-state {
+  color: var(--color-accent);
+}
+
+.tool-activity-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: -0.006em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-activity-entry-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  margin-left: 2px;
+  transition: transform 0.2s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.tool-activity-row.clickable:hover .tool-activity-entry-chevron {
+  color: var(--color-text-secondary);
+}
+
+.tool-activity-entry-chevron.open {
+  transform: rotate(90deg);
+}
+
+.tool-activity-output-clip {
+  width: 100%;
+  overflow: hidden;
+}
+
+.tool-activity-output-shell {
+  position: relative;
+  margin: 0.35rem 0 0.25rem 1.45rem;
+  border-radius: var(--border-radius-control);
+  corner-shape: var(--corner-shape-continuous);
+  border: 0.5px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.tool-activity-output-shell.error {
+  border-color: color-mix(in srgb, var(--color-danger) 24%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-soft) 25%, var(--color-surface));
+}
+
+:root[data-theme="dark"] .tool-activity-output-shell {
+  background: #181a1d;
+  border-color: #2e3338;
+}
+
+:root[data-theme="dark"] .tool-activity-output-shell.error {
+  background: #1c1817;
+  border-color: color-mix(in srgb, var(--color-accent) 26%, #2e3338);
+}
+
+.tool-activity-output-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0.7;
+  transition: opacity 0.14s ease;
+}
+
+.tool-activity-output-shell:hover .tool-activity-output-actions,
+.tool-activity-output-shell:focus-within .tool-activity-output-actions {
+  opacity: 1;
+}
+
+.tool-activity-action-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0 !important;
+  border-radius: var(--border-radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-elevated) 82%, transparent) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+}
+
+.tool-activity-action-btn:hover {
+  background: var(--color-elevated) !important;
+  color: var(--color-text-primary);
+}
+
+:root[data-theme="dark"] .tool-activity-action-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="dark"] .tool-activity-action-btn:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+}
+
+.tool-activity-action-btn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+}
+
+.tool-activity-output {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 56px 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+:root[data-theme="dark"] .tool-activity-output {
+  color: #d6d9dc;
+}

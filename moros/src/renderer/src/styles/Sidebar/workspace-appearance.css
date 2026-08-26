@@ -1,0 +1,150 @@
+/* ============================================================
+   WORKSPACE APPEARANCE PICKER (Icon & Color Customization)
+   ============================================================ */
+
+.workspace-appearance-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="dark"] .workspace-appearance-backdrop {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.workspace-appearance-popover {
+  position: fixed;
+  z-index: 1201;
+  width: 262px;
+  background: var(--color-bg);
+  border: 0.5px solid var(--color-border);
+  border-radius: 16px;
+  corner-shape: var(--corner-shape-continuous);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.13), 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 15px 13px 12px 13px;
+  display: flex;
+  flex-direction: column;
+  animation: menuFadeIn 0.12s var(--ease-out-power3);
+}
+
+.workspace-appearance-colors {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px 2px;
+  padding: 2px 0 4px 0;
+  justify-items: center;
+  align-items: center;
+}
+
+.workspace-color-dot-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  position: relative;
+  border-radius: 50%;
+}
+
+.workspace-color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: transform 0.12s var(--ease-out-power3);
+}
+
+.workspace-color-dot-btn:hover .workspace-color-dot {
+  transform: scale(1.08);
+}
+
+.workspace-color-dot-btn.selected .workspace-color-dot {
+  width: 19px;
+  height: 19px;
+}
+
+.workspace-color-dot-btn.selected::after {
+  content: "";
+  position: absolute;
+  inset: 1.5px;
+  border-radius: 50%;
+  border: 1.8px solid var(--color-text-primary);
+}
+
+.workspace-appearance-divider {
+  height: 0.5px;
+  background: var(--color-border-subtle);
+  margin: 11px 2px 9px 2px;
+}
+
+.workspace-appearance-icons {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px 2px;
+  justify-items: center;
+  align-items: center;
+}
+
+.workspace-icon-btn {
+  width: 35px;
+  height: 35px;
+  border-radius: 10px;
+  corner-shape: var(--corner-shape-continuous);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-primary);
+  transition: background 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.workspace-icon-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+.workspace-icon-btn.selected {
+  background: #f0f2f4;
+}
+
+:root[data-theme="dark"] .workspace-icon-btn.selected {
+  background: var(--color-surface-active);
+}
+
+.workspace-icon-btn svg {
+  width: 18.5px;
+  height: 18.5px;
+  color: var(--color-text-primary);
+}
+
+.workspace-appearance-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 2px;
+}
+
+.workspace-appearance-done-btn {
+  height: 29px;
+  padding: 0 14px;
+  border-radius: 8px;
+  corner-shape: var(--corner-shape-continuous);
+  border: none;
+  background: #f0f2f4;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+:root[data-theme="dark"] .workspace-appearance-done-btn {
+  background: var(--color-surface);
+}
+
+.workspace-appearance-done-btn:hover {
+  background: var(--color-surface-hover);
+}

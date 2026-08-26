@@ -1,0 +1,144 @@
+.settings-profile-identity {
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.settings-profile-avatar-button {
+  width: 82px;
+  height: 82px;
+  position: relative;
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+.settings-profile-avatar-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.settings-profile-avatar {
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: inherit;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-family: var(--font-serif);
+  font-size: 25px;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.settings-profile-avatar-edit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-image-overlay);
+  color: var(--color-on-overlay);
+  opacity: 0;
+  transition: opacity 0.14s var(--ease-out-power3);
+}
+
+.settings-profile-avatar-button:hover .settings-profile-avatar-edit,
+.settings-profile-avatar-button:focus-visible .settings-profile-avatar-edit {
+  opacity: 1;
+}
+
+.settings-profile-avatar-input {
+  display: none;
+}
+
+.settings-profile-identity h2 {
+  margin: 14px 0 1px;
+  color: var(--color-text-primary);
+  font-size: 22px;
+  font-weight: 480;
+  letter-spacing: -0.03em;
+}
+
+.settings-profile-identity p {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+}
+
+.settings-profile-photo-actions {
+  min-height: 22px;
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.settings-profile-photo-actions button {
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 9.5px;
+}
+
+.settings-profile-photo-actions button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.settings-profile-photo-actions button.remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-tertiary);
+}
+
+.settings-profile-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 24px;
+  width: 100%;
+  max-width: 360px;
+  text-align: left;
+}
+
+.settings-profile-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-profile-input label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.settings-profile-input input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-control);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  box-shadow: var(--shadow-precise);
+  transition: border-color 0.12s var(--ease-out-power3), box-shadow 0.12s var(--ease-out-power3);
+}
+
+.settings-profile-input input:focus {
+  border-color: var(--color-border-focus);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 10%, transparent), var(--shadow-precise);
+}

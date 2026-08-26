@@ -1,0 +1,167 @@
+/* ---------------- generic tool card */
+.tool-card {
+  border: 0.5px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: var(--border-radius-md);
+  corner-shape: var(--corner-shape-continuous);
+  transition: border-color 0.12s var(--ease-out-power3);
+}
+
+.tool-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+.tool-card.error {
+  border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border));
+}
+
+.tool-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 0.95rem;
+  text-align: left;
+}
+
+.tool-head .tool-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-chart-3);
+  flex: 0 0 auto;
+  transition: background 0.22s var(--ease-out-power3);
+}
+
+.tool-head .tool-dot.running {
+  background: var(--color-accent);
+}
+
+.tool-head .tool-dot.failed {
+  background: var(--color-accent);
+}
+
+.tool-name {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+  flex: 0 0 auto;
+}
+
+.tool-summary {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-status {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  flex: 0 0 auto;
+}
+
+.tool-status.error {
+  color: var(--color-accent);
+}
+
+.tool-chev {
+  color: var(--color-text-tertiary);
+  transition: transform 0.22s var(--ease-out-power3);
+  flex: 0 0 auto;
+}
+
+.tool-chev.open {
+  transform: rotate(90deg);
+}
+
+.tool-body {
+  overflow: hidden;
+}
+
+.tool-body-inner {
+  border-top: 0.5px solid var(--color-border);
+  padding: 0.8rem 0.95rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.tool-args,
+.tool-output {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.tool-args {
+  color: var(--color-text-tertiary);
+}
+
+.tool-output {
+  color: var(--color-text-secondary);
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  padding: 0.7rem 0.85rem;
+}
+
+.tool-output-shell {
+  position: relative;
+}
+
+.tool-output-shell .tool-output {
+  padding-right: 2.6rem;
+}
+
+.tool-copy-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
+  background: var(--color-elevated);
+}
+
+.tool-output.error {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+}
+
+/* ---------------- notice row */
+.notice-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.notice-row::before,
+.notice-row::after {
+  content: "";
+  flex: 1;
+  height: 0.5px;
+  background: var(--color-border);
+}
+
+.notice-row.warn {
+  color: var(--color-accent);
+}

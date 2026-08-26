@@ -1,0 +1,138 @@
+/* ============================================================
+   HERO (empty state)
+   ============================================================ */
+.hero {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+}
+
+.hero-inner {
+  width: 100%;
+  max-width: 600px;
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+:root {
+  --moros-ascii-base-opacity-min: 0.28;
+  --moros-ascii-base-opacity-max: 0.36;
+}
+
+:root[data-theme="dark"] {
+  --moros-ascii-base-opacity-min: 0.20;
+  --moros-ascii-base-opacity-max: 0.28;
+}
+
+.hero-ascii-title {
+  margin: 0;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.moros-ascii-wordmark {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  isolation: isolate;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.moros-ascii-word {
+  position: relative;
+  display: block;
+}
+
+.moros-ascii-base,
+.moros-ascii-glow,
+.moros-ascii-period {
+  display: block;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-style: normal;
+  font-size: var(--moros-ascii-font-size, clamp(6px, 1.3vw, 12px));
+  line-height: 1.28;
+  letter-spacing: 0.02em;
+  white-space: pre;
+  user-select: none;
+}
+
+.moros-ascii-period {
+  flex: 0 0 auto;
+  margin-left: 1ch;
+  color: var(--color-accent);
+  opacity: 0.4;
+}
+
+.moros-ascii-base {
+  color: var(--color-text-primary);
+  animation: morosBreath 10s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.moros-ascii-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 32%,
+    var(--color-accent) 47%,
+    var(--color-accent) 57%,
+    transparent 72%,
+    transparent 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--color-accent) 22%, transparent));
+  opacity: 0;
+  animation: morosSweep 11.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes morosBreath {
+  0%, 100% { opacity: var(--moros-ascii-base-opacity-min); }
+  50% { opacity: var(--moros-ascii-base-opacity-max); }
+}
+
+@keyframes morosSweep {
+  0% {
+    opacity: 0;
+    background-position: 120% 0;
+  }
+  12% {
+    opacity: 0.58;
+  }
+  52% {
+    opacity: 0.64;
+    background-position: -20% 0;
+  }
+  70% {
+    opacity: 0;
+    background-position: -120% 0;
+  }
+  100% {
+    opacity: 0;
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .moros-ascii-base {
+    animation: none;
+    opacity: calc((var(--moros-ascii-base-opacity-min) + var(--moros-ascii-base-opacity-max)) / 2);
+  }
+  .moros-ascii-glow { animation: none; opacity: 0; }
+}

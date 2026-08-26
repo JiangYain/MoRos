@@ -1,4 +1,0 @@
-interface:
-  display_name: "Widex COMPASS GPS Control"
-  short_description: "Control Widex COMPASS GPS through Windows UI Automation."
-  default_prompt: "Use $widex-compass-gps-control to open Widex COMPASS GPS and prepare a fitting session."

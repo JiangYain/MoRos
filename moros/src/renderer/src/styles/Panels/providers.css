@@ -1,0 +1,154 @@
+.settings-provider-section-header {
+  background: var(--color-surface);
+}
+
+.settings-provider-section.open .settings-provider-section-header {
+  border-bottom: 0.5px solid var(--color-border-subtle);
+}
+
+.settings-provider-toggle {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-secondary);
+  text-align: left;
+  background: transparent;
+  transition: background 0.12s var(--ease-out-power3);
+}
+
+.settings-provider-toggle:hover {
+  background: var(--color-surface-hover);
+}
+
+.settings-provider-toggle > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-provider-toggle strong {
+  color: var(--color-text-primary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.settings-provider-toggle > span:nth-child(2) {
+  color: var(--color-text-tertiary);
+  font-size: 9.5px;
+}
+
+.settings-provider-content {
+  background: var(--color-bg);
+}
+
+.settings-inline-search {
+  width: min(280px, 100%);
+  height: 28px;
+  margin: 12px 14px 10px;
+  padding: 0 8px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border-subtle);
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+}
+
+.settings-provider-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-provider-row {
+  flex: 0 0 auto;
+  min-height: 48px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-bottom: 0.5px solid var(--color-border-subtle);
+  background: transparent;
+  transition: background 0.12s var(--ease-out-power3);
+}
+
+.settings-provider-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-provider-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.settings-provider-copy {
+  flex: 1;
+  gap: 1px;
+}
+
+.settings-provider-editor {
+  flex: 1 1 100%;
+  min-height: 36px;
+  margin: 6px 0;
+  padding: 0 5px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-bg);
+  color: var(--color-text-tertiary);
+  box-shadow: var(--shadow-precise);
+  animation: settings-provider-editor-expand 0.16s var(--ease-out-power3);
+}
+
+@keyframes settings-provider-editor-expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-provider-editor {
+    animation: none;
+  }
+}
+
+.settings-provider-secret-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.settings-secret-action,
+.settings-provider-editor .settings-secret-copy-button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+}
+
+.settings-secret-action:hover,
+.settings-secret-action:focus-visible,
+.settings-provider-editor .settings-secret-copy-button:hover,
+.settings-provider-editor .settings-secret-copy-button:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.settings-secret-action:disabled,
+.settings-provider-editor .settings-secret-copy-button:disabled {
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.settings-provider-editor .settings-secret-copy-button.copied {
+  color: var(--color-success);
+}

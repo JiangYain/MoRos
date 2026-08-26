@@ -1,4 +1,0 @@
-interface:
-  display_name: "Phonak Target Control"
-  short_description: "Open and stage Phonak Target for UI Automation."
-  default_prompt: "Use $phonak-target-control to open Phonak Target and arrange it beside Compass."

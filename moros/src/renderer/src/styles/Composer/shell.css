@@ -1,0 +1,304 @@
+/* ============================================================
+   COMPOSER
+   ============================================================ */
+.composer-zone {
+  flex: 0 0 auto;
+  border-top: 0;
+  background: var(--color-bg);
+  padding-bottom: 16px;
+}
+
+.composer-wrap {
+  max-width: var(--composer-max-w);
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+}
+
+.quick-prompts {
+  display: flex;
+  align-items: center;
+  flex: 0 1 400px;
+  min-width: 140px;
+  max-width: 60%;
+  padding-left: 11px;
+  border-left: 0.5px solid var(--color-border-subtle);
+}
+
+.quick-prompt-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0.5px solid transparent;
+  border-radius: var(--border-radius-md);
+  corner-shape: var(--corner-shape-continuous);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: left;
+  transition: border-color 0.14s var(--ease-out-power3), color 0.14s var(--ease-out-power3), background-color 0.14s var(--ease-out-power3);
+}
+
+.quick-prompt-btn:hover,
+.quick-prompt-btn:focus-visible {
+  border-color: var(--color-border-subtle);
+  background-color: color-mix(in srgb, var(--color-bg) 42%, transparent);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.quick-prompt-btn:focus-visible {
+  border-color: var(--color-border-focus);
+}
+
+.quick-prompt-idx {
+  flex: 0 0 auto;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+.quick-prompt-text-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.quick-prompt-text {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.queue-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0 8px 0.6rem;
+}
+
+.queue-chip {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  border: 0.5px solid var(--color-border);
+  border-radius: var(--border-radius-pill);
+  corner-shape: round;
+  background: var(--color-surface);
+  padding: 0.2rem 0.55rem;
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  max-width: 100%;
+}
+
+.queue-chip .tag {
+  color: var(--color-accent);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.queue-chip .txt {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-chip:hover,
+.queue-chip:focus-within {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.queue-chip .queue-chip-body {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.queue-chip .queue-chip-body:hover .txt {
+  color: var(--color-text-primary);
+}
+
+.queue-chip .queue-chip-remove {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-tertiary);
+}
+
+.queue-chip .queue-chip-remove:hover {
+  background: var(--color-overlay);
+  color: var(--color-text-primary);
+}
+
+.workspace-context-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 38px;
+  padding: 0 12px 6px;
+  overflow: hidden;
+}
+
+.workspace-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 60px;
+  max-width: calc(100% - 20px);
+  padding: 2px 7px;
+  margin: 0;
+  border: 0.5px solid transparent;
+  border-radius: var(--border-radius-control);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+  transition: background-color 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3), border-color 0.12s var(--ease-out-power3);
+}
+
+.workspace-session:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-subtle);
+}
+
+.workspace-session:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+}
+
+.workspace-folder-icon {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  transition: color 0.12s var(--ease-out-power3);
+}
+
+.workspace-session:hover .workspace-folder-icon {
+  color: var(--color-accent);
+}
+
+.workspace-dir-name {
+  flex: 0 0 auto;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.workspace-session-separator {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.workspace-session-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-model-notice {
+  padding-left: 11px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border-left: 0.5px solid var(--color-border-subtle);
+}
+
+.workspace-model-notice button {
+  min-height: 26px;
+  padding: 0 7px;
+  flex: 0 0 auto;
+  border-radius: var(--border-radius-control);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 500;
+  transition: background-color 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.workspace-model-notice button:hover,
+.workspace-model-notice button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--color-bg) 48%, transparent);
+  color: var(--color-text-primary);
+}
+
+.composer {
+  min-height: 120px;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: var(--border-radius-composer);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-precise);
+  transition: border-color 0.15s var(--ease-out-power3), box-shadow 0.15s var(--ease-out-power3);
+  position: relative;
+  z-index: 2;
+}
+
+.composer:focus-within {
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-precise);
+}
+
+.composer.drag-active {
+  border-color: var(--color-accent);
+}
+
+.composer-drop-overlay {
+  position: absolute;
+  inset: 6px;
+  z-index: 85;
+  border: 1px dashed var(--color-accent);
+  border-radius: calc(var(--border-radius-composer) - 4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-accent));
+  color: var(--color-text-primary);
+  pointer-events: none;
+}
+
+.composer-drop-overlay span {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.composer-drop-overlay small {
+  color: var(--color-text-secondary);
+  font-size: 9.5px;
+}

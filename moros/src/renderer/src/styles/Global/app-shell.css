@@ -1,0 +1,170 @@
+/* ============================================================
+   APP SHELL
+   ============================================================ */
+.app-frame {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--color-sidebar);
+  box-shadow: none;
+}
+
+/* ------------------------------------------------ titlebar */
+.titlebar {
+  display: flex;
+  align-items: center;
+  height: var(--titlebar-h);
+  flex: 0 0 var(--titlebar-h);
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+  background: var(--color-sidebar);
+  z-index: 140;
+}
+
+.titlebar-drag-space {
+  flex: 1;
+  height: 100%;
+}
+
+.titlebar-brand {
+  height: 100%;
+  flex: 0 0 auto;
+  width: 38px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-primary);
+}
+
+.titlebar-brand svg {
+  flex: 0 0 auto;
+}
+
+.moros-logo {
+  overflow: visible;
+}
+
+.moros-logo-base,
+.moros-logo-accent,
+.moros-logo-accent-reveal {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .titlebar-brand .moros-logo-base {
+    animation: moros-logo-base-reveal 760ms linear both;
+  }
+
+  .titlebar-brand .moros-logo-accent-reveal {
+    animation: moros-logo-accent-reveal 760ms linear both;
+  }
+
+  .titlebar-brand .moros-logo-accent {
+    transition: transform 180ms cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .titlebar-brand:hover .moros-logo-accent {
+    transform: translate(6%, -4%);
+  }
+}
+
+@keyframes moros-logo-base-reveal {
+  0%,
+  20% {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    transform: translateX(-5%) scale(0.985);
+    animation-timing-function: cubic-bezier(0.34, 0, 0.14, 1);
+  }
+
+  63%,
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes moros-logo-accent-reveal {
+  0%,
+  35% {
+    opacity: 0;
+    transform: translate(10%, 12%) rotate(1.5deg);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  58% {
+    opacity: 1;
+    transform: translate(2%, -2%) rotate(0.25deg);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  76% {
+    opacity: 1;
+    transform: translate(-1%, -1%) rotate(-0.15deg);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  90%,
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0);
+  }
+}
+
+.titlebar-sidebar-toggle {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--border-radius-xs);
+  color: var(--color-text-secondary);
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-navigation-controls {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-navigation-button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--border-radius-xs);
+  color: var(--color-text-secondary);
+}
+
+.titlebar-sidebar-toggle:hover,
+.titlebar-navigation-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-surface-hover) 72%, transparent);
+  color: var(--color-text-primary);
+}
+
+.titlebar-navigation-button:disabled {
+  opacity: 0.28;
+}
+
+.global-menu {
+  height: 100%;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  -webkit-app-region: no-drag;
+}
+
+.global-menu-group {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}

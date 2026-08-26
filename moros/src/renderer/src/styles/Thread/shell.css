@@ -1,0 +1,209 @@
+/* ============================================================
+   MAIN / THREAD
+   ============================================================ */
+.main-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-bg);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.thread-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+.thread-prompt-rail {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  left: 10px;
+  z-index: 9;
+  display: flex;
+  width: 40px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.thread-prompt-marker {
+  position: relative;
+  display: flex;
+  width: 40px;
+  height: 11px;
+  flex: 0 0 11px;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  pointer-events: auto;
+  text-align: left;
+}
+
+.thread-prompt-marker-dash {
+  display: block;
+  width: 7px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-tertiary) 52%, transparent);
+  transition:
+    width 180ms var(--ease-out-power3),
+    height 180ms var(--ease-out-power3),
+    background-color 140ms ease;
+}
+
+.thread-prompt-marker.active .thread-prompt-marker-dash {
+  width: 12px;
+  background: color-mix(in srgb, var(--color-text-secondary) 72%, transparent);
+}
+
+.thread-prompt-marker:hover .thread-prompt-marker-dash,
+.thread-prompt-marker:focus-visible .thread-prompt-marker-dash {
+  width: 32px;
+  height: 2px;
+  background: var(--color-text-primary);
+}
+
+.thread-prompt-marker:focus-visible {
+  outline: none;
+}
+
+.thread-prompt-preview {
+  position: absolute;
+  top: 50%;
+  left: 42px;
+  z-index: 20;
+  display: flex;
+  width: min(320px, calc(100vw - 120px));
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 0.22rem;
+  padding: 0.56rem 0.68rem 0.62rem;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: 12px;
+  corner-shape: var(--corner-shape-continuous);
+  background: color-mix(in srgb, var(--color-elevated) 94%, transparent);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text-primary);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-5px, -50%) scale(0.985);
+  transform-origin: left center;
+  transition:
+    opacity 140ms ease,
+    transform 180ms var(--ease-out-power3),
+    visibility 0s linear 180ms;
+  pointer-events: none;
+  backdrop-filter: blur(18px);
+}
+
+.thread-prompt-marker.first .thread-prompt-preview {
+  top: 0;
+  transform: translate(-5px, 0) scale(0.985);
+  transform-origin: left top;
+}
+
+.thread-prompt-marker.last .thread-prompt-preview {
+  top: auto;
+  bottom: 0;
+  transform: translate(-5px, 0) scale(0.985);
+  transform-origin: left bottom;
+}
+
+.thread-prompt-marker:hover .thread-prompt-preview,
+.thread-prompt-marker:focus-visible .thread-prompt-preview {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(0, -50%) scale(1);
+  transition-delay: 80ms, 80ms, 0s;
+}
+
+.thread-prompt-marker.first:hover .thread-prompt-preview,
+.thread-prompt-marker.first:focus-visible .thread-prompt-preview,
+.thread-prompt-marker.last:hover .thread-prompt-preview,
+.thread-prompt-marker.last:focus-visible .thread-prompt-preview {
+  transform: translate(0, 0) scale(1);
+}
+
+.thread-prompt-preview-prompt {
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-prompt-preview-response {
+  width: 100%;
+  text-align: left;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.thread-scroll {
+  flex: 1;
+  width: 100%;
+  overflow-y: auto;
+  overflow-anchor: auto;
+  min-height: 0;
+}
+
+.thread-jump-latest {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  z-index: 8;
+  width: 32px;
+  height: 32px;
+  border: 0.5px solid var(--color-border-strong);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--color-elevated);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-control);
+  backdrop-filter: blur(10px);
+}
+
+.thread-jump-latest:hover,
+.thread-jump-latest:focus-visible {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.thread-inner {
+  max-width: var(--thread-max-w);
+  margin: 0 auto;
+  padding: 2.6rem 3rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.9rem;
+}

@@ -1,0 +1,112 @@
+.global-menu-trigger {
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--border-radius-xs);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  transition:
+    background-color 120ms var(--ease-out-power3),
+    color 120ms var(--ease-out-power3);
+}
+
+.global-menu-trigger:hover,
+.global-menu-trigger.active {
+  background: color-mix(in srgb, var(--color-surface-hover) 72%, transparent);
+  color: var(--color-text-primary);
+}
+
+.global-menu-popover {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 0;
+  z-index: 160;
+  min-width: 196px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-xs);
+  background: var(--color-elevated);
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+.global-menu-popover > button {
+  width: 100%;
+  min-height: 29px;
+  padding: 0 8px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.global-menu-popover > button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.global-menu-popover > button:disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+.global-menu-popover kbd {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.global-menu-separator {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--color-border);
+}
+
+.win-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: 44px;
+  height: 100%;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-secondary);
+  transition: background 0.12s var(--ease-out-power3), color 0.12s var(--ease-out-power3);
+}
+
+.win-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+.win-btn.close:hover {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* ------------------------------------------------ body grid */
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+  padding: 0;
+  background: var(--color-sidebar);
+}
+
+.app-frame .app-body.settings-open {
+  padding: 0;
+}

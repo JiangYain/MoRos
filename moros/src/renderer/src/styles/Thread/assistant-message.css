@@ -1,0 +1,253 @@
+/* ---------------- assistant message */
+.msg-assistant {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.msg-assistant:empty,
+.execution-summary-container:empty {
+  display: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.assistant-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.assistant-identity .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.assistant-identity + .msg-assistant,
+.assistant-identity + .tool-exploration,
+.assistant-identity + .tool-card,
+.assistant-identity + .execution-summary-bar {
+  margin-top: -1.1rem;
+}
+
+.assistant-identity + .execution-summary-container {
+  margin-top: -1.48rem;
+}
+
+.assistant-body {
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  line-height: 1.64;
+  user-select: text;
+  cursor: text;
+}
+
+/* 相邻过程项紧凑排列 (Thinking ↔ Exploring) */
+.tool-exploration + .msg-assistant:has(> .thinking-block-capsule:first-child),
+.msg-assistant:has(> .thinking-block-capsule:last-child) + .tool-exploration {
+  margin-top: -1.75rem;
+}
+
+/* 当过程项后面紧跟正文/Skill/回答时，保留 12px 明确下边距 */
+.tool-exploration + .msg-assistant:not(:has(> .thinking-block-capsule:first-child)) {
+  margin-top: -1.15rem;
+}
+
+.thinking-block-capsule + .assistant-body,
+.tool-exploration + .assistant-body,
+.thinking-block-capsule + .skill-block,
+.tool-exploration + .skill-block {
+  margin-top: 12px;
+}
+
+/* 同一回合被工具调用打断的正文片段合并后，用段落间距而不是消息间距分隔 */
+.assistant-body + .assistant-body,
+.assistant-body + .skill-block,
+.skill-block + .assistant-body {
+  margin-top: 0.65rem;
+}
+
+/* 末段的 margin-bottom 会在气泡下方留下不可见的空白 */
+.msg-assistant .md > :last-child {
+  margin-bottom: 0;
+}
+
+.execution-summary-container + .msg-assistant {
+  margin-top: -1.9rem;
+}
+
+.copy-button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+  line-height: 1;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+
+.copy-button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.copy-button:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.copy-button.copied {
+  color: var(--color-success);
+}
+
+.copy-button.error {
+  color: var(--color-danger);
+}
+
+/*
+ * Hover-only affordance: keep it out of flow so an invisible 26px row is not
+ * reserved under every assistant message. It overlaps the thread gap instead.
+ */
+.assistant-copy-button {
+  position: absolute;
+  bottom: -1.5rem;
+  left: -7px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px) scale(0.96);
+  transform-origin: left center;
+  transition:
+    opacity 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 150ms ease,
+    background 150ms ease;
+}
+
+.msg-assistant:hover .assistant-copy-button,
+.msg-assistant:focus-within .assistant-copy-button,
+.assistant-copy-button.copied,
+.assistant-copy-button.error {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+@media (hover: none) {
+  .assistant-copy-button {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+.agent-activity-orb {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  min-width: 20px;
+  max-width: 20px;
+  height: 1em;
+  flex: 0 0 auto;
+  align-self: center;
+  overflow: visible;
+  line-height: 1;
+  pointer-events: none;
+  transition: opacity 0.3s ease-out;
+}
+
+.agent-activity-orb-canvas {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.agent-activity-status-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.assistant-stream-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 2px 0;
+  color: var(--color-text-tertiary);
+  font-size: 11.5px;
+  align-self: flex-start;
+}
+
+.assistant-stream-activity.has-content {
+  margin-top: 10px; /* 距离正文末尾固定保持 10px，不再使用负边距 hack */
+}
+
+.msg-error {
+  border: 0.5px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  border-radius: var(--border-radius-md);
+  corner-shape: var(--corner-shape-continuous);
+  background: var(--color-accent-soft);
+  padding: 0.8rem 1.1rem;
+  font-size: 12.5px;
+  color: var(--color-accent);
+  user-select: text;
+}
+
+.msg-retry-button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0.5px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  border-radius: var(--border-radius-sm);
+  corner-shape: var(--corner-shape-continuous);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+
+.msg-retry-button:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.msg-retry-button:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.msg-error .msg-retry-button {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.notice-row .msg-retry-button {
+  letter-spacing: normal;
+  text-transform: none;
+}

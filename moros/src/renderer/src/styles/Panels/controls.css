@@ -1,0 +1,38 @@
+/* ============================================================
+   SETTINGS CONTROLS
+   ============================================================ */
+.toggle {
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  position: relative;
+  border: 0.5px solid transparent;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background 0.16s var(--ease-out-power3), opacity 0.16s var(--ease-out-power3);
+}
+
+.toggle .knob {
+  width: 16px;
+  height: 16px;
+  position: absolute;
+  top: 1.5px;
+  left: 1.5px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-control);
+  transition: transform 0.16s var(--ease-out-power3);
+}
+
+.toggle.on {
+  background: var(--color-accent);
+}
+
+.toggle.on .knob {
+  transform: translateX(17px);
+}
+
+.toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

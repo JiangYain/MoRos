@@ -1,0 +1,102 @@
+@import "../../assets/fonts/fonts.css";
+
+/* ============================================================
+   MOROS DESIGN TOKENS — quiet, neutral, editorial precision
+   The palette is intentionally cool-neutral. Component CSS must
+   consume these semantic tokens instead of inventing local grays.
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --settings-max-width: 960px;
+  --color-bg: #ffffff;
+  --color-sidebar: #f5f5f5;
+  --color-surface: #f3f5f6;
+  --color-surface-hover: #e7eaed;
+  --color-surface-active: #dce1e5;
+  --color-elevated: #ffffff;
+  --color-overlay: rgba(21, 23, 25, 0.2);
+  --color-image-overlay: rgba(21, 23, 25, 0.56);
+  --color-text-primary: #151719;
+  --color-text-secondary: #4c545c;
+  --color-text-tertiary: #68727c;
+  --color-accent: #c74634;
+  --color-accent-soft: #fff0ed;
+  --color-success: #0f7653;
+  --color-warning: #8b5700;
+  --color-danger: #b83b31;
+  --color-border-subtle: #e8eaed;
+  --color-border: #d5d9de;
+  --color-border-strong: #b8bec5;
+  --color-border-focus: #717b85;
+  --color-chart-1: #c6ccd2;
+  --color-chart-2: #adb5bd;
+  --color-chart-3: #949ea8;
+  --color-on-accent: #ffffff;
+  --color-on-overlay: #ffffff;
+  --color-scrollbar: rgba(21, 23, 25, 0.2);
+  --color-scrollbar-hover: rgba(21, 23, 25, 0.38);
+
+  --font-serif: "Source Han Serif SC", "Source Han Serif", "思源宋体", "Noto Serif SC", "Cormorant Garamond", Georgia, "SimSun", serif;
+  --font-sans: "Source Han Serif SC", "Source Han Serif", "思源宋体", "Noto Serif SC", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+    "Microsoft YaHei UI", sans-serif;
+  --font-mono: "Google Sans Code NF", ui-monospace, "Cascadia Code", "Cascadia Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+
+  --titlebar-h: 34px;
+  --sidebar-w: 264px;
+  --thread-max-w: 768px;
+  --composer-max-w: 760px;
+
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-out-power3: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Precise layout & border variables */
+  --border-radius-xs: 4px;
+  --border-radius-sm: 6px;
+  --border-radius-md: 12px;
+  --border-radius-lg: 16px;
+  --border-radius-elegant: 12px;
+  --border-radius-control: 8px;
+  --border-radius-workspace: 14px;
+  --border-radius-composer: 16px;
+  --border-radius-pill: 999px;
+  --corner-shape-continuous: superellipse(1.5);
+  --shadow-precise: 0 1px 2px rgba(17, 17, 17, 0.06);
+  --shadow-control: 0 1px 3px rgba(17, 17, 17, 0.16);
+  --shadow-popover: 0 5px 18px rgba(17, 17, 17, 0.09);
+  --shadow-dialog: 0 18px 52px rgba(17, 17, 17, 0.16), 0 2px 8px rgba(17, 17, 17, 0.06);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #151719;
+  --color-sidebar: #101214;
+  --color-surface: #1d2024;
+  --color-surface-hover: #272b30;
+  --color-surface-active: #32383e;
+  --color-elevated: #1b1e22;
+  --color-overlay: rgba(0, 0, 0, 0.52);
+  --color-image-overlay: rgba(0, 0, 0, 0.58);
+  --color-text-primary: #f2f4f5;
+  --color-text-secondary: #c1c7cd;
+  --color-text-tertiary: #9aa3ac;
+  --color-accent: #f17a66;
+  --color-accent-soft: #35201c;
+  --color-success: #64d2a4;
+  --color-warning: #efb25a;
+  --color-danger: #ff8276;
+  --color-border-subtle: #292e33;
+  --color-border: #343a40;
+  --color-border-strong: #4a525a;
+  --color-border-focus: #8d98a4;
+  --color-chart-1: #49515a;
+  --color-chart-2: #68727c;
+  --color-chart-3: #8b96a1;
+  --color-on-accent: #111315;
+  --color-on-overlay: #ffffff;
+  --color-scrollbar: rgba(255, 255, 255, 0.2);
+  --color-scrollbar-hover: rgba(255, 255, 255, 0.38);
+  --shadow-precise: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-control: 0 1px 3px rgba(0, 0, 0, 0.46);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.34);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.3);
+}
