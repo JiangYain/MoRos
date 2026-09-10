@@ -27,6 +27,34 @@ const phase = (name, run) => runSmokePhase(`workbench.${name}`, run, { timeoutMs
 const shot = (name) => page.screenshot({ path: join(out, `${name}.png`) });
 let scope, initialSessionPath;
 const wb = (request) => page.evaluate((request) => window.moros.workbench(request), { scope, ...request });
+const terminalCommands = process.platform === "win32" ? {
+  ready: "Write-Output ('MOROS_' + 'TERMINAL_READY')",
+  loop: "while ($true) { Write-Output MOROS_TICK; Start-Sleep -Milliseconds 250 }",
+  afterInterrupt: "Write-Output ('AFTER_' + 'INTERRUPT')",
+} : {
+  ready: "printf 'MOROS_TERMINAL_READY\\n'",
+  loop: "while true; do printf 'MOROS_TICK\\n'; sleep 0.25; done",
+  afterInterrupt: "printf 'AFTER_INTERRUPT\\n'",
+};
+const waitForTerminalPrompt = (id, offset = 0) => page.waitForFunction(async ({ scope, id, offset, platform }) => {
+  const terminal = (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read", offset })).terminal;
+  if (terminal.pendingCursorResponse) return false;
+  const output = terminal.output
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r/g, "");
+  return platform === "win32"
+    ? /(?:^|\n)PS [^\n]*>\s*$/.test(output)
+    : /(?:^|\n)[^\n]*[$#%]\s*$/.test(output);
+}, { scope, id, offset, platform: process.platform });
+const waitForTerminalLine = (id, marker) => page.waitForFunction(async ({ scope, id, marker }) => {
+  const output = (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read" })).terminal.output;
+  return output.replace(/\r/g, "").split("\n").includes(marker);
+}, { scope, id, marker });
+const waitForRenderedTerminalText = (marker, minimumCount = 1) => page.waitForFunction(({ marker, minimumCount }) => {
+  const text = document.querySelector('.wb-tab-content:not([hidden]) .xterm-rows')?.textContent.replace(/\s/g, "") ?? "";
+  return text.split(marker).length > minimumCount;
+}, { marker, minimumCount });
 const open = async (resource) => {
   const result = await wb({ operation: "open", resource });
   const tab = result.state.tabs.find((tab) => tab.id === result.state.activeTabId);
@@ -156,20 +184,21 @@ try {
   let terminal;
   await phase("real-terminal", async () => {
     terminal = await open({ kind: "terminal" });
-    await page.waitForFunction(async ({ scope, id }) => { const terminal = (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read" })).terminal; return !terminal.pendingCursorResponse && /PS [^\r\n]+>/.test(terminal.output); }, { scope, id: terminal.id });
-    const input = activePane().locator(".xterm-helper-textarea"); await input.focus(); await page.keyboard.type("Write-Output ('MOROS_' + 'TERMINAL_READY')"); await page.keyboard.press("Enter");
-    await page.waitForFunction(async ({ scope, id }) => (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read" })).terminal.output.includes("MOROS_TERMINAL_READY\r\n"), { scope, id: terminal.id });
+    await waitForTerminalPrompt(terminal.id);
+    const input = activePane().locator(".xterm-helper-textarea"); await input.focus(); await page.keyboard.type(terminalCommands.ready); await page.keyboard.press("Enter");
+    await waitForTerminalLine(terminal.id, "MOROS_TERMINAL_READY");
+    await waitForRenderedTerminalText("MOROS_TERMINAL_READY");
     assert.equal((await wb({ operation: "terminal", tabId: terminal.id, action: "read" })).terminal.commands.at(-1).source, "user");
     await wb({ operation: "terminal", tabId: terminal.id, action: "resize", cols: 110, rows: 30 });
-    await page.keyboard.type("while ($true) { Write-Output MOROS_TICK; Start-Sleep -Milliseconds 250 }"); await page.keyboard.press("Enter");
+    await page.keyboard.type(terminalCommands.loop); await page.keyboard.press("Enter");
     await page.waitForFunction(async ({ scope, id }) => (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read" })).terminal.output.split("MOROS_TICK").length >= 4, { scope, id: terminal.id });
     await page.reload(); await page.locator(`#wb-tab-${terminal.id}`).waitFor();
+    await waitForRenderedTerminalText("MOROS_TICK", 2);
     const interruptOffset = (await wb({ operation: "terminal", tabId: terminal.id, action: "read" })).terminal.endOffset;
     await activePane().locator(".xterm-helper-textarea").focus(); await page.keyboard.press("Control+c");
-    await page.waitForFunction(async ({ scope, id, offset }) => { const terminal = (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read", offset })).terminal; return !terminal.pendingCursorResponse && /PS [^\r\n]+>/.test(terminal.output); }, { scope, id: terminal.id, offset: interruptOffset });
-    await activePane().locator(".xterm-helper-textarea").focus(); await page.keyboard.type("Write-Output ('AFTER_' + 'INTERRUPT')"); await page.keyboard.press("Enter");
-    await page.waitForFunction(async ({ scope, id }) => (await window.moros.workbench({ scope, operation: "terminal", tabId: id, action: "read" })).terminal.output.includes("AFTER_INTERRUPT\r\n"), { scope, id: terminal.id });
-    await page.waitForFunction(() => document.querySelector('.wb-tab-content:not([hidden]) .xterm-rows')?.textContent.replace(/\s/g, "").includes("AFTER_INTERRUPT"));
+    await waitForTerminalPrompt(terminal.id, interruptOffset);
+    await activePane().locator(".xterm-helper-textarea").focus(); await page.keyboard.type(terminalCommands.afterInterrupt); await page.keyboard.press("Enter");
+    await waitForTerminalLine(terminal.id, "AFTER_INTERRUPT");
     await shot("03-real-terminal");
     await page.locator(`#wb-tab-${terminal.id} button`).click(); await page.getByRole("dialog").filter({ hasText: "running process" }).waitFor();
     await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
