@@ -31,28 +31,6 @@
   transition: background-color 180ms var(--ease-out-power3);
 }
 
-.msg-user-bubble.has-skill {
-  padding: 0;
-  overflow: hidden;
-}
-
-.msg-user-skill-chip {
-  min-height: 42px;
-  padding: 0 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #bb3424;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.msg-user-bubble.has-skill .msg-user-skill-arguments {
-  padding: 9px 14px 11px;
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
-  white-space: pre-wrap;
-}
-
 :root[data-theme="dark"] .msg-user {
   --msg-user-bubble-bg: var(--color-surface-hover);
 }

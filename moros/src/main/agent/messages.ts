@@ -7,7 +7,7 @@ export type AgentMessageKey =
   | "modelNotFound" | "thinkingInvalid"
   | "modelUnavailable" | "modelRequired"
   | "sessionNotInArchive" | "restoreConflict"
-  | "queuedMessageNotFound" | "queuedMessageRemoveFailed";
+  | "queuedMessageNotFound" | "queuedMessageRemoveFailed" | "skillRefreshBusy" | "sessionUnpersisted";
 
 const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
   "zh-CN": {
@@ -18,6 +18,8 @@ const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
     modelNotFound: "未找到该模型", thinkingInvalid: "无效的思考深度", modelUnavailable: "该模型当前不可用，请先配置对应 Provider。", modelRequired: "至少需要保留一个可用模型。",
     sessionNotInArchive: "该会话不在归档目录中", restoreConflict: "会话目录中已存在同名文件，无法恢复该会话。",
     queuedMessageNotFound: "该排队消息已开始执行或不存在。", queuedMessageRemoveFailed: "无法撤回该排队消息。",
+    skillRefreshBusy: "会话正在运行或内容已变化，请待任务结束后重新扫描技能。",
+    sessionUnpersisted: "当前会话内容尚未保存，请完成一次回复或新建会话后再更改技能配置。",
   },
   "zh-TW": {
     compacting: "正在壓縮對話上下文…", compactionFailed: "上下文壓縮失敗：{error}", compactionComplete: "上下文壓縮完成。",
@@ -27,6 +29,8 @@ const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
     modelNotFound: "找不到該模型", thinkingInvalid: "無效的思考深度", modelUnavailable: "此模型目前無法使用，請先設定對應的 Provider。", modelRequired: "至少必須保留一個可用模型。",
     sessionNotInArchive: "該對話不在封存目錄中", restoreConflict: "對話目錄中已存在同名檔案，無法還原該對話。",
     queuedMessageNotFound: "該排隊訊息已開始執行或不存在。", queuedMessageRemoveFailed: "無法撤回該排隊訊息。",
+    skillRefreshBusy: "對話正在執行或內容已變更，請待工作結束後重新掃描技能。",
+    sessionUnpersisted: "目前對話內容尚未儲存，請完成一次回覆或新增對話後再變更技能設定。",
   },
   en: {
     compacting: "Compacting conversation context…", compactionFailed: "Context compaction failed: {error}", compactionComplete: "Context compaction complete.",
@@ -36,6 +40,8 @@ const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
     modelNotFound: "Model not found", thinkingInvalid: "Invalid thinking level", modelUnavailable: "This model is unavailable. Configure its provider first.", modelRequired: "At least one available model must remain enabled.",
     sessionNotInArchive: "The conversation is not in the archive directory", restoreConflict: "A file with the same name already exists in the conversation directory, so the conversation cannot be restored.",
     queuedMessageNotFound: "The queued message has already started or no longer exists.", queuedMessageRemoveFailed: "The queued message could not be withdrawn.",
+    skillRefreshBusy: "The conversation is running or has changed. Rescan skills after the task finishes.",
+    sessionUnpersisted: "The conversation has unsaved content. Finish a reply or start a new conversation before changing skills.",
   },
   de: {
     compacting: "Unterhaltungskontext wird komprimiert…", compactionFailed: "Kontextkomprimierung fehlgeschlagen: {error}", compactionComplete: "Kontextkomprimierung abgeschlossen.",
@@ -45,6 +51,8 @@ const AGENT_COPY: Record<AppLanguage, Record<AgentMessageKey, string>> = {
     modelNotFound: "Modell nicht gefunden", thinkingInvalid: "Ungültige Denktiefe", modelUnavailable: "Dieses Modell ist nicht verfügbar. Konfigurieren Sie zuerst den Provider.", modelRequired: "Mindestens ein verfügbares Modell muss aktiviert bleiben.",
     sessionNotInArchive: "Die Unterhaltung befindet sich nicht im Archivverzeichnis", restoreConflict: "Im Unterhaltungsverzeichnis existiert bereits eine gleichnamige Datei, daher kann die Unterhaltung nicht wiederhergestellt werden.",
     queuedMessageNotFound: "Die wartende Nachricht wurde bereits gestartet oder existiert nicht mehr.", queuedMessageRemoveFailed: "Die wartende Nachricht konnte nicht zurückgezogen werden.",
+    skillRefreshBusy: "Die Unterhaltung läuft oder wurde geändert. Scannen Sie die Skills nach Abschluss der Aufgabe erneut.",
+    sessionUnpersisted: "Die Unterhaltung enthält ungespeicherte Inhalte. Schließen Sie eine Antwort ab oder starten Sie eine neue Unterhaltung, bevor Sie Skills ändern.",
   },
 };
 

@@ -1,0 +1,31 @@
+.wb-feedback-trigger { display: flex; align-items: center; gap: 7px; padding: 6px 12px; margin: 0 12px 5px; color: var(--color-accent); font-size: 11px; width: fit-content; max-width: calc(100% - 24px); }
+.wb-feedback-trigger small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--color-text-tertiary); font-size: 10px; }
+.wb-dialog-backdrop { position: fixed; inset: 0; z-index: 500; display: flex; justify-content: center; align-items: center; padding: 24px; background: #00000025; }
+.wb-dialog { width: min(560px, 100%); max-height: min(86vh, 850px); overflow: auto; padding: 22px; background: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: 0 15px 70px #00000020; font-size: 13px; }
+.wb-dialog > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.wb-dialog h2 { font-size: 18px; font-weight: 400; }
+.wb-dialog header button { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 4px; }
+.wb-dialog label:not(.wb-checkbox) { display: flex; flex-direction: column; gap: 7px; margin: 14px 0; color: var(--color-text-secondary); font-size: 12px; }
+.wb-dialog input:not([type="checkbox"]), .wb-dialog textarea, .wb-dialog select { width: 100%; padding: 9px 11px; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text-primary); background: var(--color-bg); font: inherit; }
+.wb-dialog textarea { resize: vertical; min-height: 90px; }
+.wb-dialog input:focus, .wb-dialog textarea:focus, .wb-dialog select:focus { outline: 1px solid var(--color-accent); }
+.wb-dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.wb-dialog footer button { padding: 7px 12px; border-radius: 5px; background: var(--color-surface); }
+.wb-dialog footer .wb-primary { background: var(--color-text-primary); color: var(--color-bg); }
+.wb-dialog footer .wb-danger { background: var(--color-accent); color: white; }
+.wb-dialog details { margin: 12px 0; font-size: 11px; }
+.wb-dialog summary { cursor: pointer; color: var(--color-text-secondary); }
+.wb-dialog pre { max-height: 180px; padding: 10px; overflow: auto; background: var(--color-surface); font-family: var(--font-mono); font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-checkbox { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.wb-checkbox input { accent-color: var(--color-accent); }
+.wb-feedback-source { color: var(--color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.wb-feedback-screenshot, .wb-feedback-list img { max-width: 100%; max-height: 280px; object-fit: contain; margin-top: 12px; border: 1px solid var(--color-border); }
+.wb-feedback-list article { position: relative; padding: 14px 28px 14px 0; border-bottom: 1px solid var(--color-border); }
+.wb-feedback-list article p { margin: 8px 0 0 22px; white-space: pre-wrap; }
+.wb-feedback-remove { position: absolute; right: 0; top: 13px; padding: 4px; color: var(--color-text-tertiary); }
+.wb-confirm-paths { margin: 14px 0; padding: 12px 12px 12px 28px; font-family: var(--font-mono); font-size: 11px; background: var(--color-surface); overflow-wrap: anywhere; }
+.wb-sent-feedback { margin-top: 10px; font-size: 11px; }
+.wb-sent-feedback summary { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--color-text-secondary); }
+.wb-sent-feedback > div { margin: 8px 0; }
+.wb-sent-feedback small { color: var(--color-text-tertiary); }
+.wb-sent-feedback p { white-space: pre-wrap; }

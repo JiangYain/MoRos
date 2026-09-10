@@ -6,6 +6,7 @@ import { useI18n } from "../i18n";
 import { ignoreCommandFailure, useMoros } from "../store";
 import { MorosLogo } from "./MorosLogo";
 import { DeveloperContextDialog } from "./DeveloperContextDialog";
+import { WorkbenchLauncher } from "../workbench/WorkbenchLauncher";
 
 type GlobalMenuName = "file" | "edit" | "view" | "help";
 
@@ -78,7 +79,7 @@ export function TitleBar({
   const focusComposer = (): void => {
     leaveSettingsThen(() => {
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+        document.querySelector<HTMLElement>(".composer-editor")?.focus();
       }));
     });
   };
@@ -264,6 +265,7 @@ export function TitleBar({
       </nav>
 
       <div className="titlebar-drag-space" />
+      <WorkbenchLauncher />
       {isDesktop && (
         <div className="win-controls">
           <button className="win-btn" aria-label={t("titlebar.minimize")} onClick={() => api.windowControl("minimize")}>

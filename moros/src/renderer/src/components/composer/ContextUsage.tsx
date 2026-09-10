@@ -85,7 +85,7 @@ export function ContextUsageSurface({ expanded, onClose, showQuickPrompts = fals
   const setWorkspaceDir = useMoros((state) => state.setWorkspaceDir);
   const openSettings = useMoros((state) => state.openSettings);
   const sessionDisplayName = stats?.sessionName || t("common.untitledSession");
-  const workspaceDir = settings?.workspaceDir ?? "";
+  const workspaceDir = stats?.workspaceDir ?? settings?.workspaceDir ?? "";
   const workspaceDisplayName = workspaceDir.split(/[\\/]/).filter(Boolean).pop() || workspaceDir || t("settings.workspace");
   const noModel = !stats?.model || !stats.modelAuthConfigured;
   const rawPercent = stats?.contextPercent;

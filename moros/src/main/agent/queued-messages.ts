@@ -1,10 +1,42 @@
-import type { QueuedMessageKind } from "@shared/types";
+import type { AppLanguage, QueuedMessageKind, QueuedMessageRemoval, UiImageAttachment } from "../../shared/types.ts";
+import { userMessageDraft, type UserMessageDraft } from "../../shared/user-message.ts";
+import { formatWorkbenchFeedback, workbenchScopeKey, type WorkbenchScope } from "../../shared/workbench.ts";
+import { agentMessage } from "./messages.ts";
 
 export type QueuedMessageRemovalFailure = "not-found" | "unavailable";
 
-export interface QueuedMessageRemovalResult {
-  ok: boolean;
-  reason?: QueuedMessageRemovalFailure;
+export type QueuedMessageRemovalResult =
+  | { ok: true; draft: UserMessageDraft }
+  | { ok: false; reason: QueuedMessageRemovalFailure };
+
+// Original attachment names and annotation screenshots are UI metadata, not
+// model text. Weak ownership follows the real queue entry through its lifetime.
+const drafts = new WeakMap<object, UserMessageDraft>();
+
+export function queuedDraftRecorder(session: unknown, draft: UserMessageDraft, images: readonly { data: string; mimeType: string }[]): () => void {
+  if (!isRecord(session) || !isRecord(session.agent)) return () => {};
+  const queue = session.agent.steeringQueue;
+  if (!isRecord(queue) || !Array.isArray(queue.messages)) return () => {};
+  const existing = new Set<unknown>(queue.messages);
+  const expected = userMessageDraft(draft.text + formatWorkbenchFeedback(draft.feedback));
+  return () => {
+    if (!Array.isArray(queue.messages)) return;
+    const entry: unknown = queue.messages.at(-1);
+    if (!isRecord(entry) || existing.has(entry)) return;
+    const actual = readDraft(entry);
+    if (actual && actual.text === expected.text && JSON.stringify(actual.feedback) === JSON.stringify(expected.feedback)
+      && actual.images.length === images.length && actual.images.every((image, index) => image.data === images[index].data && image.mimeType === images[index].mimeType)) {
+      drafts.set(entry, { ...structuredClone(draft), text: actual.text });
+    }
+  };
+}
+
+export function removeQueuedUserMessage(session: unknown, scope: WorkbenchScope, language: AppLanguage,
+  kind: QueuedMessageKind, index: number, text: string, expectedScope?: WorkbenchScope): QueuedMessageRemoval {
+  if (expectedScope && workbenchScopeKey(expectedScope) !== workbenchScopeKey(scope)) return { ok: false, error: agentMessage(language, "queuedMessageNotFound") };
+  const result = removeQueuedSessionMessage(session, kind, index, text);
+  return result.ok ? { ok: true, scope, draft: result.draft }
+    : { ok: false, error: agentMessage(language, result.reason === "unavailable" ? "queuedMessageRemoveFailed" : "queuedMessageNotFound") };
 }
 
 /**
@@ -50,6 +82,9 @@ export function removeQueuedSessionMessage(
     return { ok: false, reason: "not-found" };
   }
 
+  const entry: unknown = pending[pendingIndex];
+  const draft = isRecord(entry) ? drafts.get(entry) ?? readDraft(entry) : undefined;
+  if (!draft) return { ok: false, reason: "unavailable" };
   display.splice(index, 1);
   pending.splice(pendingIndex, 1);
   try {
@@ -58,7 +93,24 @@ export function removeQueuedSessionMessage(
     // Both queues are already consistent; a failed broadcast only delays the
     // next queue_update-driven UI refresh.
   }
-  return { ok: true };
+  return { ok: true, draft: structuredClone(draft) };
+}
+
+function readDraft(message: Record<string, unknown>): UserMessageDraft | undefined {
+  const text = userMessageText(message);
+  if (text === undefined || !Array.isArray(message.content)) return;
+  const images: UiImageAttachment[] = [];
+  for (const part of message.content) {
+    if (!isRecord(part)) return;
+    if (part.type === "text" && typeof part.text === "string") continue;
+    if (part.type !== "image" || typeof part.data !== "string" || !isImageMime(part.mimeType)) return;
+    images.push({ data: part.data, mimeType: part.mimeType });
+  }
+  return userMessageDraft(text, images);
+}
+
+function isImageMime(value: unknown): value is UiImageAttachment["mimeType"] {
+  return value === "image/png" || value === "image/jpeg" || value === "image/webp" || value === "image/gif";
 }
 
 function pendingUserMessageIndex(pending: readonly unknown[], displayIndex: number): number {

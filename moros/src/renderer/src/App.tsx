@@ -12,6 +12,8 @@ import { useI18n } from "./i18n";
 import { useCodeFontPreference } from "./code-font";
 import { ignoreCommandFailure, type SettingsSection, useMoros } from "./store";
 import { useThemePreference } from "./theme";
+import { Workbench } from "./workbench/Workbench";
+import { useWorkbenchConnection } from "./workbench/useWorkbench";
 
 type NavigationTarget =
   | { key: "workspace"; kind: "workspace" }
@@ -24,6 +26,7 @@ interface NavigationAvailability {
 }
 
 export default function App(): React.JSX.Element {
+  useWorkbenchConnection();
   useThemePreference();
   useCodeFontPreference();
   const { language, t } = useI18n();
@@ -124,21 +127,59 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     if (isDesktop) {
-      ignoreCommandFailure(boot());
-      return api.onAgentEvent(applyEvent);
+      let disposed = false;
+      let initialized = false;
+      let refreshing = false;
+      let eventRevision = 0;
+      const refreshVisibleState = async (): Promise<void> => {
+        if (disposed || !initialized || refreshing || document.visibilityState === "hidden") return;
+        refreshing = true;
+        const revision = eventRevision;
+        const sessionId = useMoros.getState().stats?.sessionId;
+        try {
+          const payload = await api.init();
+          // Never replace a newer stream update or a locally switched session
+          // with a snapshot requested before that change.
+          if (!disposed && revision === eventRevision && sessionId === useMoros.getState().stats?.sessionId) {
+            const state = useMoros.getState();
+            state.applyInit(payload);
+            if (payload.stats.sessionId === sessionId) useMoros.setState({ queue: state.queue });
+          }
+        } finally {
+          refreshing = false;
+        }
+      };
+      const onVisible = (): void => { ignoreCommandFailure(refreshVisibleState()); };
+      const unsubscribe = api.onAgentEvent((event) => {
+        if (event.kind !== "workbench") eventRevision += 1;
+        useMoros.getState().applyEvent(event);
+      });
+      ignoreCommandFailure(boot(() => !disposed).then(() => {
+        initialized = true;
+        // An init response can arrive after stream events that were emitted
+        // while it was in flight. Reconcile after subscribing as well.
+        if (eventRevision > 0) onVisible();
+      }));
+      window.addEventListener("focus", onVisible);
+      document.addEventListener("visibilitychange", onVisible);
+      return () => {
+        disposed = true;
+        unsubscribe();
+        window.removeEventListener("focus", onVisible);
+        document.removeEventListener("visibilitychange", onVisible);
+      };
     }
 
     let disposed = false;
     let unsubscribe = (): void => undefined;
-    ignoreCommandFailure(boot().then(() => {
+    ignoreCommandFailure(boot(() => !disposed).then(() => {
       if (!disposed) unsubscribe = api.onAgentEvent(applyEvent);
     }));
     return () => {
       disposed = true;
       unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [boot, applyEvent]);
 
   useLayoutEffect(() => {
     const compactViewport = window.matchMedia("(max-width: 760px)");
@@ -187,6 +228,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return;
       if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
         event.preventDefault();
         navigateHistory(event.key === "ArrowLeft" ? -1 : 1);
@@ -265,6 +307,7 @@ export default function App(): React.JSX.Element {
             </main>
           </>
         )}
+        <Workbench hidden={Boolean(settingsSection)} />
       </div>
       <WorkspaceChangeDialog />
     </div>

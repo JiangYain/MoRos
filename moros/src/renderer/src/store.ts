@@ -19,6 +19,7 @@ import {
 } from "./store/profile-persistence";
 import { decideSettingsNavigation } from "./store/settings-navigation";
 import type { MorosState, SettingsSection } from "./store/state";
+import { createWorkbenchState } from "./workbench/state";
 
 export { ignoreCommandFailure } from "./store/command";
 export type {
@@ -149,6 +150,7 @@ export const useMoros = create<MorosState>((set, get) => {
   },
 
   applyEvent: (event) => {
+    if (event.kind === "workbench") { get().applyWorkbenchEvent(event); return; }
     const projection = projectAgentEvent(get(), event);
     if (projection.effects.includes("clear-pending-events")) clearPendingAgentEvents();
     if (projection.patch) set(projection.patch);
@@ -238,6 +240,7 @@ export const useMoros = create<MorosState>((set, get) => {
     set({ profileName: identity.name, profileHandle: identity.handle });
   },
 
+  ...createWorkbenchState({ get, set }),
   ...createMorosCommandActions({
     get,
     message: storeMessage,

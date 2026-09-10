@@ -1,0 +1,31 @@
+.wb-file-pane, .wb-terminal-pane, .wb-browser-pane, .wb-review-pane { height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.wb-subtoolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 7px 10px; min-height: 36px; color: var(--color-text-secondary); border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent); font-size: 10.5px; }
+.wb-subtoolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 24px; padding: 3px 5px; border-radius: 4px; white-space: nowrap; }
+.wb-subtoolbar button[aria-pressed="true"] { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
+.wb-path { min-width: 0; max-width: 45%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-view-toggle { display: flex; gap: 2px; }
+.wb-code { flex: 1; min-height: 0; overflow: hidden; }
+.wb-markdown { overflow: auto; padding: 24px; flex: 1; min-height: 0; }
+.wb-markdown .md { font-size: 14px; line-height: 1.8; }
+.wb-image { flex: 1; overflow: auto; padding: 18px; background: color-mix(in srgb, var(--color-surface) 35%, var(--color-bg)); }
+.wb-image img { display: block; object-fit: contain; transform-origin: top left; }
+.wb-document-frame { border: 0; background: white; width: 100%; flex: 1; min-height: 0; }
+.wb-pdf { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.wb-pdf-pages { flex: 1; overflow: auto; padding: 14px; background: var(--color-surface); }
+.wb-pdf-pages canvas { display: block; box-shadow: 0 1px 7px #00000015; }
+.wb-terminal-host { flex: 1; min-height: 0; overflow: hidden; padding: 8px 8px 0 12px; }
+.wb-terminal-host .xterm { height: 100%; }
+.wb-terminal-host .xterm-viewport { overflow-y: auto !important; }
+.wb-terminal-source { flex: 0 0 25px; padding: 4px 12px; color: var(--color-text-tertiary); font-size: 10px; }
+.wb-browser-address { display: flex; align-items: center; gap: 3px; padding: 7px 9px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto; }
+.wb-browser-address button { height: 25px; min-width: 23px; display: grid; place-items: center; font-size: 10px; color: var(--color-text-secondary); border-radius: 4px; }
+.wb-browser-address input { flex: 1; min-width: 0; font-family: "Inter", sans-serif; font-size: 11px; padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 5px; color: var(--color-text-primary); background: var(--color-bg); }
+.wb-browser-viewport { flex: 1; min-height: 60px; background: var(--color-bg); }
+.wb-browser-isolation { flex: 0 0 auto; padding: 5px 10px; font-size: 9px; color: var(--color-text-tertiary); border-top: 1px solid var(--color-border); }
+.wb-browser-console { max-height: 180px; overflow: auto; padding: 9px 12px; border-top: 1px solid var(--color-border); }
+.wb-browser-console > div { padding: 5px 0; color: var(--color-accent); font-size: 10px; overflow-wrap: anywhere; }
+.wb-browser-console code { white-space: pre-wrap; }
+.wb-browser-console small { display: block; color: var(--color-text-tertiary); }
+.workbench-resource-link { color: var(--color-accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--color-accent) 30%, transparent); cursor: pointer; }
+.wb-tool-resources { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.wb-tool-resources button { display: inline-flex; gap: 5px; align-items: center; font-size: 10px; color: var(--color-text-secondary); }

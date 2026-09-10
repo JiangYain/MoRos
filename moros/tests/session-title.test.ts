@@ -21,6 +21,18 @@ test("buildSessionTitleTranscript keeps only conversational text", () => {
   assert.equal(transcript, "User: 帮我分析这个模块\n\nAssistant: 先确认入口和依赖。");
 });
 
+test("buildSessionTitleTranscript prefers feedback comments over annotation images", () => {
+  const transcript = buildSessionTitleTranscript([{
+    kind: "user",
+    id: "u-feedback",
+    text: "",
+    feedback: [{ id: "f1", kind: "browser", comment: "Move this control", selected: true, createdAt: 1, source: { url: "https://example.test" } }],
+    images: [{ data: "AA==", mimeType: "image/png", name: "annotation.png" }],
+    ts: 1,
+  }]);
+  assert.equal(transcript, "User: Move this control");
+});
+
 test("normalizeGeneratedSessionTitle removes model formatting", () => {
   assert.equal(normalizeGeneratedSessionTitle("## 标题：模块架构分析。\n补充解释"), "模块架构分析");
   assert.equal(normalizeGeneratedSessionTitle("```\n\"Repository setup\"\n```"), "Repository setup");

@@ -14,8 +14,10 @@ import { focusWindowForDictation } from "./dictation-window";
 import { ModelMutationCoordinator } from "./model-mutation-coordinator";
 import { runPrerequisiteAction } from "./prerequisite-actions";
 import { completeSessionRemoval } from "./session-removal-completion";
+import type { WorkbenchService } from "./workbench/service";
 
 interface MorosBackendOptions {
+  workbench?: WorkbenchService;
   service: AgentService;
   authController: AuthLoginController;
   dependencyManager: DependencyManager;
@@ -169,12 +171,16 @@ export function createMorosBackendApi(options: MorosBackendOptions): MorosBacken
   };
 
   return {
+    workbench: async (request) => {
+      if (!options.workbench) throw new Error("Workbench is unavailable.");
+      return options.workbench.execute(request, "electron");
+    },
     init: async () => withDependencies(await service.buildInitPayload()),
     getDeveloperContext: () => Promise.resolve(service.getDeveloperContext()),
-    prompt: (text, images, clientMessageId) => service.prompt(text, images, clientMessageId),
+    prompt: (text, images, clientMessageId, feedbackIds, recalledFeedback) => service.prompt(text, images, clientMessageId, feedbackIds, recalledFeedback),
     abort: () => service.abort(),
     resolveApproval: async (id, allowed, scope) => service.resolveApproval(id, allowed, scope),
-    removeQueuedMessage: async (kind, index, text) => service.removeQueuedMessage(kind, index, text),
+    removeQueuedMessage: async (kind, index, text, expectedScope) => service.removeQueuedMessage(kind, index, text, expectedScope),
     newSession: async (workspaceDir) => {
       if (workspaceDir) await service.setWorkspaceDir(workspaceDir);
       else await service.start();
@@ -245,6 +251,10 @@ export function createMorosBackendApi(options: MorosBackendOptions): MorosBacken
     cancelDependencyInstall: async (dependencyId) =>
       dependencyManager.cancelInstall(dependencyId),
     openDependencySource: async (dependencyId) => dependencyManager.openSource(dependencyId),
+    refreshSkills: async () => {
+      await service.refreshSkills();
+      return buildAndPublish({ allowStale: true });
+    },
     setSkillEnabled: async (name, enabled) => {
       await service.setSkillEnabled(name, enabled);
       return buildAndPublish();

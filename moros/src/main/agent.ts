@@ -21,6 +21,7 @@ import type {
   ModelPreferenceUpdate,
   PermissionMode,
   QueuedMessageKind,
+  QueuedMessageRemoval,
   RuntimePrerequisites,
   SessionContentMatch,
   ThinkingLevel,
@@ -53,7 +54,7 @@ import {
 import { agentMessage } from "./agent/messages";
 import { ModelCoordinator } from "./agent/model-coordinator";
 import { compensatedMutationError } from "./agent/mutation-compensation";
-import { removeQueuedSessionMessage } from "./agent/queued-messages";
+import { removeQueuedUserMessage } from "./agent/queued-messages";
 import {
   SessionLibrary,
   createSessionTitleGenerator,
@@ -63,19 +64,24 @@ import {
   sameSessionPath,
 } from "./agent/session-library";
 import { SessionOwnerMutationCoordinator } from "./agent/session-owner-mutation";
+import { prepareSessionForReconfiguration } from "./agent/session-reconfiguration";
 import { SessionRuntimeCoordinator } from "./agent/session-runtime-coordinator";
 import { SettingsMutationTransaction } from "./agent/settings-mutation-transaction";
 import { buildLanguageContext, MOROS_CONTEXT } from "./moros-context";
 import { buildEstimatedContextBreakdown } from "./context-usage";
-import { normalizeImages } from "./image-attachments";
+import { submitPrompt } from "./agent/prompt-submission";
 import { getRuntimePrerequisites } from "./prerequisites";
 import { getProviderAuthInfo, getProviderConfigurationIssue } from "./provider-auth";
 import { markRunningSessions, mergeActiveSession } from "./session-list";
 import { type AppSettings, loadSettings, saveSettings } from "./settings";
-import { discoverSkillDirs } from "./skills";
+import { SkillCatalog } from "./skill-catalog";
 import { cloneForUi, projectThread } from "./thread-projector";
+import type { WorkbenchAgentBridge } from "./workbench/agent-bridge";
+import type { WorkbenchFeedback, WorkbenchScope } from "../shared/workbench";
+import { userMessagePreview } from "../shared/user-message";
 
 type Emit = (event: AgentUiEvent) => void;
+type SessionSource = ListedSessionPath | SessionManager;
 
 interface SessionOwnership {
   approvals: ApprovalController;
@@ -83,6 +89,8 @@ interface SessionOwnership {
   session: AgentSession;
   unsubscribe: () => void;
   loader: DefaultResourceLoader;
+  skills: SkillCatalog;
+  pendingPrompts: number;
   settings: AppSettings;
 }
 
@@ -113,6 +121,9 @@ function normalizeThinkingLevel(value: unknown, available: ThinkingLevel[]): Thi
  * preferences each live behind a dedicated deep module.
  */
 export class AgentService {
+  private workbench?: WorkbenchAgentBridge;
+
+  attachWorkbench(workbench: WorkbenchAgentBridge): void { this.workbench = workbench; }
   private readonly emit: Emit;
   private settings: AppSettings;
   private readonly modelRuntimePromise: Promise<ModelRuntime>;
@@ -190,10 +201,6 @@ export class AgentService {
     return this.lifecycle.current?.session;
   }
 
-  private get loader(): DefaultResourceLoader | undefined {
-    return this.lifecycle.current?.loader;
-  }
-
   async start(options?: { sessionPath?: string }): Promise<void> {
     const sessionPath = options?.sessionPath
       ? await this.sessions.requireListedPath(options.sessionPath)
@@ -203,14 +210,14 @@ export class AgentService {
 
   private async createSessionOwnership(
     _generation: number,
-    sessionPath?: ListedSessionPath,
+    sessionSource?: SessionSource,
     settings: AppSettings = this.settings,
   ): Promise<SessionOwnership> {
     await this.ensureModelRuntime();
 
-    const sessionManager = sessionPath
-      ? SessionManager.open(sessionPath)
-      : undefined;
+    const sessionManager = typeof sessionSource === "string"
+      ? SessionManager.open(sessionSource)
+      : sessionSource;
     const sessionCwd = sessionManager?.getCwd();
     const cwd = sessionCwd && existsSync(sessionCwd)
       ? sessionCwd
@@ -234,14 +241,17 @@ export class AgentService {
       }),
     });
 
-    const skillDirs = [
-      ...discoverSkillDirs(cwd),
-      ...effectiveSettings.skillDirs.flatMap((dir) => discoverSkillDirs(dir)),
-    ];
+    const skillHome = process.env.MOROS_SKILL_HOME?.trim();
+    const skills = new SkillCatalog({
+      workspaceDir: cwd,
+      additionalDirs: effectiveSettings.skillDirs,
+      disabledNames: effectiveSettings.disabledSkills,
+      ...(skillHome ? { homeDir: skillHome, env: {} } : {}),
+    });
     const loader = new DefaultResourceLoader({
       cwd,
       agentDir: getAgentDir(),
-      additionalSkillPaths: [...new Set(skillDirs)],
+      additionalSkillPaths: skills.paths,
       extensionFactories: [
         {
           name: "moros-permission-policy",
@@ -251,11 +261,9 @@ export class AgentService {
           })),
         },
         { name: "moros-language-context", factory: this.languageContextExtension(effectiveSettings) },
+        ...(this.workbench ? [{ name: "moros-workbench", factory: this.workbench.extension() }] : []),
       ],
-      skillsOverride: (base) => ({
-        skills: base.skills.filter((skill) => !effectiveSettings.disabledSkills.includes(skill.name)),
-        diagnostics: base.diagnostics,
-      }),
+      skillsOverride: (base) => skills.apply(base),
       agentsFilesOverride: (base) => ({
         agentsFiles: [
           ...base.agentsFiles,
@@ -276,7 +284,7 @@ export class AgentService {
       resourceLoader: loader,
       sessionManager: activeSessionManager,
       modelRuntime: this.modelRuntime,
-      ...(model && !sessionPath ? { model } : {}),
+      ...(model && !sessionSource ? { model } : {}),
     });
     const events = new AgentEventProjector({
       emit: (event) => this.emitSessionEvent(ownership, event),
@@ -292,6 +300,8 @@ export class AgentService {
       session,
       unsubscribe: () => {},
       loader,
+      skills,
+      pendingPrompts: 0,
       settings: effectiveSettings,
     };
     try {
@@ -308,7 +318,7 @@ export class AgentService {
       this.discardSessionOwnership(ownership);
       throw error;
     }
-    if (!sessionPath && isThinkingLevel(settings.thinkingLevel) && session.model) {
+    if (!sessionSource && isThinkingLevel(settings.thinkingLevel) && session.model) {
       try {
         session.setThinkingLevel(settings.thinkingLevel);
       } catch {
@@ -340,33 +350,13 @@ export class AgentService {
     return { ok: false, error: "Approval request is no longer active." };
   }
 
-  /**
-   * Withdraws one pending steering/follow-up message from the foreground
-   * session. Background owners keep their queues untouched; their chips are
-   * not visible, so a removal request can only target the foreground owner.
-   * On success the session emits its own queue_update, which the projector
-   * broadcasts to both renderer entries through the existing event path.
-   */
-  removeQueuedMessage(
-    kind: QueuedMessageKind,
-    index: number,
-    text: string,
-  ): { ok: boolean; error?: string } {
+  removeQueuedMessage(kind: QueuedMessageKind, index: number, text: string, expectedScope?: WorkbenchScope): QueuedMessageRemoval {
     const ownership = this.lifecycle.current;
     if (!ownership) {
       return { ok: false, error: agentMessage(this.settings.language, "sessionNotReady") };
     }
-    const result = removeQueuedSessionMessage(ownership.session, kind, index, text);
-    if (!result.ok) {
-      return {
-        ok: false,
-        error: agentMessage(
-          this.settings.language,
-          result.reason === "unavailable" ? "queuedMessageRemoveFailed" : "queuedMessageNotFound",
-        ),
-      };
-    }
-    return { ok: true };
+    const scope = { workspaceDir: ownership.settings.workspaceDir, sessionId: ownership.session.sessionId };
+    return removeQueuedUserMessage(ownership.session, scope, ownership.settings.language, kind, index, text, expectedScope);
   }
 
   getStats(): AgentStats {
@@ -451,32 +441,7 @@ export class AgentService {
   }
 
   getSkills(): UiSkill[] {
-    const loaded = this.loader?.getSkills().skills ?? [];
-    const disabled = this.settings.disabledSkills;
-    const visible: UiSkill[] = loaded.map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      filePath: skill.filePath,
-      baseDir: skill.baseDir,
-      source: skill.sourceInfo?.source ?? "skill",
-      enabled: !disabled.includes(skill.name),
-    }));
-    // Disabled skills are filtered from the loader result, so surface them
-    // from settings to let the operator turn them back on.
-    const knownNames = new Set(visible.map((skill) => skill.name));
-    for (const name of disabled) {
-      if (!knownNames.has(name)) {
-        visible.push({
-          name,
-          description: "（已停用）",
-          filePath: "",
-          baseDir: "",
-          source: "disabled",
-          enabled: false,
-        });
-      }
-    }
-    return visible.sort((a, b) => a.name.localeCompare(b.name));
+    return this.lifecycle.current?.skills.list() ?? [];
   }
 
   getModels(): UiModel[] {
@@ -565,6 +530,8 @@ export class AgentService {
     text: string,
     images?: UiImageAttachment[],
     clientMessageId?: string,
+    feedbackIds?: string[],
+    recalledFeedback?: WorkbenchFeedback[],
   ): Promise<{ ok: boolean; error?: string }> {
     const ownership = this.lifecycle.current;
     if (!ownership) {
@@ -572,17 +539,17 @@ export class AgentService {
     }
     const { session } = ownership;
     if (clientMessageId) ownership.events.trackUserMessage(clientMessageId);
+    ownership.pendingPrompts += 1;
     try {
-      const normalizedImages = normalizeImages(images, this.settings.language);
-      if (session.isStreaming) {
-        await session.prompt(text, { images: normalizedImages, streamingBehavior: "steer" });
-      } else {
-        await session.prompt(text, { images: normalizedImages });
-      }
+      await submitPrompt({ session, scope: { workspaceDir: ownership.settings.workspaceDir, sessionId: session.sessionId },
+        language: ownership.settings.language, supportsImages: Boolean(this.getStatsFor(ownership).model?.supportsImages),
+        text, images, feedbackIds, recalledFeedback, workbench: this.workbench?.service });
       return { ok: true };
     } catch (error) {
       if (clientMessageId) ownership.events.discardUserMessage(clientMessageId);
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      ownership.pendingPrompts -= 1;
     }
   }
 
@@ -788,6 +755,25 @@ export class AgentService {
     return this.getSettingsView();
   }
 
+  async refreshSkills(): Promise<void> {
+    await this.lifecycle.mutate(async (lifecycle) => {
+      const current = lifecycle.current;
+      if (!current) return;
+      const messages = current.session.messages;
+      const ensureIdle = (): void => {
+        if (current.pendingPrompts > 0 || current.session.isStreaming || current.session.messages !== messages) {
+          throw new Error(agentMessage(current.settings.language, "skillRefreshBusy"));
+        }
+      };
+      ensureIdle();
+      const sessionSource = await this.resolvePreservedSession(lifecycle);
+      await this.models.withStablePreferences(() => lifecycle.replace(
+        (generation) => this.createSessionOwnership(generation, sessionSource, current.settings),
+        ensureIdle,
+      ));
+    });
+  }
+
   async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
     await this.lifecycle.mutate(async (lifecycle) => {
       const disabled = new Set(this.settings.disabledSkills);
@@ -798,32 +784,32 @@ export class AgentService {
         nextDisabled.length === this.settings.disabledSkills.length
         && nextDisabled.every((entry, index) => entry === this.settings.disabledSkills[index])
       ) return;
-      const sessionPath = await this.resolvePreservedSessionPath(lifecycle);
+      const sessionSource = await this.resolvePreservedSession(lifecycle);
       await this.reconfigureSession(lifecycle, (staged) => {
         staged.disabledSkills = [...nextDisabled];
-      }, sessionPath);
+      }, sessionSource);
     });
   }
 
   async addSkillDir(dir: string): Promise<void> {
     await this.lifecycle.mutate(async (lifecycle) => {
       if (!this.settings.skillDirs.includes(dir)) {
-        const sessionPath = await this.resolvePreservedSessionPath(lifecycle);
+        const sessionSource = await this.resolvePreservedSession(lifecycle);
         await this.reconfigureSession(lifecycle, (staged) => {
           staged.skillDirs = [...staged.skillDirs, dir];
-        }, sessionPath);
+        }, sessionSource);
       }
     });
   }
 
   async removeSkillDir(dir: string): Promise<void> {
     await this.lifecycle.mutate(async (lifecycle) => {
-      const sessionPath = await this.resolvePreservedSessionPath(lifecycle);
+      const sessionSource = await this.resolvePreservedSession(lifecycle);
       const nextSkillDirs = this.settings.skillDirs.filter((entry) => entry !== dir);
       if (nextSkillDirs.length === this.settings.skillDirs.length) return;
       await this.reconfigureSession(lifecycle, (staged) => {
         staged.skillDirs = [...nextSkillDirs];
-      }, sessionPath);
+      }, sessionSource);
     });
   }
 
@@ -917,8 +903,7 @@ export class AgentService {
       id: state.active.id,
       cwd: state.workspaceDir,
       name: state.active.name,
-      firstMessage: firstUser.text.trim()
-        || (firstUser.images?.length ? "Image attachment" : "Untitled session"),
+      firstMessage: userMessagePreview(firstUser) ?? "Untitled session",
       createdAt: firstUser.ts,
       modifiedAt: state.thread.reduce((latest, item) => Math.max(latest, item.ts), firstUser.ts),
       messageCount: state.thread.filter(
@@ -946,11 +931,16 @@ export class AgentService {
     return app.getVersion();
   }
 
-  private async resolvePreservedSessionPath(
+  private async resolvePreservedSession(
     lifecycle: LifecycleMutation<SessionOwnership>,
-  ): Promise<ListedSessionPath | undefined> {
-    const sessionPath = lifecycle.current?.session.sessionFile;
-    return sessionPath ? this.sessions.requireListedPath(sessionPath) : undefined;
+  ): Promise<SessionSource | undefined> {
+    const current = lifecycle.current;
+    if (!current) return undefined;
+    const source = prepareSessionForReconfiguration(
+      current.session.sessionManager,
+      agentMessage(current.settings.language, "sessionUnpersisted"),
+    );
+    return typeof source === "string" ? this.sessions.requireListedPath(source) : source;
   }
 
   private async navigateSession(sessionPath?: ListedSessionPath): Promise<void> {
@@ -965,19 +955,19 @@ export class AgentService {
 
   private async replaceSession(
     lifecycle: LifecycleMutation<SessionOwnership>,
-    sessionPath?: ListedSessionPath,
+    sessionSource?: SessionSource,
   ): Promise<void> {
     await this.ensureModelRuntime();
     await this.models.withStablePreferences(async () => {
       await lifecycle.replace((generation) =>
-        this.createSessionOwnership(generation, sessionPath, this.settings));
+        this.createSessionOwnership(generation, sessionSource, this.settings));
     });
   }
 
   private async reconfigureSession(
     lifecycle: LifecycleMutation<SessionOwnership>,
     stage: (settings: AppSettings) => void,
-    sessionPath?: ListedSessionPath,
+    sessionSource?: SessionSource,
   ): Promise<void> {
     await this.ensureModelRuntime();
     await this.settingsMutations.runExclusive(() =>
@@ -985,7 +975,7 @@ export class AgentService {
         const staged = cloneSettings(this.settings);
         stage(staged);
         await lifecycle.replace(
-          (generation) => this.createSessionOwnership(generation, sessionPath, staged),
+          (generation) => this.createSessionOwnership(generation, sessionSource, staged),
           () => this.commitStagedSettings(staged),
         );
       }),

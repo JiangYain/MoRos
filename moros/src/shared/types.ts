@@ -1,3 +1,6 @@
+import type { WorkbenchCall, WorkbenchEvent, WorkbenchFeedback, WorkbenchScope } from "./workbench.ts";
+import type { UserMessageDraft } from "./user-message.ts";
+
 /**
  * Shared IPC contract between the Electron main process (Pi agent host)
  * and the renderer (Moros UI). Everything here must be structured-clone safe.
@@ -168,14 +171,21 @@ export interface UiProviderStatus {
   authNote?: string;
 }
 
+export type SkillScope = "project" | "user" | "custom";
+
 export interface UiSkill {
   name: string;
   description: string;
   filePath: string;
   baseDir: string;
   source: string;
+  scope?: SkillScope;
   enabled: boolean;
+  manualOnly?: boolean;
 }
+export type QueuedMessageRemoval =
+  | { ok: true; scope: WorkbenchScope; draft: UserMessageDraft }
+  | { ok: false; error: string };
 
 export interface UiSessionInfo {
   path: string;
@@ -239,7 +249,7 @@ export type UiBlock =
   | { type: "text"; text: string; contentIndex?: number };
 
 export type UiThreadItem =
-  | { kind: "user"; id: string; text: string; skillName?: string; images?: UiImageAttachment[]; ts: number }
+  | { kind: "user"; id: string; text: string; skillName?: string; feedback?: WorkbenchFeedback[]; images?: UiImageAttachment[]; ts: number }
   | {
       kind: "assistant";
       id: string;
@@ -294,7 +304,7 @@ export interface AgentStats {
 export type AgentUiEvent =
   | { kind: "agent-start" }
   | { kind: "agent-end" }
-  | { kind: "user-message"; id: string; text: string; skillName?: string; images?: UiImageAttachment[]; ts: number }
+  | { kind: "user-message"; id: string; text: string; skillName?: string; feedback?: WorkbenchFeedback[]; images?: UiImageAttachment[]; ts: number }
   | { kind: "assistant-start"; id: string; ts: number }
   | {
       kind: "assistant-delta";
@@ -318,12 +328,13 @@ export type AgentUiEvent =
   | { kind: "approval-explanation"; id: string; explanation?: string }
   | { kind: "approval-resolved"; id: string }
   | { kind: "queue-update"; steering: string[]; followUp: string[] }
-  | { kind: "notice"; tone: "info" | "warn"; text: string; ts: number }
+  | { kind: "notice"; tone: "info" | "warn"; text: string; ts: number; retryAssistantId?: string }
   | { kind: "stats"; stats: AgentStats }
   | { kind: "sessions-changed" }
   | { kind: "dependencies-changed"; dependencies: DependencySnapshot }
   | { kind: "dependency-install-progress"; progress: DependencyInstallProgress }
-  | { kind: "state-refresh"; payload: InitPayload };
+  | { kind: "state-refresh"; payload: InitPayload }
+  | WorkbenchEvent;
 
 export interface AppSettingsView {
   language: AppLanguage;
@@ -456,12 +467,15 @@ export interface VoiceInputUpdate {
 
 /** API exposed on window.moros by the preload script. */
 export interface MorosApi {
+  workbench: WorkbenchCall;
   init(): Promise<InitPayload>;
   getDeveloperContext(): Promise<DeveloperContextSnapshot>;
   prompt(
     text: string,
     images?: UiImageAttachment[],
     clientMessageId?: string,
+    feedbackIds?: string[],
+    recalledFeedback?: WorkbenchFeedback[],
   ): Promise<{ ok: boolean; error?: string }>;
   abort(): Promise<void>;
   resolveApproval(
@@ -473,7 +487,8 @@ export interface MorosApi {
     kind: QueuedMessageKind,
     index: number,
     text: string,
-  ): Promise<{ ok: boolean; error?: string }>;
+    expectedScope?: WorkbenchScope,
+  ): Promise<QueuedMessageRemoval>;
   newSession(workspaceDir?: string): Promise<InitPayload>;
   openSession(path: string): Promise<InitPayload>;
   listSessions(): Promise<UiSessionInfo[]>;
@@ -503,6 +518,7 @@ export interface MorosApi {
   ): Promise<{ ok: boolean; error?: string }>;
   cancelDependencyInstall(dependencyId: DependencyId): Promise<{ ok: boolean; error?: string }>;
   openDependencySource(dependencyId: DependencyId): Promise<void>;
+  refreshSkills(): Promise<InitPayload>;
   setSkillEnabled(name: string, enabled: boolean): Promise<InitPayload>;
   addSkillDir(): Promise<InitPayload | null>;
   removeSkillDir(dir: string): Promise<InitPayload>;

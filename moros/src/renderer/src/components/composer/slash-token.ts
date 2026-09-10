@@ -4,14 +4,14 @@ export interface SlashToken {
   end: number;
 }
 
-export function findSlashToken(text: string): SlashToken | null {
-  const match = /(^|\s)(\/\S*)$/.exec(text);
+export function findSlashToken(text: string, caret = text.length): SlashToken | null {
+  const match = /(^|\s)(\/\S*)$/.exec(text.slice(0, caret));
   if (!match) return null;
   const token = match[2];
   return {
     query: token.slice(1).toLowerCase(),
     start: match.index + match[1].length,
-    end: text.length,
+    end: caret,
   };
 }
 

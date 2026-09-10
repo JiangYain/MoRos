@@ -1,4 +1,5 @@
 import { modelSelectionKey } from "../../../shared/types.ts";
+import { formatWorkbenchFeedback, workbenchScopeKey } from "../../../shared/workbench.ts";
 import type { StoreApi } from "zustand/vanilla";
 import { api, clearPendingAgentEvents } from "../ipc.ts";
 import {
@@ -13,6 +14,7 @@ import { appendOptimisticUser } from "../optimistic-session.ts";
 import type { StoreCommandRunner } from "./command.ts";
 import { ignoreCommandFailure, requireCommandSuccess } from "./command.ts";
 import type { MorosState } from "./state.ts";
+import { mergePendingFeedback, selectPendingFeedback } from "../workbench/pending-feedback.ts";
 
 export type MorosCommandMessageKey =
   | "approvalInactive"
@@ -36,6 +38,7 @@ type MorosCommandActions = Pick<
   | "openSession"
   | "refreshDependencies"
   | "refreshSessions"
+  | "refreshSkills"
   | "removeApiKey"
   | "removeQueuedMessage"
   | "removeSkillDir"
@@ -80,14 +83,14 @@ export function createMorosCommandActions({
   set,
 }: MorosCommandOptions): MorosCommandActions {
   return {
-    boot: async () => {
+    boot: async (shouldApply = () => true) => {
       await runCommand(async () => {
         const payload = await api.init();
-        get().applyInit(payload);
+        if (shouldApply()) get().applyInit(payload);
       });
     },
 
-    send: async (text, images) => {
+    send: async (text, images, feedbackIds) => {
       const state = get();
       if (!state.stats?.model || !state.stats.modelAuthConfigured) {
         const noModelError = message("noModel");
@@ -96,12 +99,15 @@ export function createMorosCommandActions({
       }
       const id = clientMessageId();
       const ts = Date.now();
+      const scope = { workspaceDir: state.stats.workspaceDir ?? "", sessionId: state.stats.sessionId };
+      const scopeKey = workbenchScopeKey(scope);
+      const selection = selectPendingFeedback(state.workbenchStates?.[scopeKey]?.feedback ?? [], state.workbenchUI?.[scopeKey]?.recalledFeedback ?? [], feedbackIds ?? []);
       const optimistic = appendOptimisticUser({
         id,
         images,
         sessions: state.sessions,
         stats: state.stats,
-        text,
+        text: text + formatWorkbenchFeedback(selection.feedback),
         thread: state.thread,
         ts,
       });
@@ -114,9 +120,12 @@ export function createMorosCommandActions({
         lastError: null,
       });
       try {
-        const result = await api.prompt(text, images, id);
+        if (selection.recalled.length) get().setWorkbenchUI(scope, { recalledFeedback: (state.workbenchUI?.[scopeKey]?.recalledFeedback ?? []).filter((item) => !selection.recalled.some((sent) => sent.id === item.id)) });
+        const result = selection.recalled.length ? await api.prompt(text, images, id, selection.savedIds, selection.recalled)
+          : selection.savedIds.length ? await api.prompt(text, images, id, selection.savedIds) : await api.prompt(text, images, id);
         requireCommandSuccess(result, "Moros could not send this message.");
       } catch (error) {
+        if (selection.recalled.length) get().setWorkbenchUI(scope, { recalledFeedback: mergePendingFeedback(selection.recalled, get().workbenchUI?.[scopeKey]?.recalledFeedback) });
         clearPendingAgentEvents();
         const reported = sanitizeError(error);
         set((current) => ({
@@ -138,16 +147,18 @@ export function createMorosCommandActions({
     },
 
     removeQueuedMessage: async (kind, index, text) => {
+      const stats = get().stats;
+      const scope = stats ? { workspaceDir: stats.workspaceDir ?? "", sessionId: stats.sessionId } : undefined;
       try {
-        await runCommand(async () => {
-          const result = await api.removeQueuedMessage(kind, index, text);
-          requireCommandSuccess(result, message("commandFailed"));
+        return await runCommand(async () => {
+          const result = await api.removeQueuedMessage(kind, index, text, scope);
+          if (!result.ok) throw new Error(result.error);
+          return result;
         });
-        return true;
       } catch {
         // runCommand already surfaced the failure through lastError; callers
         // only need to know whether the draft backfill may proceed.
-        return false;
+        return undefined;
       }
     },
 
@@ -357,6 +368,12 @@ export function createMorosCommandActions({
 
     openDependencySource: (dependencyId) => runCommand(async () => {
       await api.openDependencySource(dependencyId);
+    }),
+
+    refreshSkills: () => runCommand(async () => {
+      const payload = await api.refreshSkills();
+      clearPendingAgentEvents();
+      get().applyInit(payload);
     }),
 
     setSkillEnabled: (name, enabled) => runCommand(async () => {

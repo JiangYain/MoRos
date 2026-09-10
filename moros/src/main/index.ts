@@ -16,6 +16,8 @@ import {
   shouldShowStartupErrorDialog,
 } from "./startup-navigation";
 import { startMorosWebServer, type MorosWebServer } from "./web-server";
+import { createWorkbench } from "./workbench/create-workbench";
+import { WorkbenchAgentBridge } from "./workbench/agent-bridge";
 
 const DEFAULT_WEB_PORT = 53210;
 const DEFAULT_DEV_API_PORT = 53211;
@@ -36,6 +38,7 @@ let agent: AgentService | undefined;
 let authLoginController: AuthLoginController | undefined;
 let dependencyManager: DependencyManager | undefined;
 let webServer: MorosWebServer | undefined;
+let workbench: ReturnType<typeof createWorkbench> | undefined;
 let shutdownPromise: Promise<void> | undefined;
 const agentEventListeners = new Set<(event: AgentUiEvent) => void>();
 
@@ -113,6 +116,7 @@ function createWindow(rendererUrl: string): BrowserWindow {
   });
 
   window.once("ready-to-show", () => window.show());
+  window.webContents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) workbench?.service.hideBrowsers(); });
   window.on("maximize", () => window.webContents.send("win:maximized", true));
   window.on("unmaximize", () => window.webContents.send("win:maximized", false));
   window.on("closed", () => {
@@ -156,12 +160,13 @@ function createWindow(rendererUrl: string): BrowserWindow {
 
 function registerIpc(api: MorosBackendApi): void {
   for (const method of BACKEND_OPERATION_METHODS) {
-    ipcMain.handle(ipcChannelForBackendMethod(method), (_event, ...args: unknown[]) =>
-      invokeBackendOperation(api, method, args),
-    );
+    ipcMain.handle(ipcChannelForBackendMethod(method), (event, ...args: unknown[]) => {
+      if (event.sender !== mainWindow?.webContents) throw new Error("Untrusted renderer.");
+      return invokeBackendOperation(api, method, args);
+    });
   }
   ipcMain.on("win:control", (_event, action: "minimize" | "maximize" | "close") => {
-    if (!mainWindow) return;
+    if (!mainWindow || _event.sender !== mainWindow.webContents) return;
     if (action === "minimize") mainWindow.minimize();
     else if (action === "maximize") {
       if (mainWindow.isMaximized()) mainWindow.unmaximize();
@@ -172,6 +177,12 @@ function registerIpc(api: MorosBackendApi): void {
 
 async function startApplication(): Promise<void> {
   agent = new AgentService(emitAgentEvent);
+  workbench = createWorkbench({
+    agent, getWindow: () => mainWindow, emit: emitAgentEvent,
+    artifactOrigin: () => webServer?.url ?? "",
+    internalOrigins: () => [webServer?.url, process.env.ELECTRON_RENDERER_URL].filter((url): url is string => Boolean(url)).map((url) => new URL(url).origin),
+  });
+  agent.attachWorkbench(new WorkbenchAgentBridge(workbench.service));
   authLoginController = new AuthLoginController(agent, emitAgentEvent);
   dependencyManager = new DependencyManager({
     rootDir: join(app.getPath("userData"), "dependencies"),
@@ -180,6 +191,7 @@ async function startApplication(): Promise<void> {
     onProgress: (progress) => emitAgentEvent({ kind: "dependency-install-progress", progress }),
   });
   const backendApi = createMorosBackendApi({
+    workbench: workbench.service,
     service: agent,
     authController: authLoginController,
     dependencyManager,
@@ -194,7 +206,8 @@ async function startApplication(): Promise<void> {
     ? envPort("MOROS_WEB_API_PORT", DEFAULT_DEV_API_PORT)
     : envPort("MOROS_WEB_PORT", DEFAULT_WEB_PORT, true);
   webServer = await startMorosWebServer({
-    api: backendApi,
+    api: { ...backendApi, workbench: (request) => workbench!.service.execute(request, "web") },
+    handleArtifact: (request, response) => workbench!.artifacts.handle(request, response),
     port: serverPort,
     rendererDir: development ? undefined : join(import.meta.dirname, "../renderer"),
     publicUrl: devRendererUrl,
@@ -224,6 +237,7 @@ function shutdown(): Promise<void> {
     authLoginController?.abortAll();
     dependencyManager?.shutdown();
     shutdownPromise = Promise.allSettled([
+      workbench?.service.shutdown() ?? Promise.resolve(),
       agent?.shutdown() ?? Promise.resolve(),
       webServer?.close() ?? Promise.resolve(),
     ]).then(() => undefined);

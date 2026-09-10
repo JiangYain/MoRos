@@ -4,7 +4,7 @@ import type {
   UiSessionInfo,
   UiThreadItem,
 } from "../../shared/types.ts";
-import { compactSkillText } from "../../shared/skill-display.ts";
+import { projectUserMessage, userMessagePreview } from "../../shared/user-message.ts";
 
 interface OptimisticUserInput {
   id: string;
@@ -53,12 +53,13 @@ export function appendOptimisticUser(input: OptimisticUserInput): {
   sessions: UiSessionInfo[];
   thread: UiThreadItem[];
 } {
-  const display = compactSkillText(input.text);
+  const display = projectUserMessage(input.text);
   const optimisticMessage: UiThreadItem = {
     kind: "user",
     id: input.id,
     text: display.text,
     ...(display.skillName ? { skillName: display.skillName } : {}),
+    ...(display.feedback ? { feedback: display.feedback } : {}),
     images: input.images,
     ts: input.ts,
   };
@@ -69,7 +70,7 @@ export function appendOptimisticUser(input: OptimisticUserInput): {
       input.sessions,
       input.stats,
       thread,
-      display.text || (display.skillName ? `Skill: ${display.skillName}` : input.text),
+      userMessagePreview(optimisticMessage) ?? "",
       input.images,
       input.ts,
     ),

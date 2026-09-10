@@ -76,7 +76,10 @@ export default defineConfig({
     },
     build: {
       outDir: "out/preload",
-      rollupOptions: { output: { format: "cjs" } },
+      rollupOptions: {
+        input: { index: resolve("src/preload/index.ts"), "workbench-browser": resolve("src/preload/workbench-browser.ts") },
+        output: { format: "cjs", entryFileNames: "[name].cjs" },
+      },
     },
   },
   renderer: {

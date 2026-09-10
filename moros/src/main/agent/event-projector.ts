@@ -7,7 +7,7 @@ import type {
   UiBlock,
   UiThreadItem,
 } from "@shared/types";
-import { compactSkillText } from "../../shared/skill-display.ts";
+import { projectUserMessage } from "../../shared/user-message.ts";
 import {
   blocksOf,
   cloneForUi,
@@ -43,6 +43,7 @@ function toolResultContent(value: unknown): ToolResultMessage["content"] | undef
  */
 export class AgentEventProjector {
   private currentAssistantId?: string;
+  private retryAssistantId?: string;
   private currentAssistant?: {
     id: string;
     blocks: Map<number, UiBlock>;
@@ -69,6 +70,7 @@ export class AgentEventProjector {
 
   reset(): void {
     this.currentAssistantId = undefined;
+    this.retryAssistantId = undefined;
     this.currentAssistant = undefined;
     this.currentTools.clear();
     this.pendingUserMessageIds = [];
@@ -158,20 +160,22 @@ export class AgentEventProjector {
         const message = event.message;
         if (isUserMessage(message)) {
           const expandedText = textOfContent(message.content);
-          const display = compactSkillText(expandedText);
+          const display = projectUserMessage(expandedText);
           const images = imagesOfContent(message.content);
-          if (display.text.trim() || display.skillName || images.length > 0) {
+          if (display.text.trim() || display.skillName || display.feedback?.length || images.length > 0) {
             this.options.emit({
               kind: "user-message",
               id: this.pendingUserMessageIds.shift() ?? this.options.nextId("u"),
               text: display.text,
               skillName: display.skillName,
+              ...(display.feedback ? { feedback: display.feedback } : {}),
               images: images.length > 0 ? images : undefined,
               ts: message.timestamp,
             });
             this.options.emit({ kind: "sessions-changed" });
           }
         } else if (isAssistantMessage(message) && this.currentAssistantId) {
+          this.retryAssistantId = message.stopReason === "error" ? this.currentAssistantId : undefined;
           this.options.emit({
             kind: "assistant-end",
             id: this.currentAssistantId,
@@ -276,7 +280,9 @@ export class AgentEventProjector {
             max: event.maxAttempts,
           }),
           ts: Date.now(),
+          retryAssistantId: this.retryAssistantId,
         });
+        this.retryAssistantId = undefined;
         break;
       case "session_info_changed":
         this.options.emit({ kind: "sessions-changed" });

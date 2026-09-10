@@ -1,4 +1,6 @@
-export async function runSettingsScenario({ page, shot, onePixelPng }) {
+import { runSkillDiscoveryScenario } from "./skills.mjs";
+
+export async function runSettingsScenario({ app, page, shot, onePixelPng, smokeSkillHome }) {
   const activeClientToggle = page.locator(
     '.file-tree-item[data-active-client="true"] > .folder-row .file-item-main',
   );
@@ -64,6 +66,7 @@ export async function runSettingsScenario({ page, shot, onePixelPng }) {
   }
   await page.locator(".profile-menu button").filter({ hasText: "Skill library" }).click();
   await page.getByRole("heading", { name: "Skills", exact: true }).waitFor();
+  await runSkillDiscoveryScenario({ app, page, smokeSkillHome });
   await shot("03-skills-settings");
   const skillsSearch = page.getByRole("textbox", { name: "Search skills", exact: true });
   await skillsSearch.fill("__no_matching_skill__");

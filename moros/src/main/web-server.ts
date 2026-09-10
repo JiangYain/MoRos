@@ -39,6 +39,7 @@ interface MorosWebServerOptions {
   port: number;
   rendererDir?: string;
   publicUrl?: string;
+  handleArtifact?(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   subscribe(listener: AgentEventListener): () => void;
 }
 
@@ -211,12 +212,25 @@ export async function startMorosWebServer(
 
   const server: Server = createServer((request, response) => {
     void (async () => {
+      if (request.socket.remoteAddress && !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress)) {
+        sendJson(response, 403, { ok: false, error: "Moros only accepts loopback requests." });
+        return;
+      }
+      if (await options.handleArtifact?.(request, response)) return;
       if (!requestIsLocal(request)) {
         sendJson(response, 403, { ok: false, error: "Moros only accepts loopback requests." });
         return;
       }
 
       const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (request.headers.origin && requestUrl.pathname.startsWith("/api/")) {
+        const origin = new URL(request.headers.origin);
+        const allowedPorts = new Set([String((server.address() as { port: number }).port), ...(resolvedPublicUrl ? [new URL(resolvedPublicUrl).port] : [])]);
+        if (!allowedPorts.has(origin.port || (origin.protocol === "https:" ? "443" : "80"))) {
+          sendJson(response, 403, { ok: false, error: "This origin cannot control Moros." });
+          return;
+        }
+      }
       if (requestUrl.pathname === "/api/health") {
         sendJson(response, 200, { ok: true, webUrl: resolvedPublicUrl });
         return;

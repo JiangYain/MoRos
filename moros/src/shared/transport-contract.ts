@@ -12,6 +12,7 @@ import {
   type UiImageAttachment,
 } from "./types.ts";
 import { isQuickPromptList } from "./quick-prompts.ts";
+import { decodeWorkbenchFeedback, decodeWorkbenchRequest, decodeWorkbenchScope } from "./workbench-contract.ts";
 
 export type BackendMethod = keyof MorosBackendApi;
 
@@ -134,18 +135,27 @@ function oneDependencyId(args: readonly unknown[]): [Parameters<MorosBackendApi[
  * derive their proxy methods from the same entries.
  */
 export const BACKEND_OPERATION_SPECS = {
+  workbench: { ipcChannel: "workbench:request", web: true, decode: (args) => { argumentCount(args, 1); return [decodeWorkbenchRequest(args[0])]; } },
   init: { ipcChannel: "app:init", web: true, decode: noArgs },
   getDeveloperContext: { ipcChannel: "developer:context", web: true, decode: noArgs },
   prompt: {
     ipcChannel: "agent:prompt",
     web: true,
     decode: (args) => {
-      argumentCount(args, 1, 3);
-      return [
+      argumentCount(args, 1, 5);
+      const feedbackIds = args[3];
+      if (feedbackIds !== undefined && (!Array.isArray(feedbackIds) || feedbackIds.length > 40 || feedbackIds.some((id) => typeof id !== "string" || id.length > 200))) throw new Error("Invalid feedback IDs.");
+      const decoded: BackendOperationArguments<"prompt"> = [
         stringArg(args, 0, "text"),
         imageAttachmentsArg(args, 1),
         optionalStringArg(args, 2, "clientMessageId"),
       ];
+      if (feedbackIds !== undefined) decoded[3] = feedbackIds as string[];
+      if (args[4] !== undefined) {
+        if (!Array.isArray(args[4]) || args[4].length > 40 || JSON.stringify(args[4]).length > 16_000_000) throw new Error("Invalid recalled feedback.");
+        decoded[4] = args[4].map(decodeWorkbenchFeedback);
+      }
+      return decoded;
     },
   },
   abort: { ipcChannel: "agent:abort", web: true, decode: noArgs },
@@ -165,13 +175,15 @@ export const BACKEND_OPERATION_SPECS = {
     ipcChannel: "agent:remove-queued-message",
     web: true,
     decode: (args) => {
-      argumentCount(args, 3);
+      argumentCount(args, 3, 4);
       if (!isQueuedMessageKind(args[0])) throw new Error("Invalid queued message kind.");
       const index = args[1];
       if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
         throw new Error("index must be a non-negative integer.");
       }
-      return [args[0], index, stringArg(args, 2, "text")];
+      const decoded: BackendOperationArguments<"removeQueuedMessage"> = [args[0], index, stringArg(args, 2, "text")];
+      if (args[3] !== undefined) decoded[3] = decodeWorkbenchScope(args[3]);
+      return decoded;
     },
   },
   newSession: {
@@ -298,6 +310,7 @@ export const BACKEND_OPERATION_SPECS = {
     web: true,
     decode: oneDependencyId,
   },
+  refreshSkills: { ipcChannel: "skills:refresh", web: true, decode: noArgs },
   setSkillEnabled: {
     ipcChannel: "skills:set-enabled",
     web: true,

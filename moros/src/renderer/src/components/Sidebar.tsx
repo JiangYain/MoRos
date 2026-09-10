@@ -2,7 +2,6 @@ import { Puzzle, Search, Settings, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 import { ignoreCommandFailure, useMoros } from "../store";
-import { MorosAsciiWordmark } from "./MorosAsciiWordmark";
 import { SessionSearchOverlay, type SessionSearchEntry } from "./SessionSearchOverlay";
 import { SidebarProfile } from "./sidebar/SidebarProfile";
 import { SidebarSessionTree } from "./sidebar/SidebarSessionTree";
@@ -52,11 +51,10 @@ export function Sidebar(): React.JSX.Element {
         <button type="button" className="sidebar-rail-button" aria-label={t("sidebar.settings")} title={t("sidebar.settings")} onClick={() => openSettings()}><Settings size={16} strokeWidth={1.65} aria-hidden="true" /></button>
       </div>
       <nav className="sidebar-nav" aria-label="Moros">
-        <div className="sidebar-brand-row">
-          <MorosAsciiWordmark className="sidebar-brand-name moros-brand-name" />
+        <div className="sidebar-actions-row">
+          <button type="button" className="sidebar-nav-item" onClick={() => { closeMobileSidebar(); ignoreCommandFailure(newSession()); }}><SquarePen size={16} strokeWidth={1.65} aria-hidden="true" /><span>{t("sidebar.new")}</span></button>
           <button type="button" className={`sidebar-brand-search${searchOpen ? " active" : ""}`} aria-label={t("sidebar.search")} title={t("sidebar.search")} aria-expanded={searchOpen} aria-controls="session-search-dialog" onClick={() => { setSearchOpen(true); closeMobileSidebar(); }}><Search size={17} strokeWidth={1.65} aria-hidden="true" /></button>
         </div>
-        <button type="button" className="sidebar-nav-item" onClick={() => { closeMobileSidebar(); ignoreCommandFailure(newSession()); }}><SquarePen size={16} strokeWidth={1.65} aria-hidden="true" /><span>{t("sidebar.new")}</span></button>
         <button type="button" className="sidebar-nav-item" onClick={() => { closeMobileSidebar(); openSettings("skills"); }}><Puzzle size={16} strokeWidth={1.65} aria-hidden="true" /><span>{t("sidebar.skills")}</span></button>
       </nav>
       <SidebarSessionTree />

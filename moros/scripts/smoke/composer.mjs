@@ -1,5 +1,5 @@
 export async function runComposerScenario({ page, shot, onePixelPng, smokeQuickPrompts }) {
-  const textarea = page.locator(".composer textarea");
+  const textarea = page.locator(".composer-editor");
   const quickPrompts = page.locator(".quick-prompts");
   const workspacePayload = await page.evaluate(() => window.moros.init());
   const workspaceHasUsableModel = Boolean(
@@ -16,7 +16,7 @@ export async function runComposerScenario({ page, shot, onePixelPng, smokeQuickP
     }
     await quickPrompts.locator(".quick-prompt-btn").click();
     await page.waitForFunction((expected) => (
-      document.querySelector(".composer textarea")?.value === expected
+      document.querySelector(".composer-editor")?.dataset.value === expected
     ), smokeQuickPrompts[0]);
     await textarea.fill("");
     await quickPrompts.hover();
@@ -90,21 +90,22 @@ export async function runComposerScenario({ page, shot, onePixelPng, smokeQuickP
   await shot("05-slash-menu");
   await page.keyboard.press("Escape");
   await page.locator(".slash-popover").waitFor({ state: "detached" });
-  if ((await textarea.inputValue()) !== "请帮我执行 /") {
+  if ((await textarea.getAttribute("data-value")) !== "请帮我执行 /") {
     throw new Error("Dismissing slash suggestions modified the draft");
   }
   await textarea.fill("请帮我执行 ");
   await textarea.fill("请帮我执行 /");
   await page.locator(".slash-popover").waitFor();
   await page.keyboard.press("Tab");
-  const appliedSlash = await textarea.inputValue();
-  const selectedSkillChip = page.locator(".composer-skill-selection");
-  if (appliedSlash.trim() !== "请帮我执行" || (await selectedSkillChip.count()) !== 1) {
+  const appliedSlash = await textarea.getAttribute("data-value");
+  const selectedSkillChip = page.locator(".composer-editor .composer-skill-chip");
+  if (!appliedSlash?.startsWith("请帮我执行 /skill:") || (await selectedSkillChip.count()) !== 1) {
     throw new Error(`Skill selection did not become a structured chip: ${appliedSlash}`);
   }
   await shot("05b-skill-chip");
-  await selectedSkillChip.getByRole("button", { name: /Remove skill/ }).click();
   await textarea.fill("");
+
+  await runInlineSlashScenario({ page, shot });
 
   const modelButton = page.locator(".model-pill:not(.model-ring-trigger)");
   const collapsedModelButton = page.locator(".model-ring-trigger");
@@ -416,4 +417,54 @@ export async function runComposerScenario({ page, shot, onePixelPng, smokeQuickP
       document.querySelectorAll(".thread-file-item.active .file-name"),
     ).some((node) => node.textContent?.trim() === title), openedSearchResultTitle);
   }
+}
+
+export async function runInlineSlashScenario({ page, shot }) {
+  const textarea = page.locator(".composer-editor");
+  const popover = page.locator(".slash-popover");
+  await textarea.fill("我使用 我");
+  await textarea.press("ArrowLeft");
+  await textarea.press("/");
+  await popover.waitFor();
+  if ((await textarea.getAttribute("data-value")) !== "我使用 /我") {
+    throw new Error("The inline slash fixture did not preserve the text after the caret");
+  }
+  await page.waitForFunction(() => {
+    const popover = document.querySelector(".slash-popover");
+    return popover && Number(getComputedStyle(popover).opacity) === 1;
+  });
+  await shot("05c-inline-slash", page.locator(".main-col"));
+
+  await textarea.press("ArrowRight");
+  await popover.waitFor({ state: "detached" });
+  await textarea.press("ArrowLeft");
+  await popover.waitFor();
+  await textarea.press("Tab");
+  const selectedSkill = page.locator(".composer-editor .composer-skill-chip");
+  await selectedSkill.waitFor();
+  if ((await textarea.getAttribute("data-value")) !== `我使用 ${await selectedSkill.getAttribute("data-skill-command")} 我`
+    || (await textarea.evaluate((node) => { const range = window.getSelection().getRangeAt(0).cloneRange(); range.setEnd(node, node.childNodes.length); return range.toString(); })) !== "我") {
+    throw new Error("Selecting an inline skill changed the surrounding text or moved the caret");
+  }
+
+  await textarea.fill("前文  /smoke 后文");
+  await textarea.press("ArrowLeft");
+  await textarea.press("ArrowLeft");
+  await textarea.press("ArrowLeft");
+  await popover.waitFor();
+  await popover.locator(".popover-item").first().click();
+  await selectedSkill.waitFor();
+  if ((await textarea.getAttribute("data-value")) !== `前文  ${await selectedSkill.getAttribute("data-skill-command")}  后文`) {
+    throw new Error("Selecting a filtered inline skill changed existing whitespace or the suffix");
+  }
+
+  await textarea.fill("/");
+  await popover.waitFor();
+  await textarea.press("Control+A");
+  await popover.waitFor({ state: "detached" });
+  await textarea.fill("https://example.com/path");
+  await textarea.press("Home");
+  await textarea.press("ArrowRight");
+  await popover.waitFor({ state: "detached" });
+  await textarea.fill("");
 }

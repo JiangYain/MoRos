@@ -3,7 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type { AppLanguage, SessionContentMatch, UiArchivedSessionInfo, UiSessionInfo, UiThreadItem } from "@shared/types";
 import { DEFAULT_SUMMARY_MODEL } from "../../shared/types.ts";
-import { compactSkillText } from "../../shared/skill-display.ts";
+import { projectUserMessage, userMessagePreview } from "../../shared/user-message.ts";
 import { mkdir, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -33,6 +33,17 @@ interface StoredArchivedSessionInfo extends StoredSessionInfo {
    * moment; the session's own modified time is the fallback.
    */
   archivedAt: Date;
+}
+
+function projectStoredSessionPreview(name: string | undefined, firstMessage: string): { name: string | undefined; firstMessage: string } {
+  const displayName = name ? projectUserMessage(name) : undefined;
+  const displayFirstMessage = projectUserMessage(firstMessage);
+  return {
+    name: displayName
+      ? displayName.text || (displayName.skillName ? `Skill: ${displayName.skillName}` : name)
+      : name,
+    firstMessage: userMessagePreview(displayFirstMessage) ?? firstMessage,
+  };
 }
 
 interface SessionDocument {
@@ -156,17 +167,13 @@ export class SessionLibrary {
     const workspaceDir = this.options.state().workspaceDir;
     const rawSessions = await this.storage.listAll();
     const sessions = rawSessions.map((info) => {
-      const displayName = info.name ? compactSkillText(info.name) : undefined;
-      const firstMessage = compactSkillText(info.firstMessage);
+      const preview = projectStoredSessionPreview(info.name, info.firstMessage);
       return {
         path: info.path,
         id: info.id,
         cwd: info.cwd.trim() || null,
-        name: displayName
-          ? displayName.text || (displayName.skillName ? `Skill: ${displayName.skillName}` : info.name)
-          : info.name,
-        firstMessage: firstMessage.text
-          || (firstMessage.skillName ? `Skill: ${firstMessage.skillName}` : info.firstMessage),
+        name: preview.name,
+        firstMessage: preview.firstMessage,
         createdAt: info.created.getTime(),
         modifiedAt: info.modified.getTime(),
         messageCount: info.messageCount,
@@ -183,8 +190,7 @@ export class SessionLibrary {
           id: state.active.id,
           cwd: state.workspaceDir,
           name: state.active.name,
-          firstMessage: firstUser.text.trim()
-            || (firstUser.images?.length ? "Image attachment" : "Untitled session"),
+          firstMessage: userMessagePreview(firstUser) ?? "Untitled session",
           createdAt: firstUser.ts,
           modifiedAt: state.thread.reduce((latest, item) => Math.max(latest, item.ts), firstUser.ts),
           messageCount: state.thread.filter(
@@ -327,16 +333,12 @@ export class SessionLibrary {
     const archived = await this.storage.listArchived(location.workspaceDir, location.archiveDir);
     return archived
       .map((info) => {
-        const displayName = info.name ? compactSkillText(info.name) : undefined;
-        const firstMessage = compactSkillText(info.firstMessage);
+        const preview = projectStoredSessionPreview(info.name, info.firstMessage);
         return {
           path: info.path,
           id: info.id,
-          name: displayName
-            ? displayName.text || (displayName.skillName ? `Skill: ${displayName.skillName}` : info.name)
-            : info.name,
-          firstMessage: firstMessage.text
-            || (firstMessage.skillName ? `Skill: ${firstMessage.skillName}` : info.firstMessage),
+          name: preview.name,
+          firstMessage: preview.firstMessage,
           archivedAt: info.archivedAt.getTime(),
         };
       })

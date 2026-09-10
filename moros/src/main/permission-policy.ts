@@ -6,9 +6,9 @@ export interface ToolApprovalRequest {
   detail: string;
 }
 
-const CORE_READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const CORE_READ_TOOLS = new Set(["read", "grep", "find", "ls", "workbench_terminal_read", "workbench_browser_inspect", "workbench_review_read"]);
 const FILE_WRITE_TOOLS = new Set(["edit", "write"]);
-const SHELL_TOOLS = new Set(["bash", "shell", "shell_command"]);
+const SHELL_TOOLS = new Set(["bash", "shell", "shell_command", "workbench_terminal_command"]);
 
 const READ_ONLY_COMMANDS = [
   /^(?:pwd|whoami|hostname|date|time)(?:\s+.*)?$/i,
@@ -104,6 +104,7 @@ export function evaluateToolApproval(
   }
 
   if (SHELL_TOOLS.has(toolName)) {
+    if (toolName === "workbench_terminal_command") return approval("send input to a live terminal", toolName, detail);
     if (mode === "approve" && commandIsExplicitlyReadOnly(command)) return undefined;
     return approval(
       mode === "ask" ? "run a shell command" : "run a command that is not provably read-only",

@@ -12,6 +12,24 @@
   background: var(--color-surface);
 }
 
+.settings-skills-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-skills-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-skills-discovery-note {
+  margin: 0 0 18px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .settings-skills-search {
   height: 38px;
   padding: 0 11px;

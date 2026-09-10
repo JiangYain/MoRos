@@ -1,5 +1,5 @@
-import type { QueuedMessageKind, UiSkill } from "@shared/types";
-import { Box, X } from "lucide-react";
+import type { QueuedMessageKind } from "@shared/types";
+import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { useI18n } from "../../i18n";
@@ -92,19 +92,6 @@ export function SlashCommandPopover(props: SlashCommandPopoverProps): React.JSX.
         </motion.div>
       )}
     </AnimatePresence>
-  );
-}
-
-export function SelectedSkill({ skill, onRemove }: { skill: UiSkill | null; onRemove: () => void }): React.JSX.Element | null {
-  const { t } = useI18n();
-  if (!skill) return null;
-  return (
-    <div className="composer-skill-selection" role="group" aria-label={t("composer.selectedSkill")}>
-      <span className="composer-skill-chip"><Box size={16} strokeWidth={1.75} aria-hidden="true" /><span>{skill.name}</span></span>
-      <button type="button" aria-label={t("composer.removeSkill", { name: skill.name })} title={t("composer.removeSkill", { name: skill.name })} onClick={onRemove}>
-        <X size={13} strokeWidth={2} aria-hidden="true" />
-      </button>
-    </div>
   );
 }
 

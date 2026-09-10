@@ -1,0 +1,35 @@
+.wb-review-controls { display: flex; align-items: center; gap: 5px; padding: 9px 10px; flex: 0 0 auto; }
+.wb-review-controls select, .wb-review-controls input { min-width: 0; padding: 5px 7px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg); color: var(--color-text-primary); font-size: 11px; }
+.wb-review-controls input { flex: 1; width: 90px; }
+.wb-review-controls button { display: inline-flex; align-items: center; padding: 5px; border-radius: 4px; font-size: 10px; }
+.wb-review-summary { display: flex; align-items: center; gap: 9px; padding: 0 12px 9px; font-size: 10px; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
+.wb-review-summary button { color: var(--color-text-primary); font-size: 10px; }
+.wb-diff-add { color: #54875e; font-weight: 400; }
+.wb-diff-del { color: var(--color-accent); font-weight: 400; }
+.wb-review-body { flex: 1; min-height: 0; display: flex; }
+.wb-review-files { width: 145px; flex: 0 0 145px; overflow: auto; border-right: 1px solid var(--color-border); padding: 5px; }
+.wb-review-files > button { width: 100%; display: flex; flex-direction: column; gap: 3px; padding: 9px 7px; text-align: left; border-radius: 4px; font-size: 10px; }
+.wb-review-files > button.active { background: var(--color-surface); }
+.wb-review-files > button > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-ownership { color: var(--color-text-tertiary); font-size: 9px; line-height: 1.4; }
+.wb-ownership.agent { color: #54875e; }
+.wb-ownership.mixed { color: var(--color-accent); }
+.wb-diff-file { flex: 1; min-width: 0; overflow: auto; }
+.wb-diff-file > .wb-subtoolbar { position: sticky; top: 0; background: var(--color-bg); z-index: 1; }
+.wb-diff-hunk { margin-bottom: 16px; }
+.wb-diff-hunk > summary { display: flex; align-items: center; gap: 6px; padding: 7px 9px; background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; font-size: 9px; list-style: none; }
+.wb-diff-hunk > summary::before { content: "›"; font-size: 13px; }
+.wb-diff-hunk[open] > summary::before { transform: rotate(90deg); }
+.wb-diff-hunk > summary > code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-diff-hunk > summary button { white-space: nowrap; }
+.wb-diff-lines { overflow: auto; padding: 4px 0; }
+.wb-diff-line { display: flex; align-items: flex-start; min-width: max-content; min-height: 21px; font-family: var(--font-mono); font-size: 10.5px; line-height: 21px; }
+.wb-diff-line.add { background: color-mix(in srgb, #598d65 9%, transparent); }
+.wb-diff-line.delete { background: color-mix(in srgb, var(--color-accent) 7%, transparent); }
+.wb-line-number { flex: 0 0 32px; width: 32px; text-align: right; padding-right: 5px; color: var(--color-text-tertiary); user-select: none; font-size: 9px !important; }
+.wb-line-number:hover:not(:disabled) { color: var(--color-accent); background: var(--color-surface-hover); }
+.wb-diff-sign { width: 14px; flex: 0 0 14px; text-align: center; color: var(--color-text-tertiary); }
+.wb-diff-line > code { white-space: pre; padding-right: 12px; flex: 1; }
+.wb-line-comment { padding: 3px; opacity: 0; color: var(--color-accent); }
+.wb-diff-line:hover .wb-line-comment, .wb-line-comment:focus-visible { opacity: 1; }
+.wb-more-lines { display: block; padding: 9px; color: var(--color-text-secondary); font-size: 11px !important; }

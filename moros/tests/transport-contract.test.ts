@@ -17,6 +17,7 @@ import {
 } from "../src/shared/transport-contract.ts";
 
 const ARGUMENTS = {
+  workbench: [{ scope: { workspaceDir: "C:\\workspace", sessionId: "one" }, operation: "state" }],
   init: [],
   getDeveloperContext: [],
   prompt: ["hello", [{ data: "AA==", mimeType: "image/png", name: "sample.png" }], "client-message-1"],
@@ -49,6 +50,7 @@ const ARGUMENTS = {
   installDependency: ["bash", "session-1"],
   cancelDependencyInstall: ["bash"],
   openDependencySource: ["bash"],
+  refreshSkills: [],
   setSkillEnabled: ["skill-a", true],
   addSkillDir: [],
   removeSkillDir: ["C:\\skills"],

@@ -14,6 +14,7 @@ import type {
   UiThreadItem,
 } from "../../../shared/types.ts";
 import { upsertActiveSession } from "../optimistic-session.ts";
+import { userMessagePreview } from "../../../shared/user-message.ts";
 
 export interface StreamingAssistantState {
   id: string;
@@ -96,6 +97,8 @@ export function projectAgentEvent(
   event: AgentUiEvent,
 ): AgentEventProjection {
   switch (event.kind) {
+    case "workbench":
+      return { effects: [] };
     case "agent-start":
       return { patch: { streaming: true, lastError: null }, effects: [] };
     case "agent-end":
@@ -105,7 +108,7 @@ export function projectAgentEvent(
       const thread = existing
         ? state.thread.map((item) =>
             item.kind === "user" && item.id === event.id
-              ? { ...item, text: event.text, skillName: event.skillName, images: event.images, ts: event.ts }
+              ? { ...item, text: event.text, skillName: event.skillName, ...(event.feedback ? { feedback: event.feedback } : {}), images: event.images, ts: event.ts }
               : item,
           )
         : [
@@ -115,6 +118,7 @@ export function projectAgentEvent(
               id: event.id,
               text: event.text,
               skillName: event.skillName,
+              ...(event.feedback ? { feedback: event.feedback } : {}),
               images: event.images,
               ts: event.ts,
             },
@@ -126,7 +130,7 @@ export function projectAgentEvent(
             state.sessions,
             state.stats,
             thread,
-            event.text || (event.skillName ? `Skill: ${event.skillName}` : ""),
+            userMessagePreview(event) ?? "",
             event.images,
             event.ts,
           ),
@@ -280,7 +284,13 @@ export function projectAgentEvent(
       return {
         patch: {
           thread: [
-            ...state.thread,
+            ...state.thread.flatMap((item): UiThreadItem[] => {
+              if (item.kind !== "assistant" || item.id !== event.retryAssistantId || item.stopReason !== "error") {
+                return [item];
+              }
+              // The retry notice replaces this attempt's error, keeping any partial answer.
+              return item.blocks.length > 0 ? [{ ...item, errorMessage: undefined }] : [];
+            }),
             {
               kind: "notice",
               id: `n-${event.ts}-${state.thread.length}`,

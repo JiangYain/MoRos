@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, Puzzle, Search, X } from "lucide-react";
+import { FolderOpen, Plus, Puzzle, RefreshCw, Search, X } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../../i18n";
 import { ignoreCommandFailure, useMoros } from "../../store";
@@ -17,6 +17,9 @@ export function SkillsSettings(): React.JSX.Element {
   const setSkillEnabled = useMoros((state) => state.setSkillEnabled);
   const addSkillDir = useMoros((state) => state.addSkillDir);
   const removeSkillDir = useMoros((state) => state.removeSkillDir);
+  const refreshSkills = useMoros((state) => state.refreshSkills);
+  const streaming = useMoros((state) => state.streaming);
+  const [scanning, setScanning] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<SkillFilter>("all");
   const normalizedQuery = query.trim().toLowerCase();
@@ -27,6 +30,10 @@ export function SkillsSettings(): React.JSX.Element {
     { id: "enabled", label: t("settings.enabledSkills"), count: enabledCount },
     { id: "disabled", label: t("settings.disabledSkills"), count: skills.length - enabledCount },
   ];
+  const rescan = (): void => {
+    setScanning(true);
+    ignoreCommandFailure(refreshSkills().finally(() => setScanning(false)));
+  };
   return (
     <div className="settings-page settings-skills-page" id="settings-page-skills">
       <header className="settings-page-head settings-page-head-with-action">
@@ -35,11 +42,25 @@ export function SkillsSettings(): React.JSX.Element {
           <h1>{t("settings.nav.skills")}</h1>
           <p>{t("settings.skillsDescription")}</p>
         </div>
-        <button type="button" className="settings-small-btn settings-skills-add-button" onClick={() => ignoreCommandFailure(addSkillDir())}>
-          <Plus size={13} strokeWidth={1.7} aria-hidden="true" />
-          <span>{t("settings.addDirectory")}</span>
-        </button>
+        <div className="settings-skills-actions">
+          <button
+            type="button"
+            className="settings-small-btn settings-skills-add-button"
+            disabled={scanning || streaming}
+            aria-busy={scanning}
+            title={t(streaming ? "settings.skillsRescanBusy" : "settings.skillsRescan")}
+            onClick={rescan}
+          >
+            <RefreshCw size={13} strokeWidth={1.7} aria-hidden="true" />
+            <span>{t(scanning ? "settings.skillsScanning" : "settings.skillsRescan")}</span>
+          </button>
+          <button type="button" className="settings-small-btn settings-skills-add-button" onClick={() => ignoreCommandFailure(addSkillDir())}>
+            <Plus size={13} strokeWidth={1.7} aria-hidden="true" />
+            <span>{t("settings.addDirectory")}</span>
+          </button>
+        </div>
       </header>
+      <p className="settings-skills-discovery-note">{t("settings.skillsCompatibility")}</p>
       <div className="settings-skills-search">
         <Search size={15} strokeWidth={1.55} aria-hidden="true" />
         <input value={query} placeholder={t("settings.skillsSearch")} aria-label={t("settings.skillsSearch")} onChange={(event) => setQuery(event.target.value)} />
@@ -81,7 +102,15 @@ export function SkillsSettings(): React.JSX.Element {
           {visible.map((skill) => (
             <article className={`settings-skill-row${skill.enabled ? "" : " disabled"}`} key={skill.name}>
               <div className="settings-skill-icon"><SkillArtwork /></div>
-              <div className="settings-skill-copy"><strong>{skill.name}</strong><span>{skill.description}</span><small>{skill.source}</small></div>
+              <div className="settings-skill-copy">
+                <strong>{skill.name}</strong>
+                <span>{skill.description}</span>
+                <small>
+                  {skill.source}
+                  {skill.scope && <> · {t(`settings.skillScope.${skill.scope}`)}</>}
+                  {skill.manualOnly && <> · {t("settings.skillManualOnly")}</>}
+                </small>
+              </div>
               <div className="settings-skill-state">
                 <span>{t(skill.enabled ? "settings.skillEnabled" : "settings.skillDisabled")}</span>
                 <Toggle ariaLabel={t("settings.skillToggle", { name: skill.name })} on={skill.enabled} onChange={(next) => ignoreCommandFailure(setSkillEnabled(skill.name, next))} />

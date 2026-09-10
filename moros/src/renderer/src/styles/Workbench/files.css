@@ -1,0 +1,20 @@
+.wb-files-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.wb-files-layout { flex: 1; min-height: 0; display: flex; }
+.wb-files-home { flex: 1; min-width: 0; overflow: auto; padding: clamp(30px, 5vw, 76px) clamp(20px, 3vw, 54px); }
+.wb-files-layout > .wb-file-tree { width: 240px; max-width: 32%; padding-top: 10px; }
+.wb-files-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--color-border); border-radius: 18px; padding: 6px 12px; color: var(--color-text-tertiary); }
+.wb-files-search > svg { flex: 0 0 14px; }
+.wb-files-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--color-text-primary); font: inherit; font-size: 12px; outline: 0; }
+.wb-files-search:focus-within { border-color: var(--color-text-tertiary); }
+.wb-files-search input:focus-visible { outline: none; }
+.wb-files-new { margin: 23px 0 33px; display: flex; align-items: center; gap: 9px; padding: 5px; font-size: 12px !important; }
+.wb-files-new svg { color: var(--color-text-tertiary); }
+.wb-files-section-label { margin: 0 5px 14px; color: var(--color-text-tertiary); font-size: 11px; }
+.wb-files-results { display: grid; gap: 4px; }
+.wb-files-results > button { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; text-align: left; padding: 7px 5px; border-radius: 5px; font-size: 12px; }
+.wb-files-results > button:hover { background: var(--color-surface); }
+.wb-files-results > button > svg { flex: 0 0 14px; color: var(--color-text-tertiary); }
+.wb-files-results > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-files-results small { flex: 1; min-width: 20px; color: var(--color-text-tertiary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-files-hint { margin: 10px 5px; color: var(--color-text-tertiary); font-size: 11px; line-height: 1.7; }
+@media (max-width: 600px) { .wb-files-home { padding: 30px 15px; } .wb-files-layout > .wb-file-tree { min-width: 125px; } }

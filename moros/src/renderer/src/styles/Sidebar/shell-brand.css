@@ -81,10 +81,8 @@
   display: none;
 }
 
-/* 18px top padding centers the first 26px button on the same line as the
-   expanded brand row (8px nav padding + 46px row height). */
 .sidebar.collapsed .sidebar-rail {
-  padding: 18px 0 8px;
+  padding: 11px 0 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -161,34 +159,18 @@ body.sidebar-resizing * {
   flex-shrink: 0;
 }
 
-.sidebar-brand-row {
+.sidebar-actions-row {
   width: 100%;
-  min-height: 46px;
-  max-height: 50px;
-  padding: 0 10px;
-  margin-bottom: 2px;
+  min-height: 32px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
-.sidebar-brand-name {
-  --moros-ascii-font-size: 3.45px;
+.sidebar-actions-row .sidebar-nav-item {
+  flex: 1;
   min-width: 0;
-  flex: 0 1 auto;
-}
-
-.moros-brand-name {
-  white-space: nowrap;
-}
-
-.moros-brand-name .moros-ascii-base,
-.moros-brand-name .moros-ascii-glow,
-.moros-brand-name .moros-ascii-period {
-  line-height: 1.18;
-  letter-spacing: 0;
 }
 
 .sidebar-brand-search {

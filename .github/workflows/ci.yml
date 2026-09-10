@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feat/moros-fai-base]
   # 手动触发，便于调试 smoke job
   workflow_dispatch:
 
@@ -109,6 +109,11 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a -s "-screen 0 1440x900x24" node scripts/smoke.mjs
+
+      - name: Run workbench smoke test
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a -s "-screen 0 1500x960x24" node scripts/workbench-smoke.mjs
 
       - name: Upload screenshots on failure
         if: failure()

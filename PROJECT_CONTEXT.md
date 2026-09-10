@@ -12,7 +12,7 @@ Moros 是基于 Pi Agent Runtime 的通用 Coding Agent。真正运行的应用�
 - Provider 认证、模型选择、Thinking Level、标题模型与上下文用量；
 - ask / approve / full 三种工具权限模式和会话级审批；
 - 工作区切换、会话搜索、重命名、归档、删除与恢复；
-- 本地 Skills 动态发现、启停和额外目录；
+- 跨 harness 项目/用户级 Skills 自动发现、来源标注、启停、重新扫描和额外目录；
 - Git 与 Bash 运行环境检测；
 - 简体中文、繁体中文、英语、德语，以及浅色/深色/跟随系统主题；
 - Electron IPC 与本机 Web RPC/SSE 共用同一后端状态。
@@ -47,6 +47,8 @@ Browser renderer ─ RPC/SSE ┘           │
 - Electron 使用 [`preload/index.ts`](moros/src/preload/index.ts)；浏览器使用 [`web-api.ts`](moros/src/renderer/src/web-api.ts)。两者都实现 [`MorosApi`](moros/src/shared/types.ts)。
 - 主进程事件同时发往 Electron IPC 与 Web SSE；Web 重连后用 `init` 重新同步。
 - 对话由 Pi `SessionManager` 持久化为 JSONL；设置、认证和会话是不同存储。
+- Skill 来源发现集中在 `moros/src/main/skills.ts`，`skill-catalog.ts` 保留完整目录信息并将启停过滤交给 Pi loader；支持的来源和隔离规则见 `moros/README.md`。
+- Skill 刷新通过共享 `refreshSkills` 契约重新构建空闲会话；发布前再次检查运行状态和消息快照，避免丢弃扫描期间开始的任务。
 
 ## 开发与端口
 
@@ -96,6 +98,8 @@ npm run build
 ```
 
 ## 关键文件
+
+右侧工作面板使用 `moros/src/main/workbench/`、`moros/src/renderer/src/workbench/` 和共享 `workbench` 契约；IPC 与 Web RPC/SSE 共用同一后端。标签、宽度、待反馈按工作区／会话隔离。PTY 与隔离浏览器由主进程持有，Git Revert 需要精确范围确认；`vendor/pi` 不包含这些实现。能力边界和验证入口见 [`moros/docs/workbench.md`](moros/docs/workbench.md)。
 
 | 文件 | 作用 |
 | --- | --- |

@@ -1,0 +1,20 @@
+@media (max-width: 1099px) {
+  .app-body { position: relative; }
+  .wb-shell.drawer { position: absolute; inset: 0 0 0 auto; z-index: 180; max-width: 100%; box-shadow: -10px 0 40px #00000010; border-left: 1px solid var(--color-border); }
+  .wb-scrim { display: block; position: absolute; inset: 0; z-index: 170; background: #00000016; cursor: default; }
+  .wb-launch-extra { display: none; }
+}
+@media (max-width: 600px) {
+  .wb-shell.drawer:not(.collapsed) { width: 100% !important; }
+  .wb-header { gap: 1px; padding-left: 10px; }
+  .wb-header > span:first-child { font-size: 10px; }
+  .wb-header button { width: 24px; }
+  .wb-dialog-backdrop { padding: 12px; }
+  .wb-dialog { padding: 18px; }
+  .wb-review-body { flex-direction: column; }
+  .wb-review-files { width: 100%; flex: 0 0 120px; max-height: 120px; border-right: 0; border-bottom: 1px solid var(--color-border); }
+  .wb-review-files > button { flex-direction: row; align-items: center; gap: 7px; padding: 6px 8px; }
+  .wb-review-files > button > span { flex: 1; }
+  .wb-feedback-trigger small { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .wb-shell *, .wb-dialog * { scroll-behavior: auto !important; } }

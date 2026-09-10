@@ -15,7 +15,7 @@ export interface ComposerDictation {
 }
 
 export function useComposerDictation(
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+  textareaRef: React.RefObject<{ focus(): void } | null>,
   appendText: (text: string) => void,
   closeMenus: () => void,
 ): ComposerDictation {

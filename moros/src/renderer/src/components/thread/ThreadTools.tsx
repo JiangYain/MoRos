@@ -19,6 +19,7 @@ import {
 import type { ThreadActivity } from "../threadActivity";
 import { summarizeThreadArgs } from "./thread-format";
 import { ThinkingBlock, THREAD_ENTRANCE } from "./ThreadMessages";
+import { ToolResourceLinks } from "../../workbench/ResourceLinks";
 
 const TOOL_LABELS: Record<string, string> = {
   bash: "Bash",
@@ -132,6 +133,7 @@ export function ToolCard({
           >
             <div className="tool-body-inner">
               {argsJson && summary !== argsJson && <div className="tool-args">{argsJson}</div>}
+              <ToolResourceLinks args={item.args} output={item.output} />
               {(item.output || item.running) && (
                 <div className="tool-output-shell">
                   {item.output && <CopyButton className="tool-copy-button" label={t("thread.copyToolOutput")} text={item.output} />}
@@ -245,6 +247,7 @@ function ToolActivityEntry({
                 </button>
               </div>
               <pre className="tool-activity-output">{item.output}</pre>
+              <ToolResourceLinks args={item.args} output={item.output} />
             </div>
           </motion.div>
         )}

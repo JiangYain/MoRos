@@ -1,4 +1,5 @@
 import type { UiThreadItem } from "@shared/types";
+import { userMessagePreview } from "../shared/user-message.ts";
 
 const MAX_TRANSCRIPT_CHARS = 6_000;
 const MAX_TITLE_CHARS = 42;
@@ -9,7 +10,7 @@ export function buildSessionTitleTranscript(thread: UiThreadItem[]): string {
     .slice(0, 6)
     .map((item) => {
       if (item.kind === "user") {
-        const text = item.text.trim() || (item.images?.length ? "[Image attachment]" : "");
+        const text = userMessagePreview(item, "[Image attachment]");
         return text ? `User: ${text}` : "";
       }
       const text = item.blocks

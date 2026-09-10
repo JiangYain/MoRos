@@ -1,4 +1,5 @@
 import type { UiThreadItem } from "@shared/types";
+import { inlineSkillReferences, userSkillText } from "@shared/skill-display";
 import { Box, ChevronRight, Pencil, RotateCcw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
@@ -8,6 +9,10 @@ import { AgentActivityOrb } from "../AgentActivityOrb";
 import { CopyButton } from "../CopyButton";
 import { ImageLightbox } from "../ImageLightbox";
 import { Markdown } from "../Markdown";
+import { skillPrompt } from "../composer/inline-skills";
+import { ResourceText } from "../../workbench/ResourceLinks";
+import { SentFeedback } from "../../workbench/Feedback";
+import { formatWorkbenchFeedback } from "@shared/workbench";
 import { stripRedundantCompletionOpener } from "../threadCommands";
 import type { ThreadActivity } from "../threadActivity";
 import {
@@ -127,14 +132,30 @@ function SkillBlock({
 
 /** Rebuilds the prompt text a user item was sent with, including its skill invocation. */
 function userPromptText(item: Extract<UiThreadItem, { kind: "user" }>): string {
-  return item.skillName
-    ? `/skill:${item.skillName}${item.text.trim() ? ` ${item.text.trim()}` : ""}`
-    : item.text;
+  return userSkillText(item.text, item.skillName);
+}
+
+function UserPromptText({ text }: { text: string }): React.JSX.Element {
+  const parts: React.ReactNode[] = [];
+  let offset = 0;
+  for (const reference of inlineSkillReferences(text)) {
+    parts.push(<ResourceText key={`text-${offset}`} text={text.slice(offset, reference.start)} />);
+    parts.push(
+      <span className="inline-skill" key={reference.start}>
+        <Box size={16} strokeWidth={1.75} aria-hidden="true" />
+        <span>{reference.name.charAt(0).toUpperCase() + reference.name.slice(1)}</span>
+      </span>,
+    );
+    offset = reference.end;
+  }
+  parts.push(<ResourceText key={`text-${offset}`} text={text.slice(offset)} />);
+  return <>{parts}</>;
 }
 
 export function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "user" }> }): React.JSX.Element {
   const { t } = useI18n();
   const seedComposer = useMoros((state) => state.seedComposer);
+  const promptText = userPromptText(item);
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   return (
     <motion.div className="msg-user" data-thread-prompt-id={item.id} {...THREAD_ENTRANCE}>
@@ -159,23 +180,15 @@ export function UserMessage({ item }: { item: Extract<UiThreadItem, { kind: "use
         </div>
       )}
       {preview && <ImageLightbox src={preview.src} alt={preview.alt} onClose={() => setPreview(null)} />}
-      {item.skillName ? (
-        <div className="text msg-user-bubble has-skill">
-          <div className="msg-user-skill-chip">
-            <Box size={15} strokeWidth={1.75} aria-hidden="true" />
-            <span>{item.skillName}</span>
-          </div>
-          {item.text.trim() && <div className="msg-user-skill-arguments">{item.text}</div>}
-        </div>
-      ) : item.text.trim() ? (
-        <div className="text msg-user-bubble">{item.text}</div>
+      {promptText.trim() || item.feedback?.length ? (
+        <div className="text msg-user-bubble"><UserPromptText text={promptText} /><SentFeedback items={item.feedback} /></div>
       ) : null}
       <button
         type="button"
         className="msg-user-edit-button"
         aria-label={t("thread.editPrompt")}
         title={t("thread.editPrompt")}
-        onClick={() => seedComposer(userPromptText(item), item.images)}
+        onClick={() => seedComposer(promptText, item.images)}
       >
         <Pencil size={13} strokeWidth={1.75} aria-hidden />
       </button>
@@ -233,7 +246,7 @@ export function AssistantMessage({
     for (let index = selfIndex - 1; index >= 0; index -= 1) {
       const entry = thread[index];
       if (entry.kind === "user") {
-        ignoreCommandFailure(send(userPromptText(entry), entry.images));
+        ignoreCommandFailure(send(skillPrompt(userPromptText(entry) + formatWorkbenchFeedback(entry.feedback ?? []), useMoros.getState().skills), entry.images));
         return;
       }
     }

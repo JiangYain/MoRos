@@ -1,3 +1,4 @@
+import type { WorkbenchStoreFields } from "../workbench/state";
 import type {
   AgentStats,
   AgentUiEvent,
@@ -11,6 +12,7 @@ import type {
   InitPayload,
   PermissionMode,
   QueuedMessageKind,
+  QueuedMessageRemoval,
   RuntimePrerequisites,
   ThinkingLevel,
   UiApprovalRequest,
@@ -72,7 +74,7 @@ export interface ComposerDraft {
   skillName: string | null;
 }
 
-export interface MorosState {
+export interface MorosState extends WorkbenchStoreFields {
   ready: boolean;
   version: string;
   settings?: AppSettingsView;
@@ -127,12 +129,12 @@ export interface MorosState {
   setProfileAvatar(dataUrl: string | null): void;
   setProfileIdentity(name: string, handle: string): void;
 
-  boot(): Promise<void>;
-  send(text: string, images?: UiImageAttachment[]): Promise<void>;
+  boot(shouldApply?: () => boolean): Promise<void>;
+  send(text: string, images?: UiImageAttachment[], feedbackIds?: string[]): Promise<void>;
   abort(): Promise<void>;
   resolveApproval(id: string, allowed: boolean, scope?: ApprovalScope): Promise<void>;
   /** Resolves to true when the queued message was withdrawn; failures land in lastError. */
-  removeQueuedMessage(kind: QueuedMessageKind, index: number, text: string): Promise<boolean>;
+  removeQueuedMessage(kind: QueuedMessageKind, index: number, text: string): Promise<Extract<QueuedMessageRemoval, { ok: true }> | undefined>;
   newSession(workspaceDir?: string): Promise<boolean>;
   openSession(path: string): Promise<boolean>;
   refreshSessions(): Promise<void>;
@@ -159,6 +161,7 @@ export interface MorosState {
   cancelDependencyInstall(dependencyId: DependencyId): Promise<void>;
   openPath(path: string): Promise<void>;
   openDependencySource(dependencyId: DependencyId): Promise<void>;
+  refreshSkills(): Promise<void>;
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
   addSkillDir(): Promise<void>;
   removeSkillDir(dir: string): Promise<void>;

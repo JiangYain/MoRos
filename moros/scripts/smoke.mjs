@@ -13,6 +13,7 @@ import { runComposerScenario } from "./smoke/composer.mjs";
 import { runSessionScenario } from "./smoke/sessions.mjs";
 import { runSettingsScenario } from "./smoke/settings.mjs";
 import { runStreamingScenario } from "./smoke/streaming.mjs";
+import { runRetryScenario } from "./smoke/retry.mjs";
 import {
   closeElectronApplication,
   runSmokePhase,
@@ -30,8 +31,16 @@ const outDir = resolve(process.argv[2] ?? defaultOutDir);
 mkdirSync(outDir, { recursive: true });
 const smokeUserDataDir = mkdtempSync(join(tmpdir(), "moros-smoke-profile-"));
 const smokeWorkspaceDir = join(smokeUserDataDir, "workspace");
+const smokeSkillHome = join(smokeUserDataDir, "skill-home");
+const smokeGlobalSkillDir = join(smokeSkillHome, ".codex", "skills", "global-smoke");
 const smokeSkillDir = join(smokeWorkspaceDir, "smoke-fixture");
 mkdirSync(smokeSkillDir, { recursive: true });
+mkdirSync(smokeGlobalSkillDir, { recursive: true });
+writeFileSync(
+  join(smokeGlobalSkillDir, "SKILL.md"),
+  "---\nname: global-smoke\ndescription: Global skills are discovered automatically.\n---\n\n# Global fixture\n",
+  "utf8",
+);
 writeFileSync(
   join(smokeSkillDir, "SKILL.md"),
   [
@@ -63,6 +72,9 @@ await runWithCleanup(async () => {
       MOROS_HEADLESS: "1",
       MOROS_WEB_PORT: "0",
       MOROS_USER_DATA_DIR: smokeUserDataDir,
+      PI_CODING_AGENT_DIR: join(smokeUserDataDir, "pi-agent"),
+      PI_CODING_AGENT_SESSION_DIR: join(smokeUserDataDir, "pi-sessions"),
+      MOROS_SKILL_HOME: smokeSkillHome,
     },
     timeout: LAUNCH_TIMEOUT_MS,
   }), { timeoutMs: null });
@@ -101,8 +113,8 @@ await runWithCleanup(async () => {
     15_000,
   );
 
-  const shot = async (name) => runPhase(`shot.${name}`, async () => {
-    await page.screenshot({ path: join(outDir, `${name}.png`) });
+  const shot = async (name, target = page) => runPhase(`shot.${name}`, async () => {
+    await target.screenshot({ path: join(outDir, `${name}.png`) });
     console.log(`shot: ${name}`);
   }, SCREENSHOT_TIMEOUT_MS);
   const onePixelPng = Buffer.from(
@@ -119,7 +131,7 @@ await runWithCleanup(async () => {
       );
       const settings = await runPhase(
         "scenario.settings",
-        () => runSettingsScenario({ page, shot, onePixelPng }),
+        () => runSettingsScenario({ app, page, shot, onePixelPng, smokeSkillHome }),
         SCENARIO_TIMEOUT_MS,
       );
       await runPhase("scenario.composer", () => runComposerScenario({
@@ -147,7 +159,12 @@ await runWithCleanup(async () => {
       }), SCENARIO_TIMEOUT_MS);
       await runPhase(
         "scenario.sessions",
-        () => runSessionScenario({ app, page, shot, ...streaming }),
+        () => runSessionScenario({ app, page, shot, smokeWorkspaceDir, ...streaming }),
+        SCENARIO_TIMEOUT_MS,
+      );
+      await runPhase(
+        "scenario.retry",
+        () => runRetryScenario({ app, page, shot }),
         SCENARIO_TIMEOUT_MS,
       );
     }, SUITE_TIMEOUT_MS);

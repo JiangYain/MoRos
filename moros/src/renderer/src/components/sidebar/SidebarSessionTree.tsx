@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useI18n } from "../../i18n.ts";
 import { ignoreCommandFailure, useMoros } from "../../store.ts";
@@ -27,6 +28,7 @@ export function SidebarSessionTree(): React.JSX.Element {
   const settings = useMoros((state) => state.settings);
   const stats = useMoros((state) => state.stats);
   const newSession = useMoros((state) => state.newSession);
+  const setWorkspaceDir = useMoros((state) => state.setWorkspaceDir);
   const interactions = useSessionTreeInteractions();
   const preferences = useWorkspacePreferences();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -71,6 +73,15 @@ export function SidebarSessionTree(): React.JSX.Element {
           <div className="file-section-header-main">
             <span className="file-section-title">{t("sidebar.sessions")}</span>
           </div>
+          <button
+            type="button"
+            className="file-section-add"
+            aria-label={t("sidebar.openWorkspace")}
+            title={t("sidebar.openWorkspace")}
+            onClick={() => ignoreCommandFailure(setWorkspaceDir())}
+          >
+            <Plus size={16} strokeWidth={1.6} aria-hidden="true" />
+          </button>
         </div>
         {groups.length === 0 || hasOnlyEmptyCurrentWorkspace ? (
           <div className="empty-state">{t("sidebar.empty")}</div>

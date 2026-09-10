@@ -1,4 +1,4 @@
-import type { QueuedMessageKind, UiSkill } from "@shared/types";
+import type { QueuedMessageKind } from "@shared/types";
 import { parseSkillInvocation } from "@shared/skill-display";
 import { ArrowUp, Mic, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -14,17 +14,24 @@ import {
   ComposerAttachments,
   DictationStatus,
   QueueChips,
-  SelectedSkill,
   SlashCommandPopover,
   type SlashCommandItem,
 } from "./composer/ComposerParts";
 import { readComposerImage, type ComposerAttachment } from "./composer/composer-attachments";
 import { findSlashToken } from "./composer/slash-token";
 import { useComposerDictation } from "./composer/useComposerDictation";
+import { ComposerEditor, type ComposerEditorHandle } from "./composer/ComposerEditor";
+import { findInlineSkills, skillPrompt } from "./composer/inline-skills";
+import { FeedbackTrigger } from "../workbench/Feedback";
+import { useWorkbench } from "../workbench/useWorkbench";
+import { mergePendingFeedback } from "../workbench/pending-feedback";
+import { workbenchScopeKey } from "@shared/workbench";
 
 type PopoverKind = "none" | "actions" | "permissions" | "model";
 
 export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: boolean }): React.JSX.Element {
+  const { feedback } = useWorkbench();
+  const feedbackIds = feedback.filter((item) => item.selected).map((item) => item.id);
   const { t } = useI18n();
   const streaming = useMoros((state) => state.streaming);
   const stats = useMoros((state) => state.stats);
@@ -42,7 +49,8 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
 
   const sessionKey = stats?.sessionId ?? "pending";
   const [text, setText] = useState("");
-  const [selectedSkill, setSelectedSkill] = useState<UiSkill | null>(null);
+  const [caret, setCaret] = useState<number | null>(0);
+  const selectedSkill = useMemo(() => findInlineSkills(text, skills)[0]?.skill ?? null, [text, skills]);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [popover, setPopover] = useState<PopoverKind>("none");
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -50,7 +58,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<ComposerEditorHandle>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
@@ -63,13 +71,12 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     sessionKeyRef.current = sessionKey;
     const store = useMoros.getState();
     const draft = store.composerDrafts[sessionKey];
-    setText(draft?.text ?? "");
+    const draftText = draft?.skillName && !findInlineSkills(draft.text, store.skills).length
+      ? `/skill:${draft.skillName} ${draft.text}`
+      : draft?.text ?? "";
+    setText(draftText);
+    setCaret(draftText.length);
     setAttachments(draft?.attachments ?? []);
-    setSelectedSkill(
-      draft?.skillName
-        ? store.skills.find((skill) => skill.name === draft.skillName && skill.enabled) ?? null
-        : null,
-    );
   }, [sessionKey]);
 
   useEffect(() => {
@@ -78,8 +85,11 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     const seededSkill = invocation
       ? skills.find((skill) => skill.name === invocation.name && skill.enabled) ?? null
       : null;
-    setSelectedSkill(seededSkill);
-    setText(seededSkill && invocation ? invocation.argumentsText : composerSeed.text);
+    const seededText = seededSkill && invocation
+      ? `/skill:${seededSkill.name} ${invocation.argumentsText}`
+      : composerSeed.text;
+    setText(seededText);
+    setCaret(seededText.length);
     setAttachments(
       (composerSeed.images ?? [])
         .slice(0, 8)
@@ -108,13 +118,6 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   }, [text, attachments, selectedSkill, setComposerDraft]);
 
   useEffect(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
-  }, [text]);
-
-  useEffect(() => {
     const onPointerDown = (event: MouseEvent): void => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -139,7 +142,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     };
   }, []);
 
-  const slashToken = useMemo(() => findSlashToken(text), [text]);
+  const slashToken = useMemo(() => caret === null ? null : findSlashToken(text, caret), [text, caret]);
   const slashQuery = slashToken?.query ?? null;
   const slashItems = useMemo(() => {
     if (slashQuery === null) return [];
@@ -185,7 +188,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     }
   };
 
-  const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+  const onPaste = (event: React.ClipboardEvent<HTMLDivElement>): void => {
     const files = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -224,19 +227,11 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
 
   const applySlash = (item: SlashCommandItem): void => {
     if (!slashToken) return;
-    const nextText = `${text.slice(0, slashToken.start)}${text.slice(slashToken.end)}`
-      .replace(/[ \t]{2,}/g, " ");
-    const caret = slashToken.start;
-    setSelectedSkill(skills.find((skill) => skill.name === item.name) ?? null);
-    setText(nextText);
+    const skill = skills.find((skill) => skill.name === item.name);
+    if (!skill) return;
+    textareaRef.current?.insertSkill(slashToken.start, slashToken.end, skill);
     setComposerFocused(true);
     setSlashDismissed(true);
-    requestAnimationFrame(() => {
-      const node = textareaRef.current;
-      if (!node) return;
-      node.focus();
-      node.setSelectionRange(caret, caret);
-    });
   };
 
   const withdrawQueuedMessage = (kind: QueuedMessageKind, index: number, message: string): void => {
@@ -246,7 +241,17 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   const recallQueuedMessage = (kind: QueuedMessageKind, index: number, message: string): void => {
     void removeQueuedMessage(kind, index, message).then((removed) => {
       if (!removed) return;
-      setText((current) => (current.trim() ? `${current.trimEnd()}\n${message}` : message));
+      const { draft, scope } = removed;
+      const store = useMoros.getState();
+      const previous = store.composerDrafts[scope.sessionId];
+      const mergedText = previous?.text.trim() ? `${previous.text.trimEnd()}\n${draft.text}` : draft.text;
+      const mergedImages = [...(previous?.attachments ?? []), ...draft.images.map((image) => ({ ...image, id: crypto.randomUUID() }))];
+      store.setComposerDraft(scope.sessionId, { text: mergedText, attachments: mergedImages, skillName: null });
+      store.setWorkbenchUI(scope, { recalledFeedback: mergePendingFeedback(store.workbenchUI[workbenchScopeKey(scope)]?.recalledFeedback, draft.feedback) });
+      // The IPC reply belongs to its original session even if the user switches meanwhile.
+      if (sessionKeyRef.current !== scope.sessionId) return;
+      setText(mergedText);
+      setAttachments(mergedImages);
       // Mirrors the composer-seed effect: focus the textarea with the caret at the end.
       requestAnimationFrame(() => {
         const node = textareaRef.current;
@@ -259,7 +264,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
 
   const doSend = (): void => {
     const trimmed = text.trim();
-    if (!trimmed && attachments.length === 0 && !selectedSkill) return;
+    if (!trimmed && attachments.length === 0 && !selectedSkill && !feedbackIds.length) return;
     if (noModel) {
       useMoros.getState().setError(t("composer.configureModel"));
       return;
@@ -270,26 +275,21 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
     }
 
     const draftText = text;
-    const draftSkill = selectedSkill;
     const draftAttachments = attachments;
     const images = attachments.map(({ data, mimeType, name }) => ({ data, mimeType, name }));
     useMoros.getState().setError(null);
     setPopover("none");
     setText("");
-    setSelectedSkill(null);
     setAttachments([]);
     clearComposerDraft(sessionKeyRef.current);
-    const promptText = selectedSkill
-      ? `/skill:${selectedSkill.name}${trimmed ? ` ${trimmed}` : ""}`
-      : trimmed;
-    void send(promptText, images).catch(() => {
+    const promptText = skillPrompt(text, skills);
+    void send(promptText, images, feedbackIds).catch(() => {
       setText((current) => current || draftText);
-      setSelectedSkill((current) => current ?? draftSkill);
       setAttachments((current) => current.length > 0 ? current : draftAttachments);
     });
   };
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.nativeEvent.isComposing) return;
     if (slashMenuOpen) {
       if (event.key === "ArrowDown") {
@@ -342,6 +342,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
   return (
     <div className="composer-zone">
       <div className="composer-wrap" ref={rootRef}>
+        <FeedbackTrigger />
         <QueueChips
           steering={queue.steering}
           followUp={queue.followUp}
@@ -386,31 +387,25 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
             if (files.length > 0) void addImageFiles(files);
           }} />
 
-          <SelectedSkill skill={selectedSkill} onRemove={() => {
-            setSelectedSkill(null);
-            requestAnimationFrame(() => textareaRef.current?.focus());
-          }} />
-
           <ComposerAttachments
             attachments={attachments}
             onRemove={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
           />
 
-          <textarea
+          <ComposerEditor
             ref={textareaRef}
-            rows={1}
             value={text}
+            skills={skills}
             placeholder={streaming ? t("composer.steerPlaceholder") : t("composer.placeholder")}
-            onChange={(event) => setText(event.target.value)}
+            onChange={setText}
+            onCaretChange={setCaret}
             onFocus={() => {
               setComposerFocused(true);
               setPopover("none");
             }}
-            onPointerDown={() => setPopover("none")}
             onBlur={() => setComposerFocused(false)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            spellCheck={false}
           />
 
           <DictationStatus busy={dictation.busy} label={dictation.label} phase={dictation.state.phase} preview={dictation.state.preview} />
@@ -430,7 +425,7 @@ export function Composer({ showQuickPrompts = false }: { showQuickPrompts?: bool
             {streaming && !text.trim() && attachments.length === 0 && !selectedSkill ? (
               <button type="button" className="send-btn stop" aria-label={t("composer.stop")} onClick={() => ignoreCommandFailure(abort())}><Square size={13} fill="currentColor" strokeWidth={0} /></button>
             ) : (
-              <button type="button" className="send-btn" aria-label={t("composer.send")} title={noModel ? t("composer.configureFirst") : t("composer.send")} disabled={(!text.trim() && attachments.length === 0 && !selectedSkill) || noModel} onClick={doSend}>
+              <button type="button" className="send-btn" aria-label={t("composer.send")} title={noModel ? t("composer.configureFirst") : t("composer.send")} disabled={(!text.trim() && attachments.length === 0 && !selectedSkill && !feedbackIds.length) || noModel} onClick={doSend}>
                 <ArrowUp size={19} strokeWidth={1.8} />
               </button>
             )}

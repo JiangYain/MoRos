@@ -1,0 +1,112 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import { WorkbenchReviews } from "../src/main/workbench/review.ts";
+import { runGit } from "../src/main/workbench/git-process.ts";
+const unstaged = { kind: "review", range: "unstaged" } as const;
+const staged = { kind: "review", range: "staged" } as const;
+
+test("single-file Review scopes Git before limits and accepts absolute, relative and literal paths", async (t) => {
+  const { root, scope, review } = await fixture(t);
+  await writeFile(join(root, "sample.txt"), "changed\n");
+  const folder = join(root, "unrelated"); await mkdir(folder);
+  await Promise.all(Array.from({ length: 2001 }, (_, n) => writeFile(join(folder, `${n}.txt`), "irrelevant\n")));
+  const one = await review.read(scope, { ...unstaged, path: "sample.txt" });
+  const absolute = await review.read(scope, { ...unstaged, path: join(root, "sample.txt") });
+  assert.deepEqual(one.files.map((file) => file.path), ["sample.txt"]);
+  assert.equal(absolute.version, one.version);
+  await assert.rejects(review.read(scope, { ...unstaged, path: "../outside" }), /WB_INVALID_PATH/);
+  const index = await review.mutate(scope, { ...unstaged, path: "sample.txt" }, "stage", { version: one.version });
+  assert.equal(index.files.length, 0);
+  assert.equal((await review.read(scope, { ...staged, path: join(root, "sample.txt") })).files.length, 1);
+  await writeFile(join(root, "literal[1].txt"), "literal\n");
+  await writeFile(join(root, "literal1.txt"), "not selected\n");
+  assert.deepEqual((await review.read(scope, { ...unstaged, path: "literal[1].txt" })).files.map((file) => file.path), ["literal[1].txt"]);
+  const initial = await review.read(scope, { kind: "review", range: "commit", path: join(root, "sample.txt"), ref: "HEAD" });
+  assert.deepEqual(initial.files.map((file) => file.path), ["sample.txt"]);
+});
+async function fixture(t: test.TestContext, commit = true) {
+  const root = await mkdtemp(join(tmpdir(), "moros-workbench-git-"));
+  t.after(async () => { assert.ok(relative(tmpdir(), resolve(root)).startsWith("moros-workbench-git-")); await rm(root, { recursive: true, force: true }); });
+  await runGit(root, ["init", "--initial-branch=main"]);
+  await runGit(root, ["config", "user.name", "Workbench fixture"]); await runGit(root, ["config", "user.email", "fixture@example.invalid"]);
+  await runGit(root, ["config", "core.autocrlf", "false"]); await runGit(root, ["config", "commit.gpgsign", "false"]);
+  const original = Array.from({ length: 28 }, (_, n) => `line ${n + 1}`).join("\n") + "\n";
+  await writeFile(join(root, "sample.txt"), original);
+  if (commit) { await runGit(root, ["add", "."]); await runGit(root, ["commit", "-m", "fixture baseline"]); }
+  return { root, scope: { workspaceDir: root, sessionId: "one" }, review: new WorkbenchReviews(), original };
+}
+test("real hunks stage and unstage independently without changing the worktree", async (t) => {
+  const { root, scope, review, original } = await fixture(t);
+  const changed = original.replace("line 2\n", "changed 2\n").replace("line 24\n", "changed 24\n");
+  await writeFile(join(root, "sample.txt"), changed);
+  const before = await review.read(scope, unstaged); const file = before.files[0];
+  assert.equal(file.hunks.length, 2); assert.equal(file.ownership, "unknown");
+  await review.mutate(scope, unstaged, "stage", { version: before.version, paths: [file.path], hunkId: file.hunks[0].id });
+  const index = await review.read(scope, staged);
+  assert.equal(index.files[0].hunks.length, 1); assert.equal(index.additions, 1);
+  assert.equal(await readFile(join(root, "sample.txt"), "utf8"), changed);
+  await review.mutate(scope, staged, "unstage", { version: index.version, paths: [file.path], hunkId: index.files[0].hunks[0].id });
+  assert.equal((await review.read(scope, staged)).files.length, 0);
+  assert.equal((await review.read(scope, unstaged)).files[0].hunks.length, 2);
+});
+test("revert confirmations are version-bound, single-use and affect only the selected hunk", async (t) => {
+  const { root, scope, review, original } = await fixture(t);
+  const changed = original.replace("line 2\n", "changed 2\n").replace("line 24\n", "changed 24\n");
+  await writeFile(join(root, "sample.txt"), changed); await writeFile(join(root, "keep.txt"), "keep");
+  let current = await review.read(scope, unstaged); const file = current.files.find((f) => f.path === "sample.txt")!;
+  const stale = await review.prepareRevert(scope, unstaged, { version: current.version, paths: [file.path] });
+  await writeFile(join(root, "sample.txt"), changed + "concurrent\n");
+  await assert.rejects(review.revert(scope, stale.token), /WB_STALE_DIFF/);
+  await writeFile(join(root, "sample.txt"), changed);
+  current = await review.read(scope, unstaged);
+  const confirmation = await review.prepareRevert(scope, unstaged, { version: current.version, paths: [file.path], hunkId: file.hunks[0].id });
+  assert.equal(confirmation.hunkHeader, file.hunks[0].header);
+  await review.revert(scope, confirmation.token);
+  assert.equal(await readFile(join(root, "sample.txt"), "utf8"), original.replace("line 24\n", "changed 24\n"));
+  assert.equal(await readFile(join(root, "keep.txt"), "utf8"), "keep");
+  await assert.rejects(review.revert(scope, confirmation.token), /WB_CONFIRMATION_EXPIRED/);
+});
+test("untracked Unicode paths stage/unstage in unborn repositories and exact revert deletes only chosen file", async (t) => {
+  const { root, scope, review } = await fixture(t, false);
+  const name = "中文 file.txt"; await writeFile(join(root, name), "new\n");
+  let current = await review.read(scope, unstaged);
+  await review.mutate(scope, unstaged, "stage", { version: current.version, paths: [name] });
+  const index = await review.read(scope, staged); assert.equal(index.files[0].path, name);
+  await review.mutate(scope, staged, "unstage", { version: index.version });
+  current = await review.read(scope, unstaged);
+  const confirmation = await review.prepareRevert(scope, unstaged, { version: current.version, paths: [name] });
+  await review.revert(scope, confirmation.token);
+  await assert.rejects(readFile(join(root, name)));
+  assert.match(await readFile(join(root, "sample.txt"), "utf8"), /line 1/);
+});
+test("branch, commit and root commit use actual Git objects and invalid refs report errors", async (t) => {
+  const { root, scope, review } = await fixture(t);
+  assert.equal((await review.read(scope, { kind: "review", range: "commit", ref: "HEAD" })).files[0].status, "added");
+  await runGit(root, ["checkout", "-b", "feature"]); await writeFile(join(root, "new.txt"), "new\n");
+  await runGit(root, ["add", "new.txt"]); await runGit(root, ["commit", "-m", "fixture change"]);
+  assert.equal((await review.read(scope, { kind: "review", range: "branch", ref: "main" })).files[0].path, "new.txt");
+  assert.equal((await review.read(scope, { kind: "review", range: "commit", ref: "HEAD" })).files[0].path, "new.txt");
+  await assert.rejects(review.read(scope, { kind: "review", range: "commit", ref: "absent" }), /WB_INVALID_REF/);
+  await assert.rejects(review.read(scope, { kind: "review", range: "last-turn" }), /WB_NO_TURN_BASELINE/);
+});
+test("turn attribution separates old dirty files, confirmed writes and concurrent work", async (t) => {
+  const { root, scope, review, original } = await fixture(t);
+  await writeFile(join(root, "sample.txt"), original + "user dirty\n");
+  await review.provenance.begin(scope);
+  assert.equal((await review.read(scope, unstaged)).files[0].ownership, "preexisting");
+  await review.provenance.toolStart(scope, "write1", "write", { path: "agent.txt", content: "agent content\n" });
+  await writeFile(join(root, "agent.txt"), "agent content\n"); await review.provenance.toolEnd(scope, "write1", false);
+  await writeFile(join(root, "other.txt"), "concurrent user\n");
+  await review.provenance.end(scope);
+  const turn = await review.read(scope, { kind: "review", range: "last-turn" });
+  assert.deepEqual(turn.files.map((file) => [file.path, file.ownership]).sort(), [["agent.txt", "agent"], ["other.txt", "other"]]);
+  await writeFile(join(root, "agent.txt"), "later user edit\n");
+  const frozenTurn = await review.read(scope, { kind: "review", range: "last-turn" });
+  assert.equal(frozenTurn.version, turn.version);
+  assert.equal(frozenTurn.files.find((file) => file.path === "agent.txt")!.ownership, "agent");
+  assert.match(frozenTurn.files.find((file) => file.path === "agent.txt")!.hunks[0].patch, /agent content/);
+  assert.equal((await review.read(scope, unstaged)).files.find((file) => file.path === "agent.txt")!.ownership, "mixed");
+});

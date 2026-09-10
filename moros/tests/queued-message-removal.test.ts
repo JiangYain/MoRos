@@ -58,7 +58,7 @@ test("removes a steering message from both queues and broadcasts one update", ()
 
   const result = removeQueuedSessionMessage(session, "steering", 1, "add tests");
 
-  assert.deepEqual(result, { ok: true });
+  assert.equal(result.ok, true);
   assert.deepEqual(session._steeringMessages, ["fix the bug"]);
   // The custom extension entry and the image-bearing first message survive.
   assert.deepEqual(
@@ -75,7 +75,7 @@ test("removes a follow-up message independently of the steering queue", () => {
 
   const result = removeQueuedSessionMessage(session, "followUp", 0, "ship it");
 
-  assert.deepEqual(result, { ok: true });
+  assert.equal(result.ok, true);
   assert.deepEqual(session._followUpMessages, []);
   assert.deepEqual(session.agent.followUpQueue.messages, []);
   assert.deepEqual(session._steeringMessages, ["fix the bug", "add tests"]);
@@ -148,6 +148,6 @@ test("still succeeds when the queue-update broadcast throws", () => {
 
   const result = removeQueuedSessionMessage(session, "steering", 0, "fix the bug");
 
-  assert.deepEqual(result, { ok: true });
+  assert.equal(result.ok, true);
   assert.deepEqual(session._steeringMessages, ["add tests"]);
 });
